@@ -39,8 +39,15 @@ of the Go service.
   MapLibre GL 5.6.0, Pannellum 2.5.6 and Sofia Sans come from the service
   instead of unpkg, jsdelivr and Google Fonts, which are unreliable from
   Russia. A Content-Security-Policy lets the page reach only telegram.org and
-  the tile server. The browser no longer asks Nominatim for the pin's country;
-  the server computes the bonuses.
+  the tile server.
+- The Mini App plays a real day: it sends `initData` with every request,
+  restores a pin already sent, counts down to the person's deadline and then to
+  the chat's reveal, and draws the result, the bonuses and the chat's table
+  from the server. The demo round, the made-up friends and the browser's
+  Nominatim lookup are gone. The photo's author is credited only after the
+  reveal, because a Mapillary profile lists where its owner takes pictures.
+- `place.heading` (migration `003`): where the frame centre points, for the
+  compass.
 - Country borders embedded in the binary: Natural Earth 1:10m admin-0 from the
   Ukrainian point of view, so Crimea and Sevastopol are Ukraine. Borders are
   simplified to about 220 m, which moves one land point in 90,000 to another
@@ -56,8 +63,9 @@ of the Go service.
   `auth_date` at most a day old, repeated fields refused), a signed `startapp`
   payload for group posts (date and chat under a 16-byte HMAC, 36 characters),
   and a group membership check through `getChatMember`, cached per day.
-- The game API: `GET /api/today` (the picture, the day number, the person's
-  deadline and their own pin), `POST /api/guess` (one answer a day, answered
+- The game API: `GET /api/today` (the picture, the day number, the frame's
+  compass heading, the zone of the chat's language, the person's deadline and
+  their own pin), `POST /api/guess` (one answer a day, answered
   with "accepted" and nothing else), `GET /api/result` (the place, the fact and
   the chat's table, only after that chat's reveal; a DM waits for the latest
   reveal among the person's chats), and `GET /img/<key>`. Requests are

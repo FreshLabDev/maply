@@ -114,7 +114,7 @@ button { font: inherit; color: inherit; border: 0; border-radius: 0; background:
 /* Loading */
 .loader { position: fixed; inset: 0; z-index: 50; background: var(--field); display: grid; place-items: center; transition: opacity .35s, visibility .35s; }
 .loader.gone { opacity: 0; visibility: hidden; }
-.loader div { display: grid; justify-items: center; gap: 22px; }
+.loader div { display: grid; justify-items: center; gap: 22px; padding: 0 32px; max-width: 360px; text-align: center; line-height: 1.4; }
 .loader svg { width: 54px; height: 66px; animation: hop .9s var(--ease) infinite; }
 @keyframes hop { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(-22px); } }
 

@@ -222,10 +222,14 @@ type pin struct {
 }
 
 type todayResponse struct {
-	Date     string    `json:"date"`
-	Day      int       `json:"day"`
-	Image    string    `json:"image"`
-	Kind     string    `json:"kind"`
+	Date    string   `json:"date"`
+	Day     int      `json:"day"`
+	Image   string   `json:"image"`
+	Kind    string   `json:"kind"`
+	Heading *float64 `json:"heading"`
+	// Zone is the capital's zone of this context's language, so the app can
+	// say "at 20:00 Moscow time"; it is about the player, not the place.
+	Zone     string    `json:"zone"`
 	Deadline time.Time `json:"deadline"`
 	Reveal   time.Time `json:"reveal"`
 	Answer   *pin      `json:"answer"`
@@ -264,7 +268,7 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := todayResponse{
 		Date: p.date.String(), Day: rd.DayNo, Image: "/img/" + puzzle.ImageKey, Kind: puzzle.Kind,
-		Deadline: deadline.UTC(), Reveal: opens.UTC(),
+		Heading: puzzle.Heading, Zone: p.zone.String(), Deadline: deadline.UTC(), Reveal: opens.UTC(),
 	}
 	// Their own pin is theirs to see; it says nothing about the place.
 	if g, ok, err := s.Store.GuessOf(ctx, p.date, p.user.ID); err != nil {

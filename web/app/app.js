@@ -1,13 +1,14 @@
-const ROUND = window.MAPLY_ROUND || { n: 142, img: "../prototype/sample.jpg", pano: true, lat: 38.7139, lon: -9.1389, cc: "pt", city: "Лиссабон", place: "Лиссабон, Португалия · площадь Россиу",
-  fact: "Волнистая мостовая этой площади стала образцом для набережной Копакабаны в Рио.", author: "southglos", revealHour: 20,
-  heading: 164.1, tz: "Europe/Moscow", tzName: "по москве" }; // heading: where the frame centre points (computed_compass_angle from Mapillary), 0 = north
+// TODAY is /api/today: the day number, the picture, the deadline and the reveal for the chat the app was opened from.
+let TODAY = null;
 const $ = (id) => document.getElementById(id);
 const PIN_PATH = "M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1 0 320 349 A60 60 0 1 0 320 229 Z";
 // On the map, markers are dark with a white outline: visible on both light land and green water.
 const PIN = '<svg class="pin" viewBox="150 119 340 402"><path fill="#1A412B" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="miter" paint-order="stroke" fill-rule="evenodd" d="' + PIN_PATH + '"/></svg>';
 const TARGET = '<svg class="target" viewBox="0 0 30 30"><path fill="none" stroke="#FFFFFF" stroke-width="6" d="M15 3.5a11.5 11.5 0 1 1 0 23a11.5 11.5 0 1 1 0-23"/><circle cx="15" cy="15" r="7.5" fill="#FFFFFF"/><circle cx="15" cy="15" r="5" fill="#1A412B"/><path fill="none" stroke="#1A412B" stroke-width="3" d="M15 3.5a11.5 11.5 0 1 1 0 23a11.5 11.5 0 1 1 0-23"/></svg>';
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
-const av = (who, me) => '<i class="av' + (me ? ' me' : '') + '">' + (me ? "ты" : who[0]) + '</i>';
+const av = (who, me) => '<i class="av' + (me ? ' me' : '') + '">' + (me ? TEXT.you : esc(who[0] || "?")) + '</i>';
+// Names come from Telegram profiles and go into innerHTML.
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => "&#" + c.charCodeAt(0) + ";");
 const el = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.firstElementChild; };
 // Thousands separated by a narrow space, as in the Asterfield system.
 const fmt = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
@@ -18,29 +19,72 @@ const ON_WATER = ["Это вода. Рыбы оценят.", "Смело. Пря
 const ON_LAND = ["Записали. Отступать некуда.", "Чуйка говорит — тут.", "Смело.", "Хм. Интересный выбор.", "Окей, Колумб."];
 const MOVED = ["Передумал? Бывает.", "Ещё разок прицелимся.", "Сомнения — признак ума."];
 const LOGO = ["Логотип не подсказывает. Мы проверяли.", "Нет, жать сюда бесполезно.", "Ладно, вот подсказка: это на Земле."];
+// Interface lines; they move to internal/i18n with uk and be (#66).
+const TEXT = {
+  you: "ты", km: "км",
+  zone: { "Europe/Moscow": "по москве", "Europe/Minsk": "по минску", "Europe/Kyiv": "по киеву" },
+  openInTelegram: "maply живёт в Telegram: открой его из бота или из поста в группе.",
+  noImage: "Кадр не загрузился. Даже мы не знаем, где это.",
+  sent: "Ответ принят", closedCall: "Приём закрыт", wait: "итог в ", noAnswer: "в этот день ты не отвечал",
+  errors: {
+    unauthorized: "Telegram не подтвердил, что это ты. Открой maply заново.",
+    not_a_member: "Это игра группы, в которой тебя нет.",
+    not_started: "Этот день в группе ещё не начался.",
+    no_round: "Сегодня места нет. Мы уже чиним.",
+    rate_limited: "Слишком часто. Подожди минуту.",
+    closed: "Приём ответов закрыт: правда уже открылась в одном из твоих чатов.",
+    network: "Связь пропала. Попробуй ещё раз.",
+  },
+};
+const errorText = (e) => TEXT.errors[e.message] || TEXT.errors.network;
+
+/* ---------- Server ---------- */
+// Every request carries initData; the server checks its signature and works out the chat from start_param.
+async function api(path, body) {
+  const headers = { Authorization: "tma " + tg.initData };
+  if (body) headers["Content-Type"] = "application/json";
+  const r = await fetch(path, { method: body ? "POST" : "GET", headers, body: body && JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(data.error || "network"), { data });
+  return data;
+}
 let toastT = 0;
 function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2300); }
 
 let li = 0;
 const loadTimer = setInterval(() => { $("loadtext").textContent = LOADING[++li % LOADING.length]; }, 900);
+function stopLoading(text) { clearInterval(loadTimer); $("loadtext").textContent = text; }
 let logoTaps = 0;
 $("logo").addEventListener("click", () => { if (++logoTaps % 3 === 0) toast(pick(LOGO)); });
 
-/* ---------- Countdown to the result, by the language capital's time ---------- */
-const AT = ROUND.revealHour + ":00";
-function secondsLeft() {
-  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: ROUND.tz, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
-    .formatToParts(new Date()).map((x) => [x.type, x.value]));
-  const s = ROUND.revealHour * 3600 - (+p.hour * 3600 + +p.minute * 60 + +p.second);
-  return s < 0 ? s + 86400 : s;
-}
+/* ---------- Countdown ---------- */
+// Before the answer the timer runs to the deadline: the earliest reveal among the person's chats. After it, to the reveal
+// of this chat. Both are instants from the server; AT says the reveal in the capital's time of the chat's language.
+let AT = "", ZONE_NAME = "";
+const secondsTo = (iso) => Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 1000));
 const hm = (s) => Math.floor(s / 3600) + ":" + String(Math.floor(s % 3600 / 60)).padStart(2, "0");
-function tick() { $("left").textContent = hm(secondsLeft()); const w = $("wleft"); if (w) w.textContent = hm(secondsLeft()); }
-tick(); setInterval(tick, 15000);
+function tick() {
+  if (!TODAY) return;
+  $("left").textContent = hm(secondsTo(state === "guess" ? TODAY.deadline : TODAY.reveal));
+  const w = $("wleft"); if (w) w.textContent = hm(secondsTo(TODAY.reveal));
+  if (state === "guess" && !secondsTo(TODAY.deadline)) toWaiting(true);
+  if (state === "wait" && !secondsTo(TODAY.reveal)) loadResult();
+}
+setInterval(tick, 15000);
 
 /* ---------- Panorama: Pannellum, inertia, pinch, double tap ---------- */
-$("credits").innerHTML = '<span>© ' + ROUND.author + ', <a href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a> CC BY-SA ·</span>' +
-  '<span>© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, OpenMapTiles, <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a></span>';
+// The photo's author is credited only after the reveal: a Mapillary profile lists where its owner takes pictures.
+const MAP_CREDITS = '<span>© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, OpenMapTiles, <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a></span>';
+const SOURCES = { mapillary: ["Mapillary", "https://www.mapillary.com"], panoramax: ["Panoramax", "https://panoramax.fr"] };
+function credits(place) {
+  let photo = "";
+  if (place && SOURCES[place.source]) {
+    const [name, url] = SOURCES[place.source], lic = place.license.replace(/^CC-/, "CC ").replace(/-(\d)/, " $1");
+    photo = '<span>© ' + (place.author ? esc(place.author) + ", " : "") + '<a href="' + url + '" target="_blank" rel="noopener">' + name + '</a> ' + lic + ' ·</span>';
+  }
+  $("credits").innerHTML = photo + MAP_CREDITS;
+}
+credits(null);
 // Pannellum sets the horizontal field of view. On a portrait phone this gave ~140° vertically,
 // and tilting up/down hit the limits. We pick hfov so that the vertical span is ~95°.
 function baseHfov() {
@@ -48,23 +92,27 @@ function baseHfov() {
   const hf = 2 * Math.atan(Math.tan(v / 2) * w / h) * 180 / Math.PI;
   return Math.max(50, Math.min(105, hf));
 }
-const viewer = pannellum.viewer("pano", Object.assign({
-  type: "equirectangular", panorama: ROUND.img, autoLoad: true, showControls: false, compass: false,
-  hfov: baseHfov(), minHfov: 20, maxHfov: 110, friction: 0.1, keyboardZoom: false, disableKeyboardCtrl: true,
-  backgroundColor: [0.10, 0.25, 0.17], pitch: 0
-}, ROUND.pano ? {} : { haov: 80, vaov: 50, maxHfov: 80 }));
-addEventListener("resize", () => viewer.setHfov(baseHfov(), 0));
-viewer.on("load", () => { clearInterval(loadTimer); $("loader").classList.add("gone"); });
-viewer.on("error", () => { clearInterval(loadTimer); $("loadtext").textContent = "Кадр не загрузился. Даже мы не знаем, где это."; });
+// The viewer is created once /api/today says which picture it is; until then everything that turns it waits.
+let viewer = null;
+function startPano() {
+  viewer = pannellum.viewer("pano", Object.assign({
+    type: "equirectangular", panorama: TODAY.image, autoLoad: true, showControls: false, compass: false,
+    hfov: baseHfov(), minHfov: 20, maxHfov: 110, friction: 0.1, keyboardZoom: false, disableKeyboardCtrl: true,
+    backgroundColor: [0.10, 0.25, 0.17], pitch: 0
+  }, TODAY.kind === "panorama" ? {} : { haov: 80, vaov: 50, maxHfov: 80 }));
+  viewer.on("load", () => { clearInterval(loadTimer); $("loader").classList.add("gone"); });
+  viewer.on("error", () => stopLoading(TEXT.noImage));
+}
+addEventListener("resize", () => viewer && viewer.setHfov(baseHfov(), 0));
 let lastTap = 0;
 $("pano").addEventListener("pointerdown", () => $("hint").classList.add("gone"));
 $("pano").addEventListener("pointerup", () => {
   const now = Date.now();
-  if (now - lastTap < 280) { const b = baseHfov(), h = viewer.getHfov(); viewer.setHfov(h > b * 0.8 ? b * 0.5 : b, 350); haptic("light"); }
+  if (viewer && now - lastTap < 280) { const b = baseHfov(), h = viewer.getHfov(); viewer.setHfov(h > b * 0.8 ? b * 0.5 : b, 350); haptic("light"); }
   lastTap = now;
 });
 // Direction by compass = frame centre direction + camera rotation. The compass card rotates the opposite way.
-const HEADING = ROUND.heading || 0;
+let HEADING = 0;
 // Full-width tape: about 150° is visible in the window, so the cardinal directions are readable rather than flickering.
 // Drawn over three turns (−360…720°) and shifted: crossing north does not jump.
 let TAPE_K = 1.5, TAPE_W = 0;
@@ -86,7 +134,7 @@ function buildTape() {
 buildTape();
 addEventListener("resize", buildTape);
 (function spin() {
-  const h = (((viewer.getYaw() + HEADING) % 360) + 360) % 360;
+  const h = ((((viewer ? viewer.getYaw() : 0) + HEADING) % 360) + 360) % 360;
   $("tape").style.transform = "translateX(" + (TAPE_W / 2 - (h + 360) * TAPE_K) + "px)";
   requestAnimationFrame(spin);
 })();
@@ -105,6 +153,7 @@ function coast() {
   spinRaf = requestAnimationFrame(coast);
 }
 tapeEl.addEventListener("pointerdown", (e) => {
+  if (!viewer) return;
   cancelAnimationFrame(spinRaf); spinV = 0;
   tdrag = { x: e.clientX, last: e.clientX, t: performance.now(), moved: false };
   tapeEl.setPointerCapture(e.pointerId); $("hint").classList.add("gone");
@@ -129,7 +178,7 @@ tapeEl.addEventListener("pointerup", tapeUp);
 tapeEl.addEventListener("pointercancel", tapeUp);
 tapeEl.addEventListener("wheel", (e) => {
   e.preventDefault(); cancelAnimationFrame(spinRaf);
-  viewer.setYaw(viewer.getYaw() + (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / TAPE_K * 0.6, false);
+  if (viewer) viewer.setYaw(viewer.getYaw() + (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / TAPE_K * 0.6, false);
 }, { passive: false });
 
 /* ---------- Two views: photo with a mini globe, and the big map ---------- */
@@ -242,36 +291,55 @@ map.on("click", (e) => {
 });
 
 /* ---------- Waiting and result ---------- */
-function km(a, b) {
-  const R = 6371, r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLon = (b.lng - a.lng) * r;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
 // Score: up to 3,500 for distance plus bonuses for guessing the continent, country and city. The maximum is the same: 5,000.
 const BONUS = [300, 500, 700];
 const base = (d) => 3500 * Math.exp(-d / 1492.7);
-const score = (d, lvl) => base(d) + BONUS.slice(0, lvl).reduce((a, b) => a + b, 0);
-function toWaiting() {
-  state = "wait"; marker.setDraggable(false); haptic("success");
+const bonusOf = (lvl) => BONUS.slice(0, lvl).reduce((a, b) => a + b, 0);
+const score = (d, lvl) => base(d) + bonusOf(lvl);
+// The server sends the bonus in points; the ladder makes the level unambiguous.
+const levelOf = (bonus) => [300, 800, 1500].filter((x) => (bonus || 0) >= x).length;
+
+// Send the pin. Before the reveal the server answers "accepted" and nothing else: no distance, no score.
+async function send() {
+  $("go").disabled = true;
+  try {
+    const at = guess.wrap();
+    await api("/api/guess", { lat: at.lat, lon: at.lng });
+    toWaiting("sent");
+  } catch (e) {
+    if (e.message === "already_answered") { TODAY = await api("/api/today").catch(() => TODAY); restore(); return; }
+    toast(errorText(e));
+    if (e.message === "closed") toWaiting("closed");
+  } finally { $("go").disabled = false; }
+}
+// "sent" right after the answer, "closed" when the window shut without one, "restore" when the app reopens after answering.
+function toWaiting(how) {
+  state = "wait"; if (marker) marker.setDraggable(false);
+  if (how === "sent") haptic("success");
   if (tgAt("6.2")) tg.disableClosingConfirmation();
-  split(false); setCall("Ответ принят", "итог в " + AT);
+  split(false); setCall(how === "closed" ? TEXT.closedCall : TEXT.sent, TEXT.wait + AT);
   $("timer").classList.add("hidden");
-  overlay(
-    '<div class="pl nums"><b id="wleft">' + hm(secondsLeft()) + '</b><span class="up">до ответа<br>в ' + AT + ' ' + ROUND.tzName + '</span></div>',
-    '<div class="chips up"><span class="me">ты ✓</span><span>маша ✓</span><span>лёша ✓</span><span class="no">артём думает…</span></div>' +
-    '<button class="demo" id="demo">демо: показать итог ' + AT + '</button>');
-  $("demo").onclick = toReveal;
+  overlay('<div class="pl nums"><b id="wleft">' + hm(secondsTo(TODAY.reveal)) + '</b><span class="up">до ответа<br>в ' + AT + ' ' + ZONE_NAME + '</span></div>', "");
   // Zoom past the edge of the globe unfolding: at 3.5 the map is still slightly curved, and a pinch immediately snapped it back to a globe.
-  map.easeTo({ padding: bigCam().padding, center: guess, zoom: GLOBE_Z[1] + 0.4, duration: 700, easing: easeOut });
+  if (guess && view === "map") map.easeTo({ padding: bigCam().padding, center: guess, zoom: GLOBE_Z[1] + 0.4, duration: 700, easing: easeOut });
+}
+// The app reopened after the answer: put the pin back where it was sent.
+function restore() {
+  if (!TODAY.answer) return;
+  guess = new maplibregl.LngLat(TODAY.answer.lon, TODAY.answer.lat);
+  if (!marker) marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat(guess).addTo(map);
+  else marker.setLngLat(guess);
+  if (view === "photo") map.jumpTo({ ...miniCam(), center: guess });
+  toWaiting("restore");
 }
 // Result markers are laid out in pixels on every map-motion frame. A friend's point that falls under the target
 // moves out onto a ring around it; nearby points are pushed apart; a label takes the first free spot, and if it
 // ends up far away, a leader line is drawn to the point.
-let marks = null, lvlMe = 0;
+let marks = null, mine = null;
 const RING = 27, GAP = 23;
 function layoutMarks() {
   if (!marks) return;
-  const T = map.project(marks.truth), G = map.project(guess), c = map.getContainer(), W = c.clientWidth;
+  const T = map.project(marks.truth), G = guess ? map.project(guess) : { x: -1e4, y: -1e4 }, c = map.getContainer(), W = c.clientWidth;
   const rect = (x, y, w, h) => ({ x, y, w, h });
   const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const pts = marks.friends.map((f) => { const p = map.project(f.at); return { f, p, d: { x: p.x, y: p.y }, w: f.b.offsetWidth, h: f.b.offsetHeight }; });
@@ -312,18 +380,19 @@ map.on("resize", layoutMarks);
 // then the dashed missed part.
 const T_KM = .25, T_B = (k) => .75 + k * .3, ROWS = 4;
 const pct = (x) => (x / 50).toFixed(2) + "%";
-function paintBoard(rows, d, lvl) {
+// rows: { who, d (km), pts, lvl, me } from /api/result. The grey part of a bar is the points for the distance.
+function paintBoard(rows) {
   // Collapsed, the first rows and yours are visible; if you are lower, there is one fewer row so the height does not change.
   const meAt = rows.findIndex((r) => r.me), top = meAt >= ROWS ? ROWS - 1 : ROWS, IF = ["континент", "страну", "город"];
   $("lb").innerHTML = rows.map((r, i) => {
-    const b0 = Math.round(base(r.d)), segs = ['<i class="km" data-t="' + fmt(b0) + ' за ' + fmt(r.d) + ' км" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
+    const b0 = r.pts - bonusOf(r.lvl), segs = ['<i class="km" data-t="' + fmt(b0) + ' за ' + fmt(r.d) + ' км" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
     BONUS.forEach((x, k) => {
       if (k < r.lvl) segs.push('<i data-t="+' + x + ' за ' + IF[k] + '" style="width:' + pct(x) + ';--d:' + T_B(k) + 's"></i>');
       else if (r.me) segs.push('<i class="if" data-t="+' + x + ' за ' + IF[k] + ' — мимо" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
     });
     const x = i >= top && !r.me ? " x" : "";
-    return '<div class="r' + (r.me ? " me" : "") + x + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me) + '<span>' + r.who + '</span>' +
-      '<span class="hit" data-rest="до 5 000 не хватило ' + fmt(5000 - score(r.d, r.lvl)) + '"><span class="bar">' + segs.join("") + '</span></span>' +
+    return '<div class="r' + (r.me ? " me" : "") + x + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me) + '<span>' + esc(r.who) + '</span>' +
+      '<span class="hit" data-rest="до 5 000 не хватило ' + fmt(5000 - r.pts) + '"><span class="bar">' + segs.join("") + '</span></span>' +
       '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '">0</b><span class="k">' + fmt(r.d) + ' км</span></div>';
   }).join("");
   const hidden = rows.length - Math.min(rows.length, top + (meAt >= top ? 1 : 0));
@@ -332,8 +401,10 @@ function paintBoard(rows, d, lvl) {
   $("more").dataset.n = hidden;
   $("more").textContent = "ещё " + hidden + " ↓";
   // Legend and "what if" at the same distance: one line, wraps in whole chunks.
-  const t = (h) => '<span>' + h + '</span>';
-  $("ifs").innerHTML = t('<i class="km"></i>за км') + ' ' + t('<i></i>бонусы') + ' · ' + (lvl >= 3 ? t("все бонусы твои") :
+  const t = (h) => '<span>' + h + '</span>', me = rows[meAt], legend = t('<i class="km"></i>за км') + ' ' + t('<i></i>бонусы');
+  if (!me) { $("ifs").innerHTML = rows.length ? legend : t(TEXT.noAnswer); return; }
+  const d = me.d, lvl = me.lvl;
+  $("ifs").innerHTML = legend + ' · ' + (lvl >= 3 ? t("все бонусы твои") :
     t('<i class="if"></i>угадал бы ' + IF[lvl] + ' — <b>' + fmt(score(d, lvl + 1)) + '</b>') +
     IF.slice(lvl + 1).map((n, j) => ', ' + t(n + ' — <b>' + fmt(score(d, lvl + j + 2)) + '</b>')).join(""));
 }
@@ -381,73 +452,101 @@ function countUp() {
   };
   matchMedia("(prefers-reduced-motion: reduce)").matches ? tick(t0 + 9e3) : requestAnimationFrame(tick);
 }
-async function toReveal() {
+// The country's name in the interface language, from the browser: the server sends only the ISO code.
+const regionName = (iso) => { try { return new Intl.DisplayNames(["ru"], { type: "region" }).of(iso); } catch { return iso; } };
+let resultLoading = false;
+async function loadResult() {
+  if (resultLoading || state === "reveal") return;
+  resultLoading = true;
+  try { toReveal(await api("/api/result")); }
+  catch (e) {
+    // The server's clock decides; it says when to ask again.
+    if (e.message === "not_revealed" && e.data.opens_at) TODAY.reveal = e.data.opens_at;
+    else toast(errorText(e));
+  } finally { resultLoading = false; }
+}
+function toReveal(res) {
   if (state === "reveal") return;
   state = "reveal";
-  if (!guess) { guess = new maplibregl.LngLat(16.37, 48.21); marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat(guess).addTo(map); }
-  const truth = new maplibregl.LngLat(ROUND.lon, ROUND.lat), d = km(guess, truth);
-  // The bonus level comes from the server, which locates the pin in Natural Earth; until the API is wired in,
-  // the demo scores the distance only.
-  const lvl = 0;
-  lvlMe = lvl;
-  const friends = [
-    { who: "маша", lng: ROUND.lon + 0.35, lat: ROUND.lat + 0.12, lvl: 2 }, { who: "лёша", lng: ROUND.lon + 13.5, lat: ROUND.lat + 6.2, lvl: 1 },
-    { who: "костя", lng: ROUND.lon + 0.02, lat: ROUND.lat + 0.01, lvl: 3 }, { who: "ваня", lng: -8.61, lat: 41.15, lvl: 2 },
-    { who: "ира", lng: -3.70, lat: 40.42, lvl: 1 }, { who: "артём", lng: 31.24, lat: 30.04, lvl: 0 },
-  ];
-  const rows = [...friends.map((f) => ({ who: f.who, d: km(f, truth), lvl: f.lvl })), { who: "ты", d, lvl, me: true }]
-    .map((r) => ({ ...r, pts: score(r.d, r.lvl) })).sort((a, b) => b.pts - a.pts);
-  paintBoard(rows, d, lvl);
+  const P = res.place, truth = new maplibregl.LngLat(P.lon, P.lat);
+  credits(P);
+  const rows = res.table.map((r) => ({ who: r.me ? TEXT.you : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), me: !!r.me }))
+    .sort((a, b) => b.pts - a.pts);
+  mine = rows.find((r) => r.me) || null;
+  // A pin that never reached the server is not an answer: it leaves the map rather than draw a line to the place.
+  if (!mine && marker) { marker.remove(); marker = null; guess = null; }
+  if (mine && !guess) guess = new maplibregl.LngLat(mine.at[0], mine.at[1]);
+  if (guess && !marker) marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat(guess).addTo(map);
+  const friends = rows.filter((r) => !r.me);
+  paintBoard(rows);
   $("lb").offsetWidth; // the bar and avatars must catch the closed state, otherwise there will be no animation
   document.body.classList.add("is-reveal");
   ovUnderBoard();
   // Layer order: friends, the target above them, your own pin on top.
   marks = { truth, friends: friends.map((f) => {
-    const e = el('<div class="friend"><span class="g"><s></s>' + av(f.who) + '<b>' + f.who + '</b></span></div>');
-    new maplibregl.Marker({ element: e }).setLngLat([f.lng, f.lat]).addTo(map).getElement().style.zIndex = 1;
-    return { at: [f.lng, f.lat], g: e.firstChild, s: e.querySelector("s"), b: e.querySelector("b") };
+    const e = el('<div class="friend"><span class="g"><s></s>' + av(f.who) + '<b>' + esc(f.who) + '</b></span></div>');
+    new maplibregl.Marker({ element: e }).setLngLat(f.at).addTo(map).getElement().style.zIndex = 1;
+    return { at: f.at, g: e.firstChild, s: e.querySelector("s"), b: e.querySelector("b") };
   }) };
   new maplibregl.Marker({ element: el(TARGET) }).setLngLat(truth).addTo(map).getElement().style.zIndex = 2;
-  marker.getElement().style.zIndex = 3;
+  if (marker) marker.getElement().style.zIndex = 3;
   layoutMarks();
-  const line = { type: "Feature", geometry: { type: "LineString", coordinates: [[guess.lng, guess.lat], [truth.lng, truth.lat]] } };
-  map.addSource("line", { type: "geojson", data: line });
-  map.addLayer({ id: "line-case", type: "line", source: "line", paint: { "line-color": "#FFFFFF", "line-width": 5 } });
-  map.addLayer({ id: "line", type: "line", source: "line", paint: { "line-color": "#1A412B", "line-width": 2, "line-dasharray": [2, 1.5] } });
-  $("timer").classList.add("hidden"); split(true); $("go").textContent = "Переслать в чат";
+  if (guess) {
+    const line = { type: "Feature", geometry: { type: "LineString", coordinates: [[guess.lng, guess.lat], [truth.lng, truth.lat]] } };
+    map.addSource("line", { type: "geojson", data: line });
+    map.addLayer({ id: "line-case", type: "line", source: "line", paint: { "line-color": "#FFFFFF", "line-width": 5 } });
+    map.addLayer({ id: "line", type: "line", source: "line", paint: { "line-color": "#1A412B", "line-width": 2, "line-dasharray": [2, 1.5] } });
+  }
+  $("timer").classList.add("hidden"); split(!!mine); $("go").textContent = "Переслать в чат";
   setCall("Итог дня", "смотреть");
+  const where = esc([P.city, regionName(P.country)].filter(Boolean).join(", ")), fact = esc(P.fact || "");
   overlay("",
-    '<div class="place up" id="place"><button class="t" id="placeT">' + ROUND.place + ' ↓<p></p></button>' +
+    '<div class="place up" id="place"><button class="t" id="placeT">' + where + (fact ? ' ↓' : '') + '<p></p></button>' +
     '<button class="x" id="placeX" aria-label="свернуть">×</button><button class="tab" id="placeTab">о месте ↑</button></div>');
   countUp();
   // The fact expands on tap; the cross collapses the plate into a tab so it does not cover the map on a phone.
   $("placeT").onclick = () => {
+    if (!fact) return;
     const open = !$("placeT").querySelector("p").textContent;
-    $("placeT").innerHTML = ROUND.place + (open ? " ↑" : " ↓") + "<p>" + (open ? ROUND.fact : "") + "</p>";
+    $("placeT").innerHTML = where + (open ? " ↑" : " ↓") + "<p>" + (open ? fact : "") + "</p>";
   };
   $("placeX").onclick = () => $("place").classList.add("min");
   $("placeTab").onclick = () => $("place").classList.remove("min");
   view = "map"; document.body.classList.add("is-map"); paintBackdrop(); syncBack();
-  const b = new maplibregl.LngLatBounds(guess, guess).extend(truth); friends.forEach((f) => b.extend([f.lng, f.lat]));
+  const b = new maplibregl.LngLatBounds(truth, truth); if (guess) b.extend(guess); friends.forEach((f) => b.extend(f.at));
   map.setPadding({ left: 0, top: 0, right: 0, bottom: 0 });
   const { t, b: bt } = reserve();
   map.fitBounds(b, { padding: { top: t + 24, left: 40, right: 40, bottom: bt + 24 }, maxZoom: 9, duration: 1200 });
   haptic("success");
 }
 $("go").addEventListener("click", () => {
-  if (state === "guess" && guess) toWaiting();
+  if (state === "guess" && guess) send();
   else if (state === "reveal") share();
 });
 // A line to forward without spoilers: day number, distance and score; the place is not in it.
 // In Telegram we open the chat picker; in a browser, the system "Share" menu or the clipboard.
 const SHARE_URL = window.MAPLY_SHARE_URL || location.origin;
 function share() {
-  const d = km(guess, { lat: ROUND.lat, lng: ROUND.lon });
-  const line = "maply #" + ROUND.n + " · " + fmt(d) + " км · " + fmt(score(d, lvlMe));
+  const line = "maply #" + TODAY.day + (mine ? " · " + fmt(mine.d) + " " + TEXT.km + " · " + fmt(mine.pts) : "");
   if (inTg) { tg.openTelegramLink("https://t.me/share/url?url=" + encodeURIComponent(SHARE_URL) + "&text=" + encodeURIComponent(line)); return; }
   if (navigator.share) { navigator.share({ text: line, url: SHARE_URL }).catch(() => {}); return; }
   navigator.clipboard.writeText(line + " " + SHARE_URL).then(() => toast("Скопировано: " + line), () => toast(line));
 }
-// Demo result via link: wait for both the panorama and the map style, otherwise addSource fails on an unloaded style.
-if (new URLSearchParams(location.search).get("state") === "reveal")
-  Promise.all([new Promise((r) => viewer.on("load", r)), new Promise((r) => mapReady ? r() : map.once("load", r))]).then(() => setTimeout(toReveal, 300));
+/* ---------- Start ---------- */
+// Outside Telegram there is no initData; the site for browsers comes separately (#67).
+async function boot() {
+  if (!inTg || !tg.initData) { stopLoading(TEXT.openInTelegram); return; }
+  try { TODAY = await api("/api/today"); } catch (e) { stopLoading(errorText(e)); return; }
+  $("day").textContent = "#" + TODAY.day;
+  HEADING = TODAY.heading || 0;
+  AT = new Intl.DateTimeFormat("ru-RU", { timeZone: TODAY.zone, hour: "2-digit", minute: "2-digit" }).format(new Date(TODAY.reveal));
+  ZONE_NAME = TEXT.zone[TODAY.zone] || "";
+  startPano();
+  // The answer and the result need the map's style: markers and the line are added to it.
+  if (!mapReady) await new Promise((r) => map.once("load", r));
+  if (TODAY.answer) restore();
+  else if (!secondsTo(TODAY.deadline)) toWaiting("closed");
+  tick();
+  if (!secondsTo(TODAY.reveal)) loadResult();
+}
+boot();

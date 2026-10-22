@@ -19,11 +19,14 @@ import (
 type Puzzle struct {
 	ImageKey string
 	Kind     string
+	// Heading is where the frame centre points, clockwise from north; nil
+	// when the source did not say.
+	Heading *float64
 }
 
 func (s *Store) Puzzle(ctx context.Context, placeID int64) (Puzzle, error) {
 	var p Puzzle
-	err := s.pool.QueryRow(ctx, `SELECT image_key, kind FROM place WHERE id = $1`, placeID).Scan(&p.ImageKey, &p.Kind)
+	err := s.pool.QueryRow(ctx, `SELECT image_key, kind, heading FROM place WHERE id = $1`, placeID).Scan(&p.ImageKey, &p.Kind, &p.Heading)
 	if err != nil {
 		return Puzzle{}, fmt.Errorf("puzzle %d: %w", placeID, err)
 	}

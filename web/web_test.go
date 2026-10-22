@@ -76,7 +76,7 @@ func TestNoThirdPartyHosts(t *testing.T) {
 	url := regexp.MustCompile(`https?://[a-z0-9.-]+`)
 	allowed := map[string]bool{"https://telegram.org": true, TileHost: true}
 	// Links people tap (attribution, the share sheet) open in Telegram, not from the page.
-	links := map[string]bool{"https://t.me": true, "https://www.mapillary.com": true, "https://www.openstreetmap.org": true, "https://openfreemap.org": true}
+	links := map[string]bool{"https://t.me": true, "https://www.mapillary.com": true, "https://panoramax.fr": true, "https://www.openstreetmap.org": true, "https://openfreemap.org": true}
 	for _, name := range []string{"index.html", "app.css", "app.js", "tg.js", "map.js"} {
 		data, err := fs.ReadFile(embedded, "app/"+name)
 		if err != nil {

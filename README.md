@@ -125,9 +125,8 @@ result screen.
 
 The Mini App the service ships is the same code split into files in
 `web/app/`, with MapLibre, Pannellum and the fonts vendored next to it. The
-binary serves it at `/`. To look at it alone, run `python3 -m http.server 4174`
-in `web/` and open `http://localhost:4174/app/`; until it talks to the API it
-plays the prototype's demo round. To see the Telegram integration in a normal browser, append
+binary serves it at `/`, and it plays against the API with the `initData`
+Telegram gives it; opened outside Telegram it asks to be opened from the bot. To see the Telegram integration in a normal browser, append
 `#tgWebAppData=auth_date%3D1%26hash%3Dx&tgWebAppVersion=8.0&tgWebAppPlatform=ios`.
 
 The curation scripts need a Mapillary client token in `.env`; see

@@ -103,10 +103,10 @@ func setup(t *testing.T) *harness {
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO maply.place (status, source, source_id, source_url, license, kind, lat, lon, image_key,
-		                         country_iso, continent, city, fact, difficulty, reviewed_at, author)
+		                         country_iso, continent, city, fact, difficulty, reviewed_at, author, heading)
 		VALUES ('approved', 'mapillary', '918273645', 'https://www.mapillary.com/app/?pKey=918273645',
 		        'CC-BY-SA-4.0', 'photo', $1, $2, $3, 'UA', 'europe',
-		        '{"uk":"Львів","ru":"Львов","be":"Львоў"}', '{"uk":"Факт","ru":"Факт","be":"Факт"}', 3, now(), 'someone')`,
+		        '{"uk":"Львів","ru":"Львов","be":"Львоў"}', '{"uk":"Факт","ru":"Факт","be":"Факт"}', 3, now(), 'someone', 164.5)`,
 		placeLat, placeLon, testImageKey); err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,9 @@ func TestADayAcrossZones(t *testing.T) {
 	if err := json.Unmarshal([]byte(today), &td); err != nil {
 		t.Fatal(err)
 	}
-	if td.Day != 1 || td.Image != "/img/"+testImageKey || td.Answer != nil {
+	// Oksana opened it from the Kyiv group: the zone is the group's, not the place's.
+	if td.Day != 1 || td.Image != "/img/"+testImageKey || td.Answer != nil || td.Zone != "Europe/Kyiv" ||
+		td.Heading == nil || *td.Heading != 164.5 {
 		t.Fatalf("today = %+v", td)
 	}
 
