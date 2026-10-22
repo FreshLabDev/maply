@@ -8,14 +8,14 @@ The MVP is done when, in one Russian, one Ukrainian and one Belarusian group, a 
 
 | In the MVP | After the MVP |
 |:--|:--|
-| Daily round for ru, uk and be, each with its own time zone | "Where am I?" |
+| Daily round in the family's sixteen languages, in each chat's own time zone | "Where am I?" |
 | DMs and groups, pinned post with marks for who has answered | `/rival` and the "Rival" intrigue |
 | Mini App: photo or panorama, pin, waiting, result | Seasons and champion of the month |
 | Scoring: distance plus bonuses for continent, country and city | "Continent" and "second angle" hints |
 | Anti-cheat, items 1–5 from design.md | "Voice of the place" (TTS) |
 | Intrigue: "Right now there", "Detail", "Chat spread", "World vs you", "Streak" | Archive on the site, OG image |
 | Result in the group and in the DM, cross-chat ranking | Telegram Login on the site |
-| Site in the browser: anonymous play without a ranking | Languages other than ru, uk and be |
+| Site in the browser: anonymous play without a ranking | Curated city names and facts beyond ru, uk, be and en |
 | Place curation: harvest, LLM scoring, operator service chat | |
 
 Hints are deferred (owner decision of 22 Oct): without them scoring and anti-cheat are simpler, and at launch the "clean" mark can simply be given for answering before the intrigue. The archive and the OG image should be built right after launch: they are the only way to bring in people from outside Telegram.
@@ -161,7 +161,7 @@ What remains:
 - Download MapLibre, Pannellum and the Sofia Sans fonts locally. Right now they come from unpkg, jsdelivr and Google Fonts, and those addresses are sometimes reachable from Russia and sometimes not. Only `telegram-web-app.js` and the tiles stay external.
 - Replace the demo data (`ROUND`, friends, `?state=reveal`) with API requests. Send `initData` in a header.
 - Take the bonuses on the result screen from the server and remove the Nominatim request from the browser.
-- Texts in uk and be. The prototype is only in ru for now, including the jokes on the loading screen.
+- Texts in every language of the family, the jokes on the loading screen included.
 - In a browser without Telegram:
   - the answer is stored in `localStorage`;
   - the result is shown after the latest reveal;
@@ -203,6 +203,7 @@ A week in our three own groups (ru, uk, be), then open the bot. What we watch ev
 ## Owner decisions
 
 - 22 Oct: the repository is public, Apache-2.0; tasks are kept on the public GitHub project board. Everything public (board, issues, documents, code comments) is written in English, while the game interface stays in ru, uk and be.
+- 22 Oct: maply speaks all sixteen languages of the family from the start. The result opens at 20:00 in the chat's own zone: a group admin picks it, and until then it follows the capital of the language. Russian goes by Kyiv, as in quoto.
 - 22 Oct: hints and Telegram login on the site are deferred until after the MVP.
 - 22 Oct: the 20:00 result arrives as a nicely drawn map image (decision 1).
 - 22 Oct: the bot name is `@maplyin_bot`.

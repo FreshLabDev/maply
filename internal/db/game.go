@@ -208,19 +208,6 @@ func (s *Store) ScoreDue(ctx context.Context, d round.Date, now time.Time, judge
 	return len(list), nil
 }
 
-// ChatLang is the chat's own language setting, empty when it has none.
-func (s *Store) ChatLang(ctx context.Context, chatID int64) (string, error) {
-	var lang *string
-	err := s.pool.QueryRow(ctx, `SELECT lang FROM chat_settings WHERE chat_id = $1`, chatID).Scan(&lang)
-	if errors.Is(err, pgx.ErrNoRows) || lang == nil {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("chat lang %d: %w", chatID, err)
-	}
-	return *lang, nil
-}
-
 // UserLang is what core resolves for the person, empty when it has nothing.
 func (s *Store) UserLang(ctx context.Context, userID int64) (string, error) {
 	var lang *string

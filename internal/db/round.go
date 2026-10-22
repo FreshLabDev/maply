@@ -104,9 +104,12 @@ func (s *Store) roundFor(ctx context.Context, q querier, d round.Date) (Round, b
 }
 
 // Context is a chat a person plays in: 0 for the DM, a negative id for a
-// group. Lang is the chat's setting, else what core resolves; it may be empty.
+// group. Zone is the chat's own choice and may be empty. Lang is what its zone
+// defaults to: for a group the group's language in core, never a member's, so
+// every member of one group gets the same reveal; for the DM the person's.
 type Context struct {
 	ChatID int64
+	Zone   string
 	Lang   string
 }
 
@@ -116,9 +119,9 @@ type Context struct {
 func (s *Store) Contexts(ctx context.Context, userID int64) ([]Context, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT p.chat_id,
-		       COALESCE(cs.lang,
-		                CASE WHEN p.chat_id = 0 THEN core.effective_language($1, NULL, 'user')
-		                     ELSE core.effective_language($1, p.chat_id, 'chat') END,
+		       COALESCE(cs.timezone, ''),
+		       COALESCE(CASE WHEN p.chat_id = 0 THEN core.effective_language($1, NULL, 'user')
+		                     ELSE core.effective_language(0, p.chat_id, 'chat') END,
 		                '')
 		  FROM core.maply_presence p
 		  LEFT JOIN chat_settings cs
@@ -131,13 +134,13 @@ func (s *Store) Contexts(ctx context.Context, userID int64) ([]Context, error) {
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Context, error) {
 		var c Context
-		err := row.Scan(&c.ChatID, &c.Lang)
+		err := row.Scan(&c.ChatID, &c.Zone, &c.Lang)
 		return c, err
 	})
 }
 
 // Deadline is when userID's answer window for d closes. With no context at all
-// it falls back to the earliest-revealing zone.
+// it is the default zone's reveal.
 func (s *Store) Deadline(ctx context.Context, zones round.Zones, userID int64, d round.Date) (time.Time, error) {
 	contexts, err := s.Contexts(ctx, userID)
 	if err != nil {
@@ -145,12 +148,10 @@ func (s *Store) Deadline(ctx context.Context, zones round.Zones, userID int64, d
 	}
 	locs := make([]*time.Location, 0, len(contexts)+1)
 	for _, c := range contexts {
-		loc, _ := zones.For(c.Lang)
-		locs = append(locs, loc)
+		locs = append(locs, zones.For(c.Zone, c.Lang))
 	}
 	if len(locs) == 0 {
-		loc, _ := zones.For(round.Fallback)
-		locs = append(locs, loc)
+		locs = append(locs, zones.For("", ""))
 	}
 	return round.Deadline(d, locs)
 }

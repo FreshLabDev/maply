@@ -25,6 +25,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/FreshLabDev/maply/internal/i18n"
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/scoring"
 )
@@ -42,6 +43,7 @@ type Store interface {
 	ScoreDue(context.Context, round.Date, time.Time, func(geo.Point) scoring.Score) (int, error)
 	ChatLang(context.Context, int64) (string, error)
 	UserLang(context.Context, int64) (string, error)
+	ChatZone(context.Context, int64) (string, error)
 }
 
 type MemberChecker interface {
@@ -83,8 +85,10 @@ type play struct {
 	kind   string // dm or group
 	chatID int64
 	date   round.Date
-	zone   *time.Location
-	lang   string
+	// zone is the context's: the group's for a group, the person's for the DM.
+	zone *time.Location
+	// lang is what the person reads the app in, the same in every context.
+	lang string
 }
 
 type apiError struct {
@@ -130,15 +134,16 @@ func (s *Server) resolve(r *http.Request) (play, error) {
 		if err := s.Store.Touch(ctx, user, nil); err != nil {
 			return play{}, err
 		}
-		lang, err := s.Store.UserLang(ctx, user.ID)
+		lang, err := s.personLang(ctx, data.User)
 		if err != nil {
 			return play{}, err
 		}
-		if lang == "" {
-			lang = data.User.LanguageCode
+		zone, err := s.Store.ChatZone(ctx, user.ID)
+		if err != nil {
+			return play{}, err
 		}
-		p.kind = "dm"
-		p.zone, p.lang = s.Zones.For(lang)
+		p.kind, p.lang = "dm", i18n.Resolve(lang)
+		p.zone = s.Zones.For(zone, lang)
 		p.date = round.DateIn(s.Now(), p.zone)
 		return p, nil
 	}
@@ -161,23 +166,38 @@ func (s *Server) resolve(r *http.Request) (play, error) {
 	if err := s.Store.Touch(ctx, user, &tg.Chat{ID: payload.ChatID, Type: chatType}); err != nil {
 		return play{}, err
 	}
-	lang, err := s.Store.ChatLang(ctx, payload.ChatID)
+	zone, err := s.Store.ChatZone(ctx, payload.ChatID)
 	if err != nil {
 		return play{}, err
 	}
-	if lang == "" {
-		if lang, err = s.Store.UserLang(ctx, user.ID); err != nil {
-			return play{}, err
-		}
+	chatLang, err := s.Store.ChatLang(ctx, payload.ChatID)
+	if err != nil {
+		return play{}, err
 	}
-	p.kind, p.chatID, p.date = "group", payload.ChatID, payload.Date
-	p.zone, p.lang = s.Zones.For(lang)
+	lang, err := s.personLang(ctx, data.User)
+	if err != nil {
+		return play{}, err
+	}
+	p.kind, p.chatID, p.date, p.lang = "group", payload.ChatID, payload.Date, i18n.Resolve(lang)
+	p.zone = s.Zones.For(zone, chatLang)
 	// A post for a date that has not begun in the chat's zone was not sent by
 	// the bot.
 	if round.DateIn(s.Now(), p.zone).Before(p.date) {
 		return play{}, errNotStarted
 	}
 	return p, nil
+}
+
+// personLang is the person's language in core, else their Telegram client's.
+func (s *Server) personLang(ctx context.Context, u auth.User) (string, error) {
+	lang, err := s.Store.UserLang(ctx, u.ID)
+	if err != nil {
+		return "", err
+	}
+	if lang == "" {
+		lang = i18n.Normalize(u.LanguageCode)
+	}
+	return lang, nil
 }
 
 // deadline is the earliest reveal among every context the person plays in,
@@ -189,8 +209,7 @@ func (s *Server) deadline(ctx context.Context, p play) (time.Time, error) {
 	}
 	locs := []*time.Location{p.zone}
 	for _, c := range contexts {
-		loc, _ := s.Zones.For(c.Lang)
-		locs = append(locs, loc)
+		locs = append(locs, s.Zones.For(c.Zone, c.Lang))
 	}
 	return round.Deadline(p.date, locs)
 }
@@ -208,8 +227,7 @@ func (s *Server) opensAt(ctx context.Context, p play) (time.Time, error) {
 		return time.Time{}, err
 	}
 	for _, c := range contexts {
-		loc, _ := s.Zones.For(c.Lang)
-		if r := p.date.Reveal(loc); r.After(reveal) {
+		if r := p.date.Reveal(s.Zones.For(c.Zone, c.Lang)); r.After(reveal) {
 			reveal = r
 		}
 	}
@@ -227,9 +245,12 @@ type todayResponse struct {
 	Image   string   `json:"image"`
 	Kind    string   `json:"kind"`
 	Heading *float64 `json:"heading"`
-	// Zone is the capital's zone of this context's language, so the app can
-	// say "at 20:00 Moscow time"; it is about the player, not the place.
-	Zone     string    `json:"zone"`
+	// Zone is this context's zone, so the app can say "at 20:00, Kyiv"; it is
+	// about the player, not the place.
+	Zone string `json:"zone"`
+	// Lang is the language the app speaks, from core: the one the person
+	// picked in any bot of the family.
+	Lang     string    `json:"lang"`
 	Deadline time.Time `json:"deadline"`
 	Reveal   time.Time `json:"reveal"`
 	Answer   *pin      `json:"answer"`
@@ -268,7 +289,7 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := todayResponse{
 		Date: p.date.String(), Day: rd.DayNo, Image: "/img/" + puzzle.ImageKey, Kind: puzzle.Kind,
-		Heading: puzzle.Heading, Zone: p.zone.String(), Deadline: deadline.UTC(), Reveal: opens.UTC(),
+		Heading: puzzle.Heading, Zone: p.zone.String(), Lang: p.lang, Deadline: deadline.UTC(), Reveal: opens.UTC(),
 	}
 	// Their own pin is theirs to see; it says nothing about the place.
 	if g, ok, err := s.Store.GuessOf(ctx, p.date, p.user.ID); err != nil {
@@ -413,7 +434,7 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		Date: p.date.String(), Day: rd.DayNo,
 		Place: placeView{
 			Lat: answer.Point.Lat, Lon: answer.Point.Lon, Country: answer.CountryISO,
-			City: answer.City[p.lang], Fact: answer.Fact[p.lang],
+			City: localized(answer.City, p.lang), Fact: localized(answer.Fact, p.lang),
 			Author: answer.Author, License: answer.License, Source: answer.Source,
 		},
 		Table: make([]line, 0, len(guesses)),
@@ -427,6 +448,15 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		resp.Table = append(resp.Table, l)
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// localized is a curated text in lang, else in English. A language the
+// curators have not written yet gets English rather than a guess at another.
+func localized(m map[string]string, lang string) string {
+	if v := m[lang]; v != "" {
+		return v
+	}
+	return m[i18n.DefaultLang]
 }
 
 // imageKey is the shape of a key images are stored under: random, so a name

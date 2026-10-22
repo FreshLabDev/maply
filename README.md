@@ -60,8 +60,9 @@ includes and where it departs from the design is in
 
 ## How A Day Goes
 
-Time follows the capital of the chat's language: Moscow for ru, Minsk for be,
-Kyiv for uk.
+The result opens at 20:00 in the chat's time zone. A group admin picks it in
+the settings; until then it follows the capital of the group's language, with
+Russian on Kyiv time.
 
 | Time | Group | DM |
 |:--|:--|:--|

@@ -98,14 +98,15 @@ func TestDeadlineAcrossChats(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	exec(t, store, `INSERT INTO maply.chat_settings (chat_id, kind, lang) VALUES ($1, 'group', 'uk'), ($2, 'group', 'ru')`,
-		kyivGroup.ID, moscowGroup.ID)
+	exec(t, store, `INSERT INTO maply.chat_settings (chat_id, kind, timezone) VALUES
+		($1, 'group', 'Europe/Kyiv'), ($2, 'group', 'Europe/Moscow')`, kyivGroup.ID, moscowGroup.ID)
 
 	contexts, err := store.Contexts(ctx, person.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Context{{-1005102, "ru"}, {-1005101, "uk"}, {0, "uk"}}
+	// The groups name their zones; the DM has none and follows Oksana's language.
+	want := []Context{{-1005102, "Europe/Moscow", ""}, {-1005101, "Europe/Kyiv", ""}, {0, "", "uk"}}
 	if len(contexts) != len(want) {
 		t.Fatalf("contexts = %+v, want %+v", contexts, want)
 	}
@@ -133,12 +134,12 @@ func TestDeadlineAcrossChats(t *testing.T) {
 		t.Fatalf("deadline after leaving Moscow = %s, want %s (20:00 Kyiv)", got.UTC(), want)
 	}
 
-	// Someone maply has never seen still gets a window, the earliest one.
+	// Someone maply has never seen still gets a window: the default zone's.
 	got, err = store.Deadline(ctx, zones, 99999, winter)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := time.Date(2026, time.December, 10, 17, 0, 0, 0, time.UTC); !got.Equal(want) {
-		t.Fatalf("deadline for a stranger = %s, want %s", got.UTC(), want)
+	if want := time.Date(2026, time.December, 10, 18, 0, 0, 0, time.UTC); !got.Equal(want) {
+		t.Fatalf("deadline for a stranger = %s, want %s (20:00 Kyiv)", got.UTC(), want)
 	}
 }

@@ -8,13 +8,20 @@ maply is a daily "guess the place from a photo" game in Telegram and on the web.
 
 There is one place per calendar date for everyone: DMs, groups and the site. Days are numbered from launch: `maply #1`, `maply #2`.
 
-Time follows the capital of the chat's or user's language. The language comes from `core.effective_language`.
+The reveal is 20:00 in the chat's own time zone. A group admin picks it in the settings, a person picks the zone of their DM. Until someone does, it follows the capital of the language (`core.effective_language`), as quoto does: Russian and any language without a zone of its own go by Kyiv (owner decision of 22 October 2026).
 
 | Language | Time zone |
 |:--|:--|
-| ru | `Europe/Moscow` |
+| ru, uk | `Europe/Kyiv` |
 | be | `Europe/Minsk` |
-| uk | `Europe/Kyiv` |
+| en | `Europe/London` |
+| es, fr, de, it, pl, cs, sv, ca | `Europe/Berlin` (one rule for Central Europe) |
+| tr | `Europe/Istanbul` |
+| ar | `Asia/Riyadh` |
+| zh | `Asia/Shanghai` |
+| ja | `Asia/Tokyo` |
+
+A group's zone is fixed in `chat_settings` the first time maply is set up there, so a later change of the group's language does not move its reveal. The picker offers sixteen zones from Los Angeles to Sydney; a zone outside the list is never stored.
 
 Zones come from tzdata and offsets are not hard-coded: Ukraine's daylight saving rules have been changed by law. In winter Kyiv is an hour behind Moscow and Minsk, and the game accounts for that (see "Anti-cheat").
 
@@ -232,5 +239,5 @@ maply. The bot's username is `@maplyin_bot`, confirmed by the owner on 22 Octobe
 ## Open questions
 
 1. A permanent domain. For now the site temporarily lives at `maply.ws04.cc`. On a move, `/setdomain` in BotFather (Telegram Login), links in results and the app address in Mapillary need to change.
-2. Time zone for languages other than ru, uk and be. At launch I would count them by Moscow, and make English a separate scheme in the spirit of Wordle.
+2. ~~Time zone for languages other than ru, uk and be.~~ Decided on 22 October: the chat's own zone, picked by a group admin, with the language's capital as the default.
 3. Whether "Voice of the place" is needed at launch. Without TTS six intrigue types remain, which is enough for a week.

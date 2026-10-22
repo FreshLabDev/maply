@@ -95,7 +95,7 @@ func setup(t *testing.T) *harness {
 	for _, stmt := range []string{
 		`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.chat_settings, maply.round, maply.place`,
 		`TRUNCATE core.person, core.chat CASCADE`,
-		`TRUNCATE core.user_language`,
+		`TRUNCATE core.language_observation`,
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			t.Fatal(err)
@@ -110,8 +110,10 @@ func setup(t *testing.T) *harness {
 		placeLat, placeLon, testImageKey); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO maply.chat_settings (chat_id, kind, lang) VALUES
-		($1, 'group', 'uk'), ($2, 'group', 'ru'), ($3, 'group', 'be')`, kyivGroup, moscowGroup, minskGroup); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO maply.chat_settings (chat_id, kind, timezone) VALUES
+		($1, 'group', 'Europe/Kyiv'), ($2, 'group', 'Europe/Moscow'), ($3, 'group', 'Europe/Minsk'),
+		-- Dmitry set his DM to Moscow; Russian alone would put it on Kyiv.
+		(5, 'dm', 'Europe/Moscow')`, kyivGroup, moscowGroup, minskGroup); err != nil {
 		t.Fatal(err)
 	}
 
@@ -249,8 +251,9 @@ func TestADayAcrossZones(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Oksana opened it from the Kyiv group: the zone is the group's, not the place's.
+	// The app speaks her language, whichever group she opened it from.
 	if td.Day != 1 || td.Image != "/img/"+testImageKey || td.Answer != nil || td.Zone != "Europe/Kyiv" ||
-		td.Heading == nil || *td.Heading != 164.5 {
+		td.Lang != "uk" || td.Heading == nil || *td.Heading != 164.5 {
 		t.Fatalf("today = %+v", td)
 	}
 
@@ -309,7 +312,13 @@ func TestADayAcrossZones(t *testing.T) {
 
 	// 18:00 UTC: Kyiv reveals too, and the DM with it.
 	hs.now = time.Date(2026, time.December, 10, 18, 0, 0, 0, time.UTC)
-	hs.expect("GET", "/api/result", oksanaKyiv, "", http.StatusOK)
+	res = hs.expect("GET", "/api/result", oksanaKyiv, "", http.StatusOK)
+	if err := json.Unmarshal([]byte(res), &rr); err != nil {
+		t.Fatal(err)
+	}
+	if rr.Place.City != "Львів" {
+		t.Fatalf("Oksana reads the city as %q, want it in Ukrainian", rr.Place.City)
+	}
 	hs.expect("GET", "/api/result", oksanaDM, "", http.StatusOK)
 	hs.expect("GET", "/api/result", dmitryDM, "", http.StatusOK)
 }

@@ -35,9 +35,11 @@ player, and production-minded.
 
 - One place per calendar date, the same for DMs, every group and the site.
   Days are numbered from launch: `maply #1`, `maply #2`.
-- Time follows the capital of the chat's or person's language: ru
-  `Europe/Moscow`, be `Europe/Minsk`, uk `Europe/Kyiv`. Zones come from tzdata;
-  never hard-code an offset.
+- The reveal is 20:00 in the chat's own zone. A group admin picks it from
+  `round.ZoneChoices`, a person picks their DM's; until then it follows the
+  capital of the language, with ru and anything unknown on `Europe/Kyiv`
+  (`internal/round/zones.go`). Zones come from tzdata; never hard-code an
+  offset.
 - A group gets at most three messages a day: the 07:00 post, one intrigue
   between 16:00 and 18:00, and the 20:00 result. Edits to the pinned post do not
   count. Do not add a fourth.
@@ -47,7 +49,15 @@ player, and production-minded.
 - Score: `3500 · e^(−d / 1492.7)` for distance plus +300 continent, +500 country,
   +700 city as a ladder. Equal scores rank by who answered first.
 - Interface text lives in `internal/i18n`, never inline in Go or in the Mini App
-  script. ru, uk and be ship together; a key missing in one language is a bug.
+  script. maply speaks the family's sixteen languages (en, ru, uk, es, fr, de,
+  it, pl, cs, tr, sv, be, ca, zh, ja, ar), and they ship together; a key
+  missing in one language is a bug.
+- The interface language is core's, shared with every bot in the family:
+  `core.set_language` with `manual`, `core.clear_language` for "Follow
+  Telegram". maply keeps no copy of it.
+- Panels look like voicy's and quoto's: `m:<owner>:<action>` callbacks, a
+  bold title, an italic hint, the substance in a quote, `◉`/`◎` on choices,
+  Success on the current one, Back, and Close only in a group.
 - Bot names are written in lowercase everywhere, including headings and images.
 
 ## Anti-Cheat Invariants
@@ -142,7 +152,8 @@ the diff looks like.
 - A new issue says what to do in its title, and its body ends with
   "Done when …": the check that closes it.
 - Everything public is written in English: issues, the board, docs, code
-  comments, commit messages. The game's interface is ru, uk and be.
+  comments, commit messages. The game's interface is in the family's sixteen
+  languages.
 
 ## Working In This Checkout
 

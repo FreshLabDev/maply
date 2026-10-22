@@ -17,6 +17,18 @@ of the Go service.
 
 ### Added
 
+- Every line maply shows lives in `internal/i18n`, in the family's sixteen
+  languages: the same picker, codes and fallback to English as voicy and
+  branchy. A test fails on a key missing in any language or a placeholder that
+  differs between them. The language is read from and written to `core`, so a
+  choice made in any bot of the family holds in maply.
+- Each chat has its own time zone (`004_chat_zone.sql`). A group admin picks
+  it from sixteen zones, a person picks their DM's; until then the reveal
+  follows the capital of the language, with Russian and unknown languages on
+  Kyiv as in quoto. The binary embeds tzdata. The answer window still closes at
+  the earliest reveal among a person's chats. `chat_settings.lang` is dropped:
+  a group's language is core's, never a member's, so every member of a group
+  gets the same reveal.
 - The Go service skeleton, built the way voicy and branchy are: validated
   environment, PostgreSQL in the `maply` schema with migrations embedded in the
   binary, Telegram long polling through `FreshLabDev/tg` that records people

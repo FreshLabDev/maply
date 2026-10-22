@@ -53,7 +53,7 @@ func testStore(t *testing.T) *Store {
 			`UPDATE maply.runtime_state SET telegram_offset=0`,
 			`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.chat_settings, maply.round, maply.place`,
 			`TRUNCATE core.person, core.chat CASCADE`,
-			`TRUNCATE core.user_language`,
+			`TRUNCATE core.language_observation`,
 		} {
 			if _, err := store.pool.Exec(ctx, stmt); err != nil {
 				t.Fatalf("%s: %v", stmt, err)

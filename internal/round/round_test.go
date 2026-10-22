@@ -15,12 +15,12 @@ func zones(t *testing.T) Zones {
 	return z
 }
 
-func deadline(t *testing.T, z Zones, d Date, langs ...string) time.Time {
+// deadline takes zone names: a chat's own choice, as a group admin sets it.
+func deadline(t *testing.T, z Zones, d Date, names ...string) time.Time {
 	t.Helper()
 	var locs []*time.Location
-	for _, l := range langs {
-		loc, _ := z.For(l)
-		locs = append(locs, loc)
+	for _, n := range names {
+		locs = append(locs, z.For(n, ""))
 	}
 	got, err := Deadline(d, locs)
 	if err != nil {
@@ -28,6 +28,12 @@ func deadline(t *testing.T, z Zones, d Date, langs ...string) time.Time {
 	}
 	return got
 }
+
+const (
+	kyiv   = "Europe/Kyiv"
+	moscow = "Europe/Moscow"
+	minsk  = "Europe/Minsk"
+)
 
 func utc(s string) time.Time {
 	t, err := time.Parse(time.RFC3339, s)
@@ -47,10 +53,11 @@ func TestWinterKyivAgainstMoscow(t *testing.T) {
 		langs []string
 		want  string
 	}{
-		{"only Kyiv", []string{"uk"}, "2026-12-10T18:00:00Z"},
-		{"only Moscow", []string{"ru"}, "2026-12-10T17:00:00Z"},
-		{"a Kyiv group and a Moscow group", []string{"uk", "ru"}, "2026-12-10T17:00:00Z"},
-		{"Kyiv, Minsk and Moscow", []string{"uk", "be", "ru"}, "2026-12-10T17:00:00Z"},
+		{"only Kyiv", []string{kyiv}, "2026-12-10T18:00:00Z"},
+		{"only Moscow", []string{moscow}, "2026-12-10T17:00:00Z"},
+		{"a Kyiv group and a Moscow group", []string{kyiv, moscow}, "2026-12-10T17:00:00Z"},
+		{"Kyiv, Minsk and Moscow", []string{kyiv, minsk, moscow}, "2026-12-10T17:00:00Z"},
+		{"Kyiv and Tokyo", []string{kyiv, "Asia/Tokyo"}, "2026-12-10T11:00:00Z"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := deadline(t, z, winter, tc.langs...); !got.Equal(utc(tc.want)) {
@@ -60,8 +67,7 @@ func TestWinterKyivAgainstMoscow(t *testing.T) {
 	}
 	// 20:00 in Moscow is 19:00 in Kyiv: the Kyiv player's window closes an
 	// hour before their own group's reveal.
-	kyiv, _ := z.For("uk")
-	if got := deadline(t, z, winter, "uk", "ru").In(kyiv).Hour(); got != 19 {
+	if got := deadline(t, z, winter, kyiv, moscow).In(z.For(kyiv, "")).Hour(); got != 19 {
 		t.Fatalf("Kyiv player's deadline is %d:00 Kyiv time, want 19:00", got)
 	}
 }
@@ -70,13 +76,13 @@ func TestDaylightSavingSwitch(t *testing.T) {
 	z := zones(t)
 	before := NewDate(2026, time.October, 24) // Kyiv still UTC+3
 	after := NewDate(2026, time.October, 26)  // Kyiv back to UTC+2
-	if got := deadline(t, z, before, "uk", "ru"); !got.Equal(utc("2026-10-24T17:00:00Z")) {
+	if got := deadline(t, z, before, kyiv, moscow); !got.Equal(utc("2026-10-24T17:00:00Z")) {
 		t.Fatalf("summer deadline = %s", got.UTC())
 	}
-	if got := deadline(t, z, before, "uk"); !got.Equal(utc("2026-10-24T17:00:00Z")) {
+	if got := deadline(t, z, before, kyiv); !got.Equal(utc("2026-10-24T17:00:00Z")) {
 		t.Fatalf("summer Kyiv reveal = %s, want the same instant as Moscow", got.UTC())
 	}
-	if got := deadline(t, z, after, "uk"); !got.Equal(utc("2026-10-26T18:00:00Z")) {
+	if got := deadline(t, z, after, kyiv); !got.Equal(utc("2026-10-26T18:00:00Z")) {
 		t.Fatalf("winter Kyiv reveal = %s", got.UTC())
 	}
 }
@@ -86,38 +92,48 @@ func TestDaylightSavingSwitch(t *testing.T) {
 // stays on UTC+3 all year, as if summer time were abolished: in December its
 // reveal lands on Moscow's.
 func TestChangedRulesComeFromTheZone(t *testing.T) {
-	z := zones(t).With("uk", time.FixedZone("Europe/Kyiv", 3*60*60))
+	z := zones(t).With(kyiv, time.FixedZone(kyiv, 3*60*60))
 	winter := NewDate(2026, time.December, 10)
-	if got := deadline(t, z, winter, "uk"); !got.Equal(utc("2026-12-10T17:00:00Z")) {
+	if got := deadline(t, z, winter, kyiv); !got.Equal(utc("2026-12-10T17:00:00Z")) {
 		t.Fatalf("Kyiv reveal under changed rules = %s", got.UTC())
 	}
 }
 
-func TestUnknownLanguageFallsBackToTheEarliestReveal(t *testing.T) {
+// A chat nobody has set up follows its language; Russian and anything
+// unknown follow Kyiv.
+func TestDefaultZoneFollowsTheLanguage(t *testing.T) {
 	z := zones(t)
-	loc, lang := z.For("en")
-	moscow, _ := z.For("ru")
-	if lang != Fallback || loc != moscow {
-		t.Fatalf("For(en) = %s, %s", loc, lang)
-	}
-	// Whatever the season, the fallback reveal is never later than Kyiv's.
-	for d := NewDate(2026, time.January, 1); d.Before(NewDate(2027, time.January, 1)); d = d.AddDays(1) {
-		if deadline(t, z, d, "en").After(deadline(t, z, d, "uk")) {
-			t.Fatalf("%s: fallback reveal is after Kyiv's", d)
+	for _, tc := range []struct{ chosen, lang, want string }{
+		{"", "ru", kyiv},
+		{"", "uk", kyiv},
+		{"", "be", minsk},
+		{"", "en", "Europe/London"},
+		{"", "de", "Europe/Berlin"},
+		{"", "ja", "Asia/Tokyo"},
+		{"", "", DefaultZone},
+		{"", "kk", DefaultZone},
+		{moscow, "uk", moscow},
+		// Only a listed zone counts as a choice.
+		{"Pacific/Kiritimati", "ru", kyiv},
+		{"UTC", "en", "Europe/London"},
+	} {
+		if got := Name(tc.chosen, tc.lang); got != tc.want {
+			t.Errorf("Name(%q, %q) = %s, want %s", tc.chosen, tc.lang, got, tc.want)
+		}
+		if got := z.For(tc.chosen, tc.lang).String(); got != tc.want {
+			t.Errorf("For(%q, %q) = %s, want %s", tc.chosen, tc.lang, got, tc.want)
 		}
 	}
 }
 
 func TestDateInFollowsTheZone(t *testing.T) {
 	z := zones(t)
-	moscow, _ := z.For("ru")
-	kyiv, _ := z.For("uk")
 	// 21:30 UTC on 31 December: already 1 January in Moscow, not yet in Kyiv.
 	at := utc("2026-12-31T21:30:00Z")
-	if got := DateIn(at, moscow).String(); got != "2027-01-01" {
+	if got := DateIn(at, z.For(moscow, "")).String(); got != "2027-01-01" {
 		t.Fatalf("Moscow date = %s", got)
 	}
-	if got := DateIn(at, kyiv).String(); got != "2026-12-31" {
+	if got := DateIn(at, z.For(kyiv, "")).String(); got != "2026-12-31" {
 		t.Fatalf("Kyiv date = %s", got)
 	}
 }

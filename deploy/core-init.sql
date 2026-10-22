@@ -71,67 +71,79 @@ BEGIN
     last_seen_at = GREATEST(pr.last_seen_at, EXCLUDED.last_seen_at),
     event_count = pr.event_count + 1;
   IF p_tg_lang IS NOT NULL AND btrim(p_tg_lang) <> '' THEN
-    INSERT INTO core.user_language AS ul (bot, subject_id, language, source)
-    VALUES (p_bot, p_user_id, lower(split_part(btrim(p_tg_lang), '-', 1)), 'client')
-    ON CONFLICT (bot, subject_id) DO UPDATE SET
-      language = CASE WHEN ul.source = 'manual' THEN ul.language ELSE EXCLUDED.language END,
-      source   = CASE WHEN ul.source = 'manual' THEN 'manual' ELSE 'client' END,
-      updated_at = now();
+    INSERT INTO core.language_observation AS o (source_bot, scope, subject_id, language, source)
+    VALUES (p_bot, 'user', p_user_id, lower(split_part(btrim(p_tg_lang), '-', 1)), 'client')
+    ON CONFLICT (source_bot, scope, subject_id) DO UPDATE SET
+      language = CASE WHEN o.source = 'manual' THEN o.language ELSE EXCLUDED.language END,
+      source   = CASE WHEN o.source = 'manual' THEN o.source ELSE 'client' END,
+      observed_at = clock_timestamp();
   END IF;
 END $$;
 
--- Local stand-in for the core language hub. The real one keeps per-bot
--- observations with manual/auto/client ranking across the whole bot fleet;
--- one row per (bot, subject) with manual-beats-client merge is enough here.
-CREATE TABLE IF NOT EXISTS core.user_language (
-  bot text NOT NULL,
+-- Local stand-in for the core language hub, with the real signatures
+-- (core migration 001): observations per bot, scope and subject, manual over
+-- client, and a person's or a chat's language read with either preferred.
+DO $$ BEGIN CREATE TYPE core.pref_scope AS ENUM ('user', 'chat'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE core.lang_source AS ENUM ('manual', 'auto', 'client', 'default'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- The first version of this stand-in had no scopes.
+DROP FUNCTION IF EXISTS core.set_language(text, text, bigint, text, text);
+DROP FUNCTION IF EXISTS core.clear_language(text, text, bigint);
+DROP FUNCTION IF EXISTS core.effective_language(bigint, bigint, text);
+DROP TABLE IF EXISTS core.user_language;
+
+CREATE TABLE IF NOT EXISTS core.language_observation (
+  source_bot text NOT NULL,
+  scope core.pref_scope NOT NULL,
   subject_id bigint NOT NULL,
   language text NOT NULL,
-  source text NOT NULL,
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (bot, subject_id)
+  source core.lang_source NOT NULL,
+  observed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (source_bot, scope, subject_id)
 );
 
 CREATE OR REPLACE FUNCTION core.set_language(
-  p_bot text, p_scope text, p_subject bigint, p_lang text, p_source text
+  p_bot text, p_scope core.pref_scope, p_subject bigint, p_lang text, p_source core.lang_source
 ) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   IF p_lang IS NULL OR btrim(p_lang) = '' THEN
     RETURN;
   END IF;
-  INSERT INTO core.user_language AS ul (bot, subject_id, language, source, updated_at)
-  VALUES (p_bot, p_subject, lower(split_part(btrim(p_lang), '-', 1)), p_source, now())
-  ON CONFLICT (bot, subject_id) DO UPDATE SET
-    language = EXCLUDED.language,
-    source = EXCLUDED.source,
-    updated_at = now();
+  INSERT INTO core.language_observation (source_bot, scope, subject_id, language, source)
+  VALUES (p_bot, p_scope, p_subject, lower(split_part(btrim(p_lang), '-', 1)), p_source)
+  ON CONFLICT (source_bot, scope, subject_id) DO UPDATE SET
+    language = EXCLUDED.language, source = EXCLUDED.source, observed_at = clock_timestamp();
 END $$;
 
 -- Dropping the manual observation has to leave the client hint behind, or
--- "follow Telegram" would only mean "forget everything": the real hub keeps the
--- observations side by side and re-resolves, while this stand-in holds one row,
--- so it rebuilds the client row from the language_code core.touch recorded.
+-- "follow Telegram" would only mean "forget everything": the real hub keeps
+-- every bot's observations side by side, while this stand-in only knows
+-- maply, so it rebuilds the client row from the language_code core.touch
+-- recorded.
 CREATE OR REPLACE FUNCTION core.clear_language(
-  p_bot text, p_scope text, p_subject bigint
+  p_bot text, p_scope core.pref_scope, p_subject bigint
 ) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE v_client text;
 BEGIN
-  DELETE FROM core.user_language WHERE bot = p_bot AND subject_id = p_subject;
-  SELECT lower(split_part(btrim(pe.tg_language_code), '-', 1)) INTO v_client
-  FROM core.person pe
-  WHERE pe.telegram_user_id = p_subject AND btrim(coalesce(pe.tg_language_code, '')) <> '';
-  IF v_client IS NOT NULL THEN
-    INSERT INTO core.user_language (bot, subject_id, language, source)
-    VALUES (p_bot, p_subject, v_client, 'client');
+  DELETE FROM core.language_observation WHERE source_bot = p_bot AND scope = p_scope AND subject_id = p_subject;
+  IF p_scope = 'user' THEN
+    SELECT lower(split_part(btrim(pe.tg_language_code), '-', 1)) INTO v_client
+    FROM core.person pe
+    WHERE pe.telegram_user_id = p_subject AND btrim(coalesce(pe.tg_language_code, '')) <> '';
+    IF v_client IS NOT NULL THEN
+      INSERT INTO core.language_observation (source_bot, scope, subject_id, language, source)
+      VALUES (p_bot, 'user', p_subject, v_client, 'client');
+    END IF;
   END IF;
 END $$;
 
 CREATE OR REPLACE FUNCTION core.effective_language(
-  p_user bigint, p_chat bigint DEFAULT NULL, p_prefer text DEFAULT 'user'
+  p_user bigint, p_chat bigint DEFAULT NULL, p_prefer core.pref_scope DEFAULT 'user'
 ) RETURNS text LANGUAGE sql STABLE AS $$
   SELECT l.language
-  FROM core.user_language l
-  WHERE l.subject_id = p_user
-  ORDER BY (l.source = 'manual') DESC, l.updated_at DESC
+  FROM core.language_observation l
+  WHERE (l.scope = 'user' AND l.subject_id = p_user)
+     OR (l.scope = 'chat' AND l.subject_id = p_chat AND p_chat IS NOT NULL)
+  ORDER BY (l.scope = p_prefer) DESC, (l.source = 'manual') DESC, l.observed_at DESC
   LIMIT 1;
 $$;

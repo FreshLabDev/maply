@@ -57,7 +57,7 @@ maply/
 │   ├── api/              /api/today, /api/guess, /api/result, /img/
 │   ├── images/           rehosting store, EXIF stripping, random keys
 │   ├── places/           queue, import of curated batches, low-queue warning
-│   ├── i18n/             translations.json: ru, uk, be
+│   ├── i18n/             translations.json: the family's sixteen languages
 │   └── health/           /healthz: database, polling, queue depth
 ├── migrations/           NNN_name.sql, applied at start, recorded in schema_migrations
 ├── web/                  package web: embeds app/ and serves it with a CSP
