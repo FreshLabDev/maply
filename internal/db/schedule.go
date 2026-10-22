@@ -77,12 +77,15 @@ type Job struct {
 	Attempts int
 }
 
-// PlanJob queues a send unless its key is already queued, done or given up.
+// PlanJob queues a send unless its key is already done or given up. A job
+// still waiting for its first attempt moves to runAt: an admin may have moved
+// the morning post.
 func (s *Store) PlanJob(ctx context.Context, kind string, chatID int64, d round.Date, runAt time.Time) error {
 	key := fmt.Sprintf("%s:%s:%d", kind, d, chatID)
 	if _, err := s.pool.Exec(ctx, `
 		INSERT INTO job (key, kind, chat_id, date, run_at) VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (key) DO NOTHING`, key, kind, chatID, d.Time(), runAt); err != nil {
+		ON CONFLICT (key) DO UPDATE SET run_at = EXCLUDED.run_at
+		 WHERE job.status = 'pending' AND job.attempts = 0 AND job.run_at <> EXCLUDED.run_at`, key, kind, chatID, d.Time(), runAt); err != nil {
 		return fmt.Errorf("plan %s: %w", key, err)
 	}
 	return nil

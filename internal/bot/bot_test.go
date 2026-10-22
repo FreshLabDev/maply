@@ -12,6 +12,7 @@ import (
 	"github.com/FreshLabDev/tg"
 
 	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/telegram"
 )
 
@@ -28,11 +29,16 @@ type fakeStore struct {
 	chatLang map[int64]string
 	zones    map[int64]string
 	left     []int64
+	returned []int64
 	stats    db.Stats
+	settings map[int64]db.Settings
+	rounds   map[string]bool
+	guesses  []db.NewGuess
 }
 
 func newStore() *fakeStore {
-	return &fakeStore{userLang: map[int64]string{}, chatLang: map[int64]string{}, zones: map[int64]string{}}
+	return &fakeStore{userLang: map[int64]string{}, chatLang: map[int64]string{}, zones: map[int64]string{},
+		settings: map[int64]db.Settings{}, rounds: map[string]bool{}}
 }
 
 func (f *fakeStore) Offset(context.Context) (int64, error) {
@@ -92,7 +98,48 @@ func (f *fakeStore) LeaveChat(_ context.Context, id int64) error {
 	f.left = append(f.left, id)
 	return nil
 }
+func (f *fakeStore) ReturnChat(_ context.Context, id int64) error {
+	f.returned = append(f.returned, id)
+	return nil
+}
 func (f *fakeStore) Stats(context.Context, int64) (db.Stats, error) { return f.stats, nil }
+func (f *fakeStore) ChatSettings(_ context.Context, id int64) (db.Settings, error) {
+	st, ok := f.settings[id]
+	if !ok {
+		st = db.Settings{PostHour: 7, Intrigue: true, Mentions: true}
+	}
+	return st, nil
+}
+func (f *fakeStore) MovePost(ctx context.Context, id int64, minutes int) error {
+	st, _ := f.ChatSettings(ctx, id)
+	m := min(max(st.PostHour*60+st.PostMin+minutes, 5*60), 19*60)
+	st.PostHour, st.PostMin = m/60, m%60
+	f.settings[id] = st
+	return nil
+}
+func (f *fakeStore) SetSwitch(ctx context.Context, id int64, name string, on bool) error {
+	st, _ := f.ChatSettings(ctx, id)
+	if name == "intrigue" {
+		st.Intrigue = on
+	} else {
+		st.Mentions = on
+	}
+	f.settings[id] = st
+	return nil
+}
+func (f *fakeStore) RoundOn(_ context.Context, d round.Date) (db.Round, bool, error) {
+	return db.Round{Date: d, DayNo: 1, PlaceID: 1}, f.rounds[d.String()], nil
+}
+func (f *fakeStore) Contexts(context.Context, int64) ([]db.Context, error) { return nil, nil }
+func (f *fakeStore) InsertGuess(_ context.Context, g db.NewGuess) error {
+	for _, old := range f.guesses {
+		if old.UserID == g.UserID && old.Date.String() == g.Date.String() {
+			return db.ErrAlreadyAnswered
+		}
+	}
+	f.guesses = append(f.guesses, g)
+	return nil
+}
 
 type sent struct {
 	chatID, messageID int64
@@ -107,15 +154,22 @@ type fakeTelegram struct {
 	offsets  []int64
 	cancel   context.CancelFunc
 	commands int
-	sends    []sent
-	edits    []sent
-	deleted  []int64
-	alerts   []string
-	answers  int
-	members  map[int64]string
+	// descriptions counts the languages the profile texts were written in.
+	descriptions int
+	sends        []sent
+	edits        []sent
+	deleted      []int64
+	alerts       []string
+	answers      int
+	members      map[int64]string
 }
 
 func (f *fakeTelegram) DeleteWebhook(context.Context) error { return nil }
+
+func (f *fakeTelegram) SetDescriptions(context.Context, string, string, string) error {
+	f.descriptions++
+	return nil
+}
 
 func (f *fakeTelegram) GetUpdates(ctx context.Context, offset int64, _ int) ([]tg.Update, error) {
 	f.offsets = append(f.offsets, offset)
@@ -183,6 +237,9 @@ func TestRunTouchesSendersAndAdvancesOffset(t *testing.T) {
 	}
 	if client.commands != 17 {
 		t.Fatalf("published commands %d times, want the default and 16 languages", client.commands)
+	}
+	if client.descriptions != 17 {
+		t.Fatalf("published descriptions %d times, want 17", client.descriptions)
 	}
 	if store.offset != 43 {
 		t.Fatalf("stored offset = %d, want 43", store.offset)

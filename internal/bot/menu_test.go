@@ -3,6 +3,7 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -53,7 +54,7 @@ func everyPanel(t *testing.T, v view) []drawn {
 	add("language", text, m)
 	text, m = v.groupLanguage("uk")
 	add("group language", text, m)
-	text, m = v.settings("America/Los_Angeles", "")
+	text, m = v.settings("America/Los_Angeles", "", nil)
 	add("settings", text, m)
 	text, m = v.zone("America/Los_Angeles", loadZones(t), winterDay)
 	add("zone", text, m)
@@ -373,5 +374,91 @@ func TestJoiningAndLeaving(t *testing.T) {
 	b.handle(ctx, membership(admin, "administrator", "kicked"))
 	if len(store.left) != 1 || store.left[0] != groupID {
 		t.Fatalf("left = %v", store.left)
+	}
+}
+
+// An admin moves the morning post and flips the switches from Settings; a
+// member cannot.
+func TestGroupPostTimeAndSwitches(t *testing.T) {
+	b, store, client := testBot(t)
+	ctx := context.Background()
+	b.handle(ctx, press(group, member, cb(userID, "post:60")))
+	if _, moved := store.settings[groupID]; moved || len(client.alerts) != 1 {
+		t.Fatalf("a member moved the post: %+v", store.settings)
+	}
+	b.handle(ctx, press(group, admin, cb(adminID, actSettings)))
+	if got := client.edits[0].text; !strings.Contains(got, i18n.T("uk", "settings.post", "time", "07:00")) {
+		t.Fatalf("settings = %q", got)
+	}
+	for _, step := range []string{"post:60", "post:15", "post:-15", "post:15", "post:45"} {
+		b.handle(ctx, press(group, admin, cb(adminID, step)))
+	}
+	if st := store.settings[groupID]; st.PostHour != 8 || st.PostMin != 15 {
+		t.Fatalf("post at %02d:%02d, want 08:15 (45 is not a step)", st.PostHour, st.PostMin)
+	}
+	b.handle(ctx, press(group, admin, cb(adminID, "sw:intrigue")))
+	b.handle(ctx, press(group, admin, cb(adminID, "sw:mentions")))
+	b.handle(ctx, press(group, admin, cb(adminID, "sw:mentions")))
+	if st := store.settings[groupID]; st.Intrigue || !st.Mentions {
+		t.Fatalf("switches = %+v", st)
+	}
+	last := client.edits[len(client.edits)-1]
+	if !strings.Contains(last.text, "08:15") || !has(last.markup, "sw:intrigue") {
+		t.Fatalf("redrawn settings = %q", last.text)
+	}
+	// A person's own settings have neither.
+	b.handle(ctx, press(private(member), member, cb(userID, actSettings)))
+	if m := client.edits[len(client.edits)-1].markup; has(m, "post:60") || has(m, "sw:intrigue") {
+		t.Fatal("a DM's settings offer the group's switches")
+	}
+}
+
+func location(from tg.User, lat, lon float64) tg.Update {
+	raw := fmt.Sprintf(`{"message_id":9,"chat":{"id":%d,"type":"private"},"location":{"latitude":%g,"longitude":%g}}`, from.ID, lat, lon)
+	return tg.Update{Message: &tg.Message{MessageID: 9, From: &from, Chat: private(from), Raw: []byte(raw)}}
+}
+
+func TestLocationIsAnAnswer(t *testing.T) {
+	b, store, client := testBot(t)
+	ctx := context.Background()
+	// No round yet: nothing to answer.
+	b.handle(ctx, location(member, 48.85, 2.35))
+	if len(store.guesses) != 0 || client.sends[0].text != i18n.T("ru", "loc.closed") {
+		t.Fatalf("sends = %+v", client.sends)
+	}
+	store.rounds[round.DateIn(winterDay, b.opts.Zones.For("", "ru")).String()] = true
+	b.handle(ctx, location(member, 48.85, 2.35))
+	b.handle(ctx, location(member, 10, 10))
+	if len(store.guesses) != 1 || store.guesses[0].Pin.Lat != 48.85 || store.guesses[0].Context != "dm" {
+		t.Fatalf("guesses = %+v", store.guesses)
+	}
+	if got := client.sends[1].text; got != i18n.T("ru", "loc.accepted", "time", "20:00") {
+		t.Fatalf("accepted = %q", got)
+	}
+	if got := client.sends[2].text; got != i18n.T("ru", "loc.already") {
+		t.Fatalf("second = %q", got)
+	}
+	// After the reveal the window is shut.
+	b.opts.Now = func() time.Time { return winterDay.Add(7 * time.Hour) } // 21:00 in Kyiv
+	b.handle(ctx, location(admin, 50, 30))
+	if len(store.guesses) != 1 || client.sends[3].text != i18n.T("uk", "loc.closed") {
+		t.Fatalf("late location: guesses %+v, reply %q", store.guesses, client.sends[3].text)
+	}
+}
+
+func TestBlockingAndUnblockingInADM(t *testing.T) {
+	b, store, _ := testBot(t)
+	ctx := context.Background()
+	membership := func(old, new string) tg.Update {
+		return tg.Update{MyChatMember: &tg.ChatMemberUpdated{Chat: private(member), From: member,
+			OldChatMember: tg.ChatMember{Status: old}, NewChatMember: tg.ChatMember{Status: new}}}
+	}
+	b.handle(ctx, membership("member", "kicked"))
+	if len(store.left) != 1 || store.left[0] != userID {
+		t.Fatalf("left = %v", store.left)
+	}
+	b.handle(ctx, membership("kicked", "member"))
+	if len(store.returned) != 1 || store.returned[0] != userID {
+		t.Fatalf("returned = %v", store.returned)
 	}
 }

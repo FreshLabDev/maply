@@ -92,6 +92,8 @@ type Scheduler struct {
 	Tick time.Duration
 
 	planned map[int64]string
+	// planned is what was last planned per chat: the date and the settings
+	// the times came from.
 	// chats is the last ActiveChats, read once per step.
 	chats map[int64]db.Chat
 }
@@ -174,7 +176,8 @@ func (s *Scheduler) plan(ctx context.Context) error {
 	for _, c := range chats {
 		loc := s.location(c)
 		d := round.DateIn(now, loc)
-		if s.planned[c.ID] == d.String() {
+		mark := fmt.Sprintf("%s %02d:%02d %t", d, c.PostHour, c.PostMin, c.Intrigue)
+		if s.planned[c.ID] == mark {
 			continue
 		}
 		reveal := d.Reveal(loc)
@@ -192,7 +195,7 @@ func (s *Scheduler) plan(ctx context.Context) error {
 		if err := s.Store.PlanJob(ctx, jobResult, c.ID, d, reveal); err != nil {
 			return err
 		}
-		s.planned[c.ID] = d.String()
+		s.planned[c.ID] = mark
 	}
 	return nil
 }

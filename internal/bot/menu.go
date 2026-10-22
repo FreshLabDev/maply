@@ -50,13 +50,18 @@ const (
 	actZone      = "zone"
 	actGroupLang = "glang"
 	actGroupAuto = "glangauto"
+	actPost      = "post"
+	actSwitch    = "sw"
 	actClose     = "close"
 )
+
+// postSteps are how far one press moves a group's morning post, in minutes.
+var postSteps = map[int]bool{-60: true, -15: true, 15: true, 60: true}
 
 func adminOnly(action string) bool {
 	head, _, _ := strings.Cut(action, ":")
 	switch head {
-	case actSettings, actZone, actGroupLang, actGroupAuto:
+	case actSettings, actZone, actGroupLang, actGroupAuto, actPost, actSwitch:
 		return true
 	}
 	return false
@@ -258,14 +263,19 @@ func (v view) groupLanguage(current string) (string, telegram.Markup) {
 }
 
 // settings shows the zone the result follows. A group's also has its
-// language; a person's language is on the home screen.
-func (v view) settings(zone, groupLang string) (string, telegram.Markup) {
+// language, when the morning post comes and the two switches; a person's
+// language is on the home screen.
+func (v view) settings(zone, groupLang string, st *db.Settings) (string, telegram.Markup) {
 	hint := v.t("settings.hint")
 	if v.sc == scopeGroup {
 		hint = v.t("settings.group_hint")
 	}
 	zoneName := v.t("zone." + zone)
-	text := panel(v.t("settings.title"), "", hint, quote(v.t("settings.reveal", "time", revealTime(), "zone", zoneName)))
+	body := v.t("settings.reveal", "time", revealTime(), "zone", zoneName)
+	if st != nil {
+		body += "\n" + v.t("settings.post", "time", fmt.Sprintf("%02d:%02d", st.PostHour, st.PostMin))
+	}
+	text := panel(v.t("settings.title"), "", hint, quote(body))
 	rows := telegram.Markup{{{Text: v.t("btn.zone", "zone", zoneName), CallbackData: cb(v.owner, actZone)}}}
 	if v.sc == scopeGroup {
 		label := v.t("btn.lang_auto")
@@ -273,6 +283,23 @@ func (v view) settings(zone, groupLang string) (string, telegram.Markup) {
 			label = i18n.LabelOf(groupLang)
 		}
 		rows = append(rows, []telegram.Button{{Text: v.t("btn.group_language", "language", label), CallbackData: cb(v.owner, actGroupLang)}})
+	}
+	if st != nil {
+		step := func(label string, minutes int) telegram.Button {
+			return telegram.Button{Text: label, CallbackData: cb(v.owner, actPost+":"+strconv.Itoa(minutes))}
+		}
+		toggle := func(key, name string, on bool) telegram.Button {
+			b := telegram.Button{Text: toggleMark(on) + v.t(key), CallbackData: cb(v.owner, actSwitch+":"+name)}
+			if on {
+				b.Style = tg.StyleSuccess
+			}
+			return b
+		}
+		rows = append(rows,
+			[]telegram.Button{step("−1:00", -60), step("−0:15", -15), step("+0:15", 15), step("+1:00", 60)},
+			[]telegram.Button{toggle("btn.intrigue", "intrigue", st.Intrigue)},
+			[]telegram.Button{toggle("btn.mentions", "mentions", st.Mentions)},
+		)
 	}
 	return text, append(rows, v.navRow(actHome))
 }

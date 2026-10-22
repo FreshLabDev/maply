@@ -17,6 +17,14 @@ of the Go service.
 
 ### Added
 
+- A group admin moves the morning post by an hour or a quarter (05:00–19:00)
+  and turns the intrigue and the streak mentions on or off under Settings. A
+  post that has not gone out yet follows the new time the same day.
+- A location sent to maply in a DM is the day's answer, under the Mini App's
+  rules: one a day, refused after the deadline. Help says so.
+- Blocking maply stops the day in that DM; unblocking or writing to it starts
+  it again. The bot's profile description and short description are set in
+  every language at start, and written only when they changed.
 - The day runs by itself (`internal/schedule`, `005_schedule.sql`): every
   chat gets the morning post with the photo, an intrigue between 16:00 and
   18:00 and the result at 20:00, each in its own zone. Sends are rows in the

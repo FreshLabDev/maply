@@ -4,10 +4,12 @@ package bot
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/i18n"
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/telegram"
@@ -27,7 +29,8 @@ func (b *Bot) isStart(m *tg.Message) bool {
 	return !addressed || strings.EqualFold(at, b.opts.Username)
 }
 
-// publishCommands sets /start's description in every language. A failure is
+// publishCommands sets /start's description and the bot's profile texts in
+// every language. A failure is
 // logged and polling starts anyway: the command works without a description.
 func (b *Bot) publishCommands(ctx context.Context) {
 	for _, code := range append([]string{""}, i18n.Codes()...) {
@@ -38,6 +41,10 @@ func (b *Bot) publishCommands(ctx context.Context) {
 		cmds := []tg.BotCommand{{Command: "start", Description: i18n.T(lang, "cmd.start")}}
 		if err := b.tg.SetMyCommandsForScope(ctx, cmds, &tg.BotCommandScope{Type: "default", LanguageCode: code}); err != nil {
 			b.log.Warn("bot commands not published", "language", code, "error", err)
+			return
+		}
+		if err := b.tg.SetDescriptions(ctx, code, i18n.T(lang, "bot.description"), i18n.T(lang, "bot.short")); err != nil {
+			b.log.Warn("bot description not published", "language", code, "error", err)
 			return
 		}
 	}
@@ -203,7 +210,15 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 		if err != nil {
 			return "", err
 		}
-		return edit(v.settings(round.Name(zone, zoneLang), chatLang))
+		var st *db.Settings
+		if v.sc == scopeGroup {
+			got, err := b.store.ChatSettings(ctx, chat.ID)
+			if err != nil {
+				return "", err
+			}
+			st = &got
+		}
+		return edit(v.settings(round.Name(zone, zoneLang), chatLang, st))
 	}
 	zonePanel := func() (string, error) {
 		zone, err := b.store.ChatZone(ctx, chat.ID)
@@ -280,6 +295,35 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 		v.lang = code
 		return edit(v.groupLanguage(code))
 	}
+	if step, ok := strings.CutPrefix(action, actPost+":"); ok {
+		minutes, err := strconv.Atoi(step)
+		if err != nil || !postSteps[minutes] || v.sc != scopeGroup {
+			return "", nil
+		}
+		if err := b.store.MovePost(ctx, chat.ID, minutes); err != nil {
+			return "", err
+		}
+		return settings()
+	}
+	if name, ok := strings.CutPrefix(action, actSwitch+":"); ok {
+		if (name != "intrigue" && name != "mentions") || v.sc != scopeGroup {
+			return "", nil
+		}
+		// The press flips what the database holds now, not what the panel
+		// showed: two admins pressing at once end where the second meant.
+		st, err := b.store.ChatSettings(ctx, chat.ID)
+		if err != nil {
+			return "", err
+		}
+		on := st.Intrigue
+		if name == "mentions" {
+			on = st.Mentions
+		}
+		if err := b.store.SetSwitch(ctx, chat.ID, name, !on); err != nil {
+			return "", err
+		}
+		return settings()
+	}
 	if name, ok := strings.CutPrefix(action, actZone+":"); ok {
 		if !round.IsChoice(name) {
 			return "", nil
@@ -293,12 +337,19 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 }
 
 // onMembership sets a group up when maply is added and marks it when maply
-// is removed.
+// is removed. In a DM the same update says the person blocked or unblocked
+// maply.
 func (b *Bot) onMembership(ctx context.Context, upd *tg.ChatMemberUpdated) error {
+	in := func(status string) bool { return status == "member" || status == "administrator" }
+	if upd.Chat.Type == "private" {
+		if in(upd.NewChatMember.Status) {
+			return b.store.ReturnChat(ctx, upd.Chat.ID)
+		}
+		return b.store.LeaveChat(ctx, upd.Chat.ID)
+	}
 	if upd.Chat.Type != "group" && upd.Chat.Type != "supergroup" {
 		return nil
 	}
-	in := func(status string) bool { return status == "member" || status == "administrator" }
 	switch {
 	case in(upd.NewChatMember.Status) && !in(upd.OldChatMember.Status):
 		chatLang, err := b.store.ChatLang(ctx, upd.Chat.ID)

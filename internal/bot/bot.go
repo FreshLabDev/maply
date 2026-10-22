@@ -29,7 +29,16 @@ type Store interface {
 	SetChatZone(ctx context.Context, chatID int64, zone string) error
 	AdoptChatZone(ctx context.Context, chatID int64, zone string) error
 	LeaveChat(ctx context.Context, chatID int64) error
+	ReturnChat(ctx context.Context, chatID int64) error
 	Stats(ctx context.Context, userID int64) (db.Stats, error)
+
+	ChatSettings(ctx context.Context, chatID int64) (db.Settings, error)
+	MovePost(ctx context.Context, chatID int64, minutes int) error
+	SetSwitch(ctx context.Context, chatID int64, name string, on bool) error
+
+	RoundOn(ctx context.Context, d round.Date) (db.Round, bool, error)
+	Contexts(ctx context.Context, userID int64) ([]db.Context, error)
+	InsertGuess(ctx context.Context, g db.NewGuess) error
 }
 
 type Telegram interface {
@@ -42,6 +51,7 @@ type Telegram interface {
 	AnswerCallbackQuery(ctx context.Context, callbackID, text string) error
 	AnswerCallbackQueryAlert(ctx context.Context, callbackID, text string) error
 	GetChatMember(ctx context.Context, chatID, userID int64) (tg.ChatMember, error)
+	SetDescriptions(ctx context.Context, lang, description, short string) error
 }
 
 // Options are what the panels show that the bot cannot learn from an update.
@@ -175,10 +185,20 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 	if err := b.store.Touch(ctx, *user, chat); err != nil {
 		b.log.Error("core touch failed", "update_id", u.UpdateID, "error", err)
 	}
+	// Whoever writes to maply gets the day again, after a block too.
+	if u.Message != nil && !user.IsBot {
+		if err := b.store.ReturnChat(ctx, chat.ID); err != nil {
+			b.log.Error("return chat failed", "update_id", u.UpdateID, "error", err)
+		}
+	}
 	var err error
 	switch {
 	case u.Message != nil && b.isStart(u.Message):
 		err = b.sendHome(ctx, u.Message)
+	case u.Message != nil && u.Message.Chat.Type == "private":
+		if p, ok := locationOf(u.Message); ok {
+			err = b.onLocation(ctx, u.Message, p)
+		}
 	case u.Callback != nil:
 		err = b.onCallback(ctx, u.Callback)
 	case u.MyChatMember != nil:

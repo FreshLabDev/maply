@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -198,6 +199,34 @@ func (c *Client) SetMenuButton(ctx context.Context, chatID int64, text, url stri
 	}
 	_, err := call[bool](ctx, c, "setChatMenuButton", req)
 	return err
+}
+
+// SetDescriptions writes the bot's profile texts for one language, empty
+// being the default for every language without its own. Each is read first
+// and written only when it differs: Telegram limits how often they change,
+// and a restart should not spend that.
+func (c *Client) SetDescriptions(ctx context.Context, lang, description, short string) error {
+	for _, d := range []struct{ get, set, field, text string }{
+		{"getMyDescription", "setMyDescription", "description", description},
+		{"getMyShortDescription", "setMyShortDescription", "short_description", short},
+	} {
+		q := url.Values{}
+		if lang != "" {
+			q.Set("language_code", lang)
+		}
+		var cur envelope[map[string]string]
+		if err := c.CallGet(ctx, d.get, q, &cur); err == nil && cur.OK && cur.Result[d.field] == d.text {
+			continue
+		}
+		req := map[string]any{d.field: d.text}
+		if lang != "" {
+			req["language_code"] = lang
+		}
+		if _, err := call[bool](ctx, c, d.set, req); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // PreparedPhoto is a photo result for shareMessage: the Mini App hands its id

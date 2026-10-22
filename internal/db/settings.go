@@ -110,6 +110,16 @@ func (s *Store) LeaveChat(ctx context.Context, chatID int64) error {
 	return nil
 }
 
+// ReturnChat marks a chat active again: the person unblocked maply or wrote
+// to it, or the group talks to it.
+func (s *Store) ReturnChat(ctx context.Context, chatID int64) error {
+	if _, err := s.pool.Exec(ctx, `
+		UPDATE chat_settings SET active = true, updated_at = now() WHERE chat_id = $1 AND NOT active`, chatID); err != nil {
+		return fmt.Errorf("return chat %d: %w", chatID, err)
+	}
+	return nil
+}
+
 func kindOf(chatID int64) string {
 	if chatID > 0 {
 		return "dm"
