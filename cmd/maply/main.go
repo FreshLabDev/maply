@@ -21,6 +21,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/health"
 	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/FreshLabDev/maply/internal/schedule"
 	"github.com/FreshLabDev/maply/internal/telegram"
 	"github.com/FreshLabDev/maply/migrations"
 	"github.com/FreshLabDev/maply/web"
@@ -79,7 +80,8 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
-	b := bot.New(store, telegram.New(client), log, bot.Options{
+	tgc := telegram.New(client)
+	b := bot.New(store, tgc, log, bot.Options{
 		Username: me.Username,
 		Version:  version,
 		AppURL:   cfg.AppURL,
@@ -119,7 +121,7 @@ func run(log *slog.Logger) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	go func() {
 		log.Info("http listening", "addr", cfg.HTTPAddr, "version", version)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -132,6 +134,27 @@ func run(log *slog.Logger) error {
 			errCh <- err
 		}
 	}()
+
+	if cfg.Schedule {
+		sched := &schedule.Scheduler{
+			Store:     store,
+			TG:        tgc,
+			Weather:   schedule.OpenMeteo{},
+			Payloads:  auth.NewSigner(cfg.TelegramBotToken),
+			Zones:     zones,
+			Countries: countries,
+			ImagesDir: cfg.ImagesDir,
+			Username:  me.Username,
+			AppURL:    cfg.AppURL,
+			Log:       log,
+		}
+		go func() {
+			log.Info("scheduler starting")
+			if err := sched.Run(ctx); err != nil {
+				errCh <- err
+			}
+		}()
+	}
 
 	select {
 	case <-ctx.Done():

@@ -25,6 +25,10 @@ type Config struct {
 	// AppURL is the public https address of the Mini App, which Telegram opens
 	// from the Play button. Empty leaves the button out.
 	AppURL string
+	// Schedule sends the day's post, intrigue and result. A second instance
+	// against the same database can leave it off; the job queue would keep
+	// it from sending twice anyway.
+	Schedule bool
 }
 
 func Load() (Config, error) {
@@ -40,6 +44,9 @@ func Load() (Config, error) {
 	var err error
 	if cfg.AutoMigrate, err = strconv.ParseBool(valueOrDefault("AUTO_MIGRATE", "true")); err != nil {
 		return Config{}, fmt.Errorf("AUTO_MIGRATE must be a boolean: %w", err)
+	}
+	if cfg.Schedule, err = strconv.ParseBool(valueOrDefault("SCHEDULE", "true")); err != nil {
+		return Config{}, fmt.Errorf("SCHEDULE must be a boolean: %w", err)
 	}
 	if !strings.HasPrefix(cfg.TelegramAPIBase, "http://") && !strings.HasPrefix(cfg.TelegramAPIBase, "https://") {
 		return Config{}, fmt.Errorf("TELEGRAM_API_BASE must be an http or https URL")

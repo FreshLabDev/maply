@@ -97,21 +97,40 @@ machine: its batches carry source IDs and coordinates and are gitignored.
 
 A day, from the service's point of view:
 
-1. Before 07:00 in each zone, `schedule` writes the day's jobs for every chat:
-   the post, an intrigue at a random minute between 16:00 and 18:00, and the
-   result at 20:00. Each job carries an idempotency key, so a restart re-reads
-   the queue and sends nothing twice.
-2. The post goes out with a `web_app` button in a DM and a
-   `t.me/<bot>/play?startapp=<payload>` link in a group. The payload is the date
-   and the chat, signed with HMAC.
-3. The Mini App calls `/api/today` with `initData`. `auth` verifies it, checks
+1. Every 20 seconds `schedule` reads the active chats and queues the current
+   date's jobs for each one in its own zone: the post at the chat's post time
+   (07:00 unless a group admin moved it), an intrigue at a minute between
+   16:00 and 18:00 that is the same on every run, and the result at 20:00.
+   A job's key is `kind:date:chat`, so planning twice adds nothing. A chat that
+   appears during the day (a new group, a first `/start`) gets the day's post
+   on the next pass, until the reveal.
+2. Due jobs are claimed with a two-minute lease (`FOR UPDATE SKIP LOCKED`), so
+   a second instance or a restart never sends one twice. A failed send is
+   retried with a growing pause up to five attempts. A chat that blocked or
+   removed maply is marked inactive and its jobs end as skipped.
+3. The post is the day's photo: uploaded once from `IMAGES_DIR`, then sent to
+   every other chat by Telegram's file id. A DM gets a `web_app` button; a
+   group gets a `t.me/<bot>/play?startapp=<payload>` link, the payload being
+   the date and the chat signed with HMAC. In a group the post is pinned
+   without a sound; without the right to pin, the admins are told once. Until
+   the reveal the caption's who-answered line is redrawn when it changes, at
+   most once a minute.
+4. The Mini App calls `/api/today` with `initData`. `auth` verifies it, checks
    the payload and, for a group, membership through `getChatMember`.
-4. `/api/guess` stores one answer per person per day and answers "accepted".
+5. `/api/guess` stores one answer per person per day and answers "accepted".
    The deadline is the earliest reveal among the person's chats.
-5. At 20:00 the result job computes scores (`scoring` and `geo`, no outside
-   calls), renders the map card, unpins the post and sends the card with the
-   table in its caption. `/api/result` starts answering
-   for that chat.
+6. The intrigue is one line. In a group it is whichever of these has something
+   to say and was not yesterday's: the local time and weather at the place
+   (Open-Meteo, which gets the place's coordinates and nothing about players),
+   how far apart the group's pins are, the continent most players worldwide
+   chose, or a member whose streak of five or more is at risk. When everyone
+   has answered it says so. A DM gets it only without an answer.
+7. At 20:00 the result job scores the due answers (`scoring` and `geo`, no
+   outside calls), unpins the post and sends the place's photo with the city,
+   country, fact and the group's top ten in the caption. A DM gets the whole
+   result when the person plays alone, and only their own line when a group
+   already shows them the place. `/api/result` starts answering for that chat.
+   The rendered map card (#65) is not built yet; the photo stands in for it.
 
 ## Packages And Dependencies
 

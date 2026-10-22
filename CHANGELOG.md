@@ -17,6 +17,14 @@ of the Go service.
 
 ### Added
 
+- The day runs by itself (`internal/schedule`, `005_schedule.sql`): every
+  chat gets the morning post with the photo, an intrigue between 16:00 and
+  18:00 and the result at 20:00, each in its own zone. Sends are rows in the
+  job queue keyed by kind, date and chat, so a restart or a second instance
+  sends nothing twice; a test runs a whole day on a fast clock with a restart
+  at noon to prove it. The group post is pinned silently and its
+  who-answered line is redrawn at most once a minute. A chat that blocked or
+  removed maply stops getting the day. `SCHEDULE=false` turns it off.
 - Every line maply shows lives in `internal/i18n`, in the family's sixteen
   languages: the same picker, codes and fallback to English as voicy and
   branchy. A test fails on a key missing in any language or a placeholder that
