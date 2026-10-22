@@ -57,7 +57,7 @@ Done when: the link `t.me/maplyin_bot/play` opens a static placeholder on `maply
 | `place` | `city_poly` (geojson), `country_iso`, `continent`, `fact`, `detail_crop`, `difficulty`, `status`, `reviewed_by` |
 | `round` | `day_no`, `place_id`, `date` (unique) |
 | `guess` | `context` (dm, group, site), `chat_id`, `answered_at`, `deadline_at`, `km`, `pts_km`, `pts_bonus`, `clean`. Unique on `(date, user_id)` |
-| `chat_settings` | `lang`, `post_time`, `intrigue`, `mentions` |
+| `chat_settings` | `kind` (dm, group), `lang`, `post_time`, `intrigue`, `mentions`, `active`. DMs live here too, so the scheduler treats every chat alike |
 | `chat_round` | `post_msg_id`, `pinned`, `intrigue_at`, `intrigue_sent`, `result_msg_id`. The scheduler uses this table to know what has already been done |
 | `job` | queue of scheduled sends with an idempotency key, so that nothing goes out twice after a restart |
 

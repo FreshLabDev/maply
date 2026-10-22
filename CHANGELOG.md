@@ -22,6 +22,13 @@ of the Go service.
   binary, Telegram long polling through `FreshLabDev/tg` that records people
   and groups in `core`, a `Preflight` check before polling starts, and
   `/healthz` reporting the database and polling freshness.
+- The game schema (`002_game.sql`): `place` with its curation status,
+  `round` (one place per date), `guess` (one answer per person per day, with
+  the deadline it was accepted under), `chat_settings` for groups and DMs
+  alike, `chat_round` for what a chat has already been sent, and `job`, the
+  send queue keyed for idempotency. Constraints refuse an answer after its
+  deadline, an approved place without the data a round needs, and a morning
+  post moved past the 20:00 reveal.
 - CI (modules, gofmt, vet, race tests, database tests, govulncheck, image build,
   Compose validation), the release workflow that publishes the image to GHCR,
   Dependabot, a local `docker-compose.yml` and the WS04 stack.
