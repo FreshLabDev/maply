@@ -69,6 +69,7 @@ func client(t *testing.T) (*Client, *fakeBotAPI) {
 		"sendPhoto":                 `{"message_id":7,"chat":{"id":-100,"type":"supergroup"},"date":1,"photo":[{"file_id":"F1","file_unique_id":"U1","width":1,"height":1}]}`,
 		"editMessageReplyMarkup":    `{"message_id":7,"chat":{"id":-100,"type":"supergroup"},"date":1}`,
 		"savePreparedInlineMessage": `{"id":"prep-1","expiration_date":1900000000}`,
+		"sendMessage":               `{"message_id":9,"chat":{"id":42,"type":"private"},"date":1,"text":"maply"}`,
 	}}
 	srv := httptest.NewServer(fake)
 	t.Cleanup(srv.Close)
@@ -157,5 +158,32 @@ func TestMenuButtonAndPreparedMessage(t *testing.T) {
 	}
 	if res := fake.requests[1].body["result"].(map[string]any); res["type"] != "photo" || fake.requests[1].body["user_id"] != float64(42) {
 		t.Fatalf("savePreparedInlineMessage = %+v", fake.requests[1].body)
+	}
+}
+
+func TestTextPanelCarriesStyleAndWebApp(t *testing.T) {
+	c, fake := client(t)
+	ctx := context.Background()
+	markup := Markup{{{Text: "Play", WebApp: "https://maply.ws04.cc/", Style: tg.StylePrimary}, {Text: "Help", CallbackData: "m:42:help"}}}
+	msg, err := c.SendText(ctx, 42, "<b>maply</b>", markup)
+	if err != nil || msg.MessageID != 9 {
+		t.Fatalf("message = %+v, %v", msg, err)
+	}
+	if err := c.EditText(ctx, 42, 9, "<b>Help</b>", nil); err != nil {
+		t.Fatal(err)
+	}
+	send := fake.requests[0]
+	if send.method != "sendMessage" || send.body["parse_mode"] != "HTML" {
+		t.Fatalf("send = %+v", send)
+	}
+	row := send.body["reply_markup"].(map[string]any)["inline_keyboard"].([]any)[0].([]any)
+	if play := row[0].(map[string]any); play["style"] != tg.StylePrimary || play["web_app"] == nil {
+		t.Fatalf("play = %v", play)
+	}
+	if help := row[1].(map[string]any); help["style"] != nil || help["callback_data"] != "m:42:help" {
+		t.Fatalf("help = %v", help)
+	}
+	if edit := fake.requests[1]; edit.method != "editMessageText" || edit.body["reply_markup"] != nil || edit.body["message_id"] != float64(9) {
+		t.Fatalf("edit = %+v", edit)
 	}
 }

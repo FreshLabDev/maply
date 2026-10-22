@@ -37,6 +37,16 @@ of the Go service.
   Arabic reads English labels on the map until the RTL text plugin ships.
   Curated city names and facts fall back to English for a language the
   curators have not written yet.
+- The bot's menus repeat voicy's and quoto's: one panel shape (bold title,
+  italic hint, quoted body), `◉`/`◎` on a choice with the current one green,
+  Back to home, Close only in a group. `/start` in a DM opens Play (the Mini
+  App, from the new optional `APP_URL`), the shared language picker with
+  Follow Telegram, stats, settings, help and about. In a group, Settings shows
+  only to admins and every press under it checks the rights again; there an
+  admin picks the group's zone and language. Adding maply to a group fixes its
+  zone from the group's language, or the adder's while the group has none; a
+  removed group is marked inactive and keeps its zone. `/start` gets a
+  description in all sixteen languages.
 - The Go service skeleton, built the way voicy and branchy are: validated
   environment, PostgreSQL in the `maply` schema with migrations embedded in the
   binary, Telegram long polling through `FreshLabDev/tg` that records people

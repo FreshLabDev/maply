@@ -17,21 +17,26 @@ import (
 	"github.com/FreshLabDev/tg"
 )
 
+// Client is tg's client with maply's additions on top: every method tg has is
+// reachable through the embedded value, and a method here with the same name
+// wins.
 type Client struct {
-	tg *tg.Client
+	*tg.Client
 }
 
 func New(client *tg.Client) *Client {
-	return &Client{tg: client}
+	return &Client{Client: client}
 }
 
 // Button is one inline button: a callback, a link, or a Mini App to open.
-// Exactly one of CallbackData, URL and WebApp is set.
+// Exactly one of CallbackData, URL and WebApp is set. Style is tg's: empty,
+// tg.StylePrimary, tg.StyleSuccess or tg.StyleDanger.
 type Button struct {
 	Text         string
 	CallbackData string
 	URL          string
 	WebApp       string
+	Style        string
 }
 
 type Markup [][]Button
@@ -45,6 +50,7 @@ func (m Markup) MarshalJSON() ([]byte, error) {
 		CallbackData string  `json:"callback_data,omitempty"`
 		URL          string  `json:"url,omitempty"`
 		WebApp       *webApp `json:"web_app,omitempty"`
+		Style        string  `json:"style,omitempty"`
 	}
 	rows := make([][]button, len(m))
 	for i, row := range m {
@@ -59,7 +65,7 @@ func (m Markup) MarshalJSON() ([]byte, error) {
 			if set != 1 {
 				return nil, fmt.Errorf("button %q needs exactly one action, has %d", b.Text, set)
 			}
-			rows[i][j] = button{Text: b.Text, CallbackData: b.CallbackData, URL: b.URL}
+			rows[i][j] = button{Text: b.Text, CallbackData: b.CallbackData, URL: b.URL, Style: b.Style}
 			if b.WebApp != "" {
 				rows[i][j].WebApp = &webApp{URL: b.WebApp}
 			}
@@ -76,7 +82,7 @@ type envelope[T any] struct {
 
 func call[T any](ctx context.Context, c *Client, method string, req map[string]any) (T, error) {
 	var out envelope[T]
-	if err := c.tg.Call(ctx, method, req, &out); err != nil {
+	if err := c.Call(ctx, method, req, &out); err != nil {
 		var zero T
 		return zero, err
 	}
@@ -111,7 +117,7 @@ func (c *Client) SendPhoto(ctx context.Context, chatID int64, photo Photo, capti
 	}
 	// The upload's name is what Telegram records; the key is random already,
 	// but a fixed name keeps even that out of Telegram.
-	msg, err := c.tg.SendPhoto(ctx, chatID, tg.InputFileUpload{Filename: "maply" + filepath.Ext(photo.Path), Data: bytes.NewReader(data)},
+	msg, err := c.Client.SendPhoto(ctx, chatID, tg.InputFileUpload{Filename: "maply" + filepath.Ext(photo.Path), Data: bytes.NewReader(data)},
 		tg.CaptionOptions{Caption: caption})
 	if err != nil || markup == nil {
 		return msg, err
@@ -120,6 +126,32 @@ func (c *Client) SendPhoto(ctx context.Context, chatID int64, photo Photo, capti
 		return msg, fmt.Errorf("photo sent without buttons: %w", err)
 	}
 	return msg, nil
+}
+
+// SendText posts an HTML message without a link preview. It exists beside
+// tg's SendMessage because tg's keyboard has no web_app button.
+func (c *Client) SendText(ctx context.Context, chatID int64, text string, markup Markup) (tg.Message, error) {
+	req := map[string]any{
+		"chat_id": chatID, "text": text, "parse_mode": "HTML",
+		"link_preview_options": map[string]bool{"is_disabled": true},
+	}
+	if markup != nil {
+		req["reply_markup"] = markup
+	}
+	return call[tg.Message](ctx, c, "sendMessage", req)
+}
+
+// EditText replaces an HTML message and its buttons.
+func (c *Client) EditText(ctx context.Context, chatID, messageID int64, text string, markup Markup) error {
+	req := map[string]any{
+		"chat_id": chatID, "message_id": messageID, "text": text, "parse_mode": "HTML",
+		"link_preview_options": map[string]bool{"is_disabled": true},
+	}
+	if markup != nil {
+		req["reply_markup"] = markup
+	}
+	_, err := call[json.RawMessage](ctx, c, "editMessageText", req)
+	return err
 }
 
 func (c *Client) EditMarkup(ctx context.Context, chatID, messageID int64, markup Markup) error {

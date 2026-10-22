@@ -21,6 +21,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/health"
 	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/FreshLabDev/maply/internal/telegram"
 	"github.com/FreshLabDev/maply/migrations"
 	"github.com/FreshLabDev/maply/web"
 )
@@ -78,7 +79,12 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
-	b := bot.New(store, client, log)
+	b := bot.New(store, telegram.New(client), log, bot.Options{
+		Username: me.Username,
+		Version:  version,
+		AppURL:   cfg.AppURL,
+		Zones:    zones,
+	})
 
 	game := (&api.Server{
 		Store:     store,

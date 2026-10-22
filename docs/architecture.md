@@ -45,7 +45,7 @@ maply/
 │   ├── db/               pgx pool, embedded migrations, search_path=maply, core.touch
 │   ├── telegram/         adapter over tg: web_app button, pin, setChatMenuButton,
 │   │                     savePreparedInlineMessage until they exist in tg
-│   ├── bot/              updates, /start, settings, operator chat
+│   ├── bot/              updates, /start, menus and settings, operator chat
 │   ├── round/            place of the day, day number, reveal time per zone,
 │   │                     the answer window across a person's chats
 │   ├── scoring/          haversine, distance curve, bonus ladder

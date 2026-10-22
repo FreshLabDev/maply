@@ -99,6 +99,15 @@ func (s *Store) AdoptChatZone(ctx context.Context, chatID int64, zone string) er
 	return nil
 }
 
+// LeaveChat marks a group maply was removed from. The row stays: its zone is
+// still the group's if maply is added back.
+func (s *Store) LeaveChat(ctx context.Context, chatID int64) error {
+	if _, err := s.pool.Exec(ctx, `UPDATE chat_settings SET active = false, updated_at = now() WHERE chat_id = $1`, chatID); err != nil {
+		return fmt.Errorf("leave chat %d: %w", chatID, err)
+	}
+	return nil
+}
+
 func kindOf(chatID int64) string {
 	if chatID > 0 {
 		return "dm"

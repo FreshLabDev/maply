@@ -22,6 +22,9 @@ type Config struct {
 	// ImagesDir holds the place images, one file per random key. Empty
 	// serves none.
 	ImagesDir string
+	// AppURL is the public https address of the Mini App, which Telegram opens
+	// from the Play button. Empty leaves the button out.
+	AppURL string
 }
 
 func Load() (Config, error) {
@@ -32,6 +35,7 @@ func Load() (Config, error) {
 		HTTPAddr:         valueOrDefault("HTTP_ADDR", ":8080"),
 		LogLevel:         valueOrDefault("LOG_LEVEL", "info"),
 		ImagesDir:        strings.TrimSpace(os.Getenv("IMAGES_DIR")),
+		AppURL:           strings.TrimSpace(os.Getenv("APP_URL")),
 	}
 	var err error
 	if cfg.AutoMigrate, err = strconv.ParseBool(valueOrDefault("AUTO_MIGRATE", "true")); err != nil {
@@ -39,6 +43,10 @@ func Load() (Config, error) {
 	}
 	if !strings.HasPrefix(cfg.TelegramAPIBase, "http://") && !strings.HasPrefix(cfg.TelegramAPIBase, "https://") {
 		return Config{}, fmt.Errorf("TELEGRAM_API_BASE must be an http or https URL")
+	}
+	// Telegram opens a Mini App only over https.
+	if cfg.AppURL != "" && !strings.HasPrefix(cfg.AppURL, "https://") {
+		return Config{}, fmt.Errorf("APP_URL must be an https URL")
 	}
 	if cfg.TelegramBotToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
