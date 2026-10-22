@@ -10,6 +10,7 @@ Natural Earth (naturalearthdata.com), which is in the public domain.
 The Mini App in web/app/vendor bundles, each with its license beside it:
 MapLibre GL JS (BSD-3-Clause, Copyright (c) 2023 MapLibre contributors and
 Copyright (c) 2020 Mapbox, with the notices of the code it includes),
-Pannellum (MIT, Copyright (c) 2011-2019 Matthew Petroff) and the Sofia Sans
-and Sofia Sans Extra Condensed fonts (SIL Open Font License 1.1, Copyright
-2019 The Sofia Sans Project Authors).
+Pannellum (MIT, Copyright (c) 2011-2019 Matthew Petroff), mapbox-gl-rtl-text
+(BSD-2-Clause, Copyright (c) 2017 Mapbox, with the ICU notice it carries) and
+the Sofia Sans and Sofia Sans Extra Condensed fonts (SIL Open Font License
+1.1, Copyright 2019 The Sofia Sans Project Authors).

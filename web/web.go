@@ -34,9 +34,11 @@ const TileHost = "https://tiles.openfreemap.org"
 
 // CSP names every host the page may reach, so a script that starts calling
 // somewhere new fails in the browser before it ships. MapLibre runs its
-// workers from blob: URLs; style attributes come from innerHTML templates.
+// workers from blob: URLs; style attributes come from innerHTML templates. The
+// RTL text plugin compiles WebAssembly, which 'wasm-unsafe-eval' allows without
+// allowing eval.
 const CSP = "default-src 'none'; " +
-	"script-src 'self' https://telegram.org; " +
+	"script-src 'self' 'wasm-unsafe-eval' https://telegram.org; " +
 	"style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data: blob:; " +
 	"font-src 'self'; " +

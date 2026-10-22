@@ -120,7 +120,8 @@ A day, from the service's point of view:
   renderer; it is the one dependency the family does not have yet.
 - Everything else is the standard library unless a dependency materially reduces
   complexity. Point-in-polygon on Natural Earth does not need a GIS library.
-- The Mini App vendors MapLibre GL, Pannellum and the Sofia Sans fonts into
+- The Mini App vendors MapLibre GL, its RTL text plugin, Pannellum and the
+  Sofia Sans fonts (Latin, Latin Extended, Cyrillic) into
   `web/app/vendor/<name>-<version>/`, unchanged from their npm packages, with
   their licenses next to them. A versioned path is served as immutable; the
   app's own files are revalidated by ETag.

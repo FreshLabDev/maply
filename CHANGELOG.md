@@ -34,7 +34,11 @@ of the Go service.
   client's language and switches to the person's choice from core when
   `/api/today` names it (`lang`). Map labels follow the language, and country
   labels come from the browser's names for the ISO code, as on the result.
-  Arabic reads English labels on the map until the RTL text plugin ships.
+  Arabic and Hebrew labels are shaped by MapLibre's RTL text plugin
+  (`mapbox-gl-rtl-text` 0.3.0, loaded only when such a label first appears;
+  the CSP allows `'wasm-unsafe-eval'` for its ICU and still no `eval`). Sofia
+  Sans carries its Latin Extended subset, so Polish, Czech, Turkish and
+  Catalan letters no longer fall back to the system font.
   Curated city names and facts fall back to English for a language the
   curators have not written yet.
 - The bot's menus repeat voicy's and quoto's: one panel shape (bold title,

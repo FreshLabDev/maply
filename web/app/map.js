@@ -3,9 +3,11 @@
 // Flat fills without shadows or glow, as in the design system; only the graticule gives the globe volume.
 const C = { water: "#245A3C", land: "#DDE5E0", park: "#C9D7CE", build: "#C3D0C8",
             road: "#FFFFFF", major: "#59826B", line: "#59826B", deep: "#1A412B", muted: "#B5C7BD" };
-// Labels in the reader's language where OpenStreetMap has one. Arabic needs MapLibre's RTL plugin to be shaped,
-// and the service does not carry it yet, so an Arabic reader gets the English names on the map.
-const mapLang = (lang) => (lang === "ar" ? "en" : lang);
+// Labels in the reader's language where OpenStreetMap has one. Arabic and Hebrew are shaped by the RTL plugin,
+// which MapLibre fetches only when a label in those scripts first appears; local names show them in every language.
+// Its ICU is WebAssembly, hence 'wasm-unsafe-eval' in the CSP.
+maplibregl.setRTLTextPlugin(new URL("vendor/mapbox-gl-rtl-text-0.3.0/mapbox-gl-rtl-text.js", location.href).href, true)
+  .catch(() => {});
 const nameIn = (lang) => ["coalesce", ["get", "name:" + lang], ["get", "name"]];
 // Country labels are the browser's short name for the ISO code: the same source as the country on the result.
 function countryIn(lang) {
@@ -19,7 +21,7 @@ function countryIn(lang) {
   }
   return pairs.length ? ["match", ["get", "iso_a2"], ...pairs, nameIn(lang)] : nameIn(lang);
 }
-const name = nameIn(mapLang(LANG0)), country = countryIn(mapLang(LANG0));
+const name = nameIn(LANG0), country = countryIn(LANG0);
 const z = (...stops) => ["interpolate", ["linear"], ["zoom"], ...stops];
 // Parallels and meridians every 15°: on the globe this is the main beauty; they dissolve by zoom 4.5.
 const grid = { type: "FeatureCollection", features: [] };
@@ -67,8 +69,7 @@ const style = {
   ]
 };
 // The map is drawn before /api/today says the language; this relabels it once it does.
-function setMapLanguage(lang) {
-  const l = mapLang(lang);
+function setMapLanguage(l) {
   const apply = () => {
     ["streets", "oceans", "cities"].forEach((id) => map.setLayoutProperty(id, "text-field", nameIn(l)));
     map.setLayoutProperty("countries", "text-field", countryIn(l));
