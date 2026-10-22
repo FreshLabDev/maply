@@ -50,6 +50,10 @@ of the Go service.
   rate-limited by person and by address. An integration test plays a winter
   day across Kyiv, Moscow and Minsk and checks that no response and no log
   line before the reveal says where the place is.
+- `internal/telegram`: the Bot API methods `tg` does not type yet, through
+  `Client.Call`: photos with a `web_app` button (by `file_id`, or uploaded under
+  a fixed name with the buttons added in an edit), silent pin and unpin,
+  `setChatMenuButton` and `savePreparedInlineMessage`.
 - CI (modules, gofmt, vet, race tests, database tests, govulncheck, image build,
   Compose validation), the release workflow that publishes the image to GHCR,
   Dependabot, a local `docker-compose.yml` and the WS04 stack.
