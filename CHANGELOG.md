@@ -34,6 +34,13 @@ of the Go service.
   enclaves, rings across the antimeridian and polar caps. The right country
   counts as the right continent too, so a pin in Paris for a place in French
   Guiana earns the country bonus.
+- The Mini App in `web/app/`, split from the prototype into `index.html`,
+  `app.css`, `tg.js`, `map.js` and `app.js` and served by the binary at `/`.
+  MapLibre GL 5.6.0, Pannellum 2.5.6 and Sofia Sans come from the service
+  instead of unpkg, jsdelivr and Google Fonts, which are unreliable from
+  Russia. A Content-Security-Policy lets the page reach only telegram.org and
+  the tile server. The browser no longer asks Nominatim for the pin's country;
+  the server computes the bonuses.
 - Country borders embedded in the binary: Natural Earth 1:10m admin-0 from the
   Ukrainian point of view, so Crimea and Sevastopol are Ukraine. Borders are
   simplified to about 220 m, which moves one land point in 90,000 to another

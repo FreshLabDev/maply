@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#245A3C">
+<title>maply</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="vendor/maplibre-gl-5.6.0/maplibre-gl.css">
+<link rel="stylesheet" href="vendor/pannellum-2.5.6/pannellum.css">
+<link rel="stylesheet" href="app.css">
+<script src="vendor/maplibre-gl-5.6.0/maplibre-gl.js"></script>
+<script src="vendor/pannellum-2.5.6/pannellum.js"></script>
+</head>
+</head>
+<body>
+<header class="top">
+  <button class="logo" id="logo" aria-label="maply"><b>maply</b><span class="up" id="day">#142</span></button>
+  <div class="timer" id="timer"><span class="up">до правды</span><b id="left">—</b></div>
+  <div class="prog" id="prog"><div class="lb" id="lb"></div><button class="more hidden" id="more"></button><p class="ifs" id="ifs"></p><div class="tip" id="tip"></div></div>
+</header>
+
+<main class="stage">
+  <div id="pano"></div>
+    <button class="compass" id="compass" aria-label="Повернуться на север"><svg id="tape"></svg></button>
+  <div class="hint up" id="hint"><i>крути пальцем</i><i>щипок — ближе</i></div>
+</main>
+
+<div id="map"></div>
+<button class="globe-hit" id="globeHit" aria-label="Открыть глобус"></button>
+<div class="call" id="call"><b id="callB">Где это?</b><span class="up" id="callS">ставь булавку <em>→</em></span></div>
+<div class="act" id="act"><button id="look">Ещё разглядеть</button><button id="go">Финальный ответ</button></div>
+<div class="ov-top" id="ovTop"></div>
+<div class="ov-bot" id="ovBot"></div>
+<div class="toast" id="toast"></div>
+<footer class="credits" id="credits"></footer>
+
+<div class="loader" id="loader"><div>
+  <svg viewBox="170 139 300 362"><path fill="#FFFFFF" fill-rule="evenodd" d="M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1 0 320 349 A60 60 0 1 0 320 229 Z"/></svg>
+  <span class="up" id="loadtext">Завязываем глаза…</span>
+</div></div>
+
+<script src="tg.js"></script>
+<script src="map.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

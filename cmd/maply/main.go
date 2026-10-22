@@ -22,6 +22,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/health"
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/migrations"
+	"github.com/FreshLabDev/maply/web"
 )
 
 var (
@@ -90,10 +91,16 @@ func run(log *slog.Logger) error {
 		Log:       log,
 	}).Handler()
 
+	app, err := web.Handler()
+	if err != nil {
+		return err
+	}
+
 	started := time.Now()
 	mux := http.NewServeMux()
 	mux.Handle("/api/", game)
 	mux.Handle("/img/", game)
+	mux.Handle("/", app)
 	mux.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
 		Version: version, Commit: commit, Date: date,
 	}, log))

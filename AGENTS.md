@@ -9,11 +9,13 @@ player, and production-minded.
   map, the answer at 20:00. The product is in [`docs/design.md`](docs/design.md),
   the order of work in [`docs/mvp-plan.md`](docs/mvp-plan.md). Read them before
   changing behavior.
-- The Go service is a skeleton: config, the database with embedded
-  migrations, Telegram long polling that records people and chats in `core`,
-  and `/healthz`. Next to it are the Mini App prototype
-  (`web/prototype/index.html`), the curation scripts (`scripts/curation/`) and
-  the source measurements (`scripts/sources/`).
+- The Go service has config, the database with embedded migrations, Telegram
+  long polling that records people and chats in `core`, the game calendar,
+  scoring over embedded Natural Earth borders, the HTTP API and `/healthz`. It
+  serves the Mini App from `web/app/` (package `web`). Next to it are the
+  original single-file prototype (`web/prototype/index.html`), the curation
+  scripts (`scripts/curation/`) and the source measurements
+  (`scripts/sources/`).
 - The service will be one Go binary (module `github.com/FreshLabDev/maply`): the
   bot with its scheduler, the HTTP API, the static Mini App and the place
   images, all from one process behind a Cloudflare Tunnel at `maply.ws04.cc`.

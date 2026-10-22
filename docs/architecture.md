@@ -60,9 +60,9 @@ maply/
 │   ├── i18n/             translations.json: ru, uk, be
 │   └── health/           /healthz: database, polling, queue depth
 ├── migrations/           NNN_name.sql, applied at start, recorded in schema_migrations
-├── web/
+├── web/                  package web: embeds app/ and serves it with a CSP
 │   ├── app/              the Mini App served by the binary: index.html, app.css,
-│   │                     app.js, tg.js, map.js, vendor/, fonts/
+│   │                     tg.js, map.js, app.js, vendor/
 │   └── prototype/        the single-file prototype, kept as the reference
 ├── scripts/
 │   ├── curation/         harvest.py, regions.py: candidates from Mapillary
@@ -84,8 +84,10 @@ maply/
 ```
 
 Today the Go side holds `cmd/maply`, `internal/config`, `internal/db`,
-`internal/bot`, `internal/health`, `migrations/`, `deploy/` and the CI
-workflows; the other packages and `web/app/` arrive with their stages.
+`internal/bot`, `internal/health`, `internal/round`, `internal/geo`,
+`internal/scoring`, `internal/auth`, `internal/api`, `internal/telegram`,
+`web`, `migrations/`, `deploy/` and the CI workflows; the other packages
+arrive with their stages.
 `migrations/` is a Go package too: it embeds the SQL into the binary, so an
 image always carries the schema its code was built for. `curation/` exists only on the operator's
 machine: its batches carry source IDs and coordinates and are gitignored.
@@ -118,5 +120,6 @@ A day, from the service's point of view:
 - Everything else is the standard library unless a dependency materially reduces
   complexity. Point-in-polygon on Natural Earth does not need a GIS library.
 - The Mini App vendors MapLibre GL, Pannellum and the Sofia Sans fonts into
-  `web/app/vendor/` and `web/app/fonts/`, at pinned versions with their licenses
-  next to them.
+  `web/app/vendor/<name>-<version>/`, unchanged from their npm packages, with
+  their licenses next to them. A versioned path is served as immutable; the
+  app's own files are revalidated by ETag.

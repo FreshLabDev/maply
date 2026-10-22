@@ -1,0 +1,204 @@
+/* Sofia Sans from the service itself: Google Fonts is unreliable from Russia. Latin and Cyrillic cover ru, uk and be. */
+@font-face { font-family: "Sofia Sans"; font-weight: 400; font-display: swap; unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+  src: url(vendor/sofia-sans-5.3.0/sofia-sans-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sofia Sans"; font-weight: 400; font-display: swap; unicode-range: U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;
+  src: url(vendor/sofia-sans-5.3.0/sofia-sans-cyrillic-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sofia Sans"; font-weight: 500; font-display: swap; unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+  src: url(vendor/sofia-sans-5.3.0/sofia-sans-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sofia Sans"; font-weight: 500; font-display: swap; unicode-range: U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;
+  src: url(vendor/sofia-sans-5.3.0/sofia-sans-cyrillic-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sofia Sans"; font-weight: 700; font-display: swap; unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+  src: url(vendor/sofia-sans-5.3.0/sofia-sans-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sofia Sans"; font-weight: 700; font-display: swap; unicode-range: U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;
+  src: url(vendor/sofia-sans-5.3.0/sofia-sans-cyrillic-700-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sofia Sans Extra Condensed"; font-weight: 700; font-display: swap; unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+  src: url(vendor/sofia-sans-5.3.0/sofia-sans-extra-condensed-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family: "Sofia Sans Extra Condensed"; font-weight: 700; font-display: swap; unicode-range: U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;
+  src: url(vendor/sofia-sans-5.3.0/sofia-sans-extra-condensed-cyrillic-700-normal.woff2) format("woff2"); }
+
+/* maply theme per Asterfield rules: single field colour, white mark, no shadows, rounded corners or transparency. */
+:root {
+  --field: #245A3C; --field-deep: #1A412B; --field-tint: #59826B;
+  --ink: #FFFFFF; --ink-soft: #D8E1DC; --ink-muted: #B5C7BD;
+  --panel: #FFFFFF; --on-panel: #245A3C;
+  /* Insets for the notch and Telegram buttons. In a fullscreen Mini App, "Close" and "⋯" sit on top of the page:
+     their height comes from Telegram in --tg-content-safe-area-inset-top. Outside Telegram these variables are absent, so env() remains. */
+  --safe-top: max(env(safe-area-inset-top), calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)));
+  --safe-bottom: max(env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px));
+  --top: 52px; --mini: 136px; --foot: calc(18px + var(--safe-bottom)); --tape: 38px;
+  --ease: cubic-bezier(.2, .9, .25, 1);
+  --display: "DIN Condensed", "Sofia Sans Extra Condensed", sans-serif;
+  --label: "DIN Alternate", "Sofia Sans", sans-serif;
+  --text: "Sofia Sans", system-ui, sans-serif;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--field); color: var(--ink); overscroll-behavior: none; }
+body { position: fixed; inset: 0; overflow: hidden; font: 400 16px/1.35 var(--text); -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
+button { font: inherit; color: inherit; border: 0; border-radius: 0; background: none; padding: 0; cursor: pointer; }
+.up { font: 700 13px/1 var(--label); letter-spacing: .1em; text-transform: uppercase; }
+
+/* Header */
+.top { position: fixed; z-index: 30; top: 0; left: 0; right: 0; height: calc(var(--top) + var(--safe-top)); padding: var(--safe-top) 16px 0;
+       display: flex; align-items: center; justify-content: space-between; background: var(--field); }
+.logo { display: flex; align-items: baseline; gap: 8px; }
+.logo b { font: 700 32px/1 var(--display); }
+.logo span { color: var(--ink-muted); }
+.timer { display: flex; align-items: baseline; gap: 8px; }
+.timer span { color: var(--ink-muted); }
+.timer b { font: 700 26px/1 var(--display); letter-spacing: .02em; }
+/* Result: below the header is the day's table. One row per player: rank, avatar, name, a score bar on a 0–5,000 scale,
+   points and kilometres. The bar is split into parts: grey for kilometres, white for bonuses; in your own row
+   dashed outlines also show the bonuses you missed. Below that, one "what if" line. */
+.prog { position: absolute; left: 0; right: 0; top: 100%; padding: 4px 12px 8px; background: var(--field-deep);
+        transform: scaleY(0); transform-origin: 50% 0; transition: transform .3s var(--ease); }
+.is-reveal.is-map .prog { transform: none; }
+.lb .r { height: 26px; overflow: hidden; display: grid; grid-template-columns: 10px 18px 44px 1fr 46px 54px; gap: 7px; align-items: center;
+         font: 700 11px/1 var(--label); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); }
+.lb .r em { font-style: normal; color: var(--ink-muted); text-align: center; }
+.lb .r.me { color: var(--ink); }
+.lb .hit { height: 100%; display: flex; align-items: center; cursor: default; }
+.lb .bar { width: 100%; height: 8px; display: flex; gap: 1px; background: var(--field); }
+.lb .bar i.lit { outline: 2px solid var(--ink); outline-offset: 1px; }
+/* Long leaderboard: collapsed, the first rows and yours are visible; the rest slide out on tap. */
+.lb .r.x { height: 0; opacity: 0; transition: height .3s var(--ease), opacity .2s; }
+.lb.open .r.x { height: 26px; opacity: 1; }
+.lb.open { max-height: calc(100dvh - var(--top) - 220px); overflow-y: auto; }
+.prog .more { display: block; width: 100%; height: 22px; padding: 0 0 0 17px; text-align: left; font: 700 10px/1 var(--label); letter-spacing: .1em;
+            text-transform: uppercase; color: var(--ink-muted); }
+.tip { position: absolute; z-index: 2; padding: 4px 6px; background: var(--panel); color: var(--on-panel); white-space: nowrap; pointer-events: none;
+       font: 700 10px/1 var(--label); letter-spacing: .08em; text-transform: uppercase; opacity: 0; transition: opacity .12s; }
+.tip.on { opacity: 1; }
+.lb .bar i { flex: none; background: var(--ink); transform: scaleX(0); transform-origin: 0 50%; transition: transform .45s var(--ease) var(--d); }
+.lb .bar i.km { background: var(--ink-muted); }
+.lb .bar i.if { background: none; outline: 1px dashed var(--ink-muted); outline-offset: -1px; transform: none; opacity: 0; transition: opacity .3s var(--d); }
+.is-reveal .lb .bar i { transform: none; }
+.is-reveal .lb .bar i.if { opacity: 1; }
+.lb .s { font: 700 18px/1 var(--display); text-align: right; color: var(--ink); }
+.lb .k { text-align: right; font-size: 10px; color: var(--ink-muted); white-space: nowrap; }
+.prog .ifs { margin: 5px 0 0; font: 700 10px/1.4 var(--label); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+.prog .ifs span { white-space: nowrap; }
+.prog .ifs b { color: var(--ink-soft); }
+.prog .ifs i { display: inline-block; width: 8px; height: 8px; margin-right: 4px; background: var(--ink); }
+.prog .ifs i.km { background: var(--ink-muted); }
+.prog .ifs i.if { background: none; outline: 1px dashed var(--ink-muted); outline-offset: -1px; }
+.sub { color: var(--ink-soft); }
+/* Avatar: a square with a letter until there is a Telegram photo. A field-coloured ring separates neighbours in a stack. */
+.av { width: 18px; height: 18px; display: grid; place-items: center; background: var(--field-deep); color: var(--ink); outline: 2px solid var(--field);
+      font: 700 10px/1 var(--label); letter-spacing: 0; text-transform: uppercase; font-style: normal; }
+.av.me { background: var(--ink); color: var(--field-deep); }
+
+/* Fullscreen panorama */
+.stage { position: fixed; top: calc(var(--top) + var(--safe-top)); left: 0; right: 0; bottom: var(--foot); background: var(--field-deep); }
+#pano { position: absolute; inset: 0; }
+.pnlm-container { background: var(--field-deep) !important; font-family: var(--text) !important; }
+.pnlm-load-box, .pnlm-about-msg, .pnlm-ui .pnlm-orientation-button { display: none !important; }
+/* Photo credits and map attribution share one strip at the bottom, always visible. License labels are not hidden under sheets or buttons. */
+.credits { position: fixed; z-index: 35; left: 0; right: 0; bottom: 0; height: var(--foot); padding: 0 8px var(--safe-bottom);
+           display: flex; align-items: center; justify-content: safe center; gap: 5px; background: var(--field-deep); color: var(--field-tint);
+           font: 500 9px/1 var(--text); letter-spacing: .02em; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+.credits::-webkit-scrollbar { display: none; }
+.credits a { color: inherit; text-decoration: none; }
+
+/* Compass: a heading tape at the bottom above the credits, like in an aircraft cockpit: the cardinal directions slide under a fixed mark.
+   North is a white tile with a field-coloured letter, like a system button. Tap turns the view to north. */
+.compass { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: var(--tape); background: var(--field-deep); overflow: hidden; }
+.compass svg { position: absolute; left: 0; top: 0; height: var(--tape); will-change: transform; }
+.compass::before { content: ""; position: absolute; z-index: 1; left: 50%; top: 0; width: 10px; height: 10px; margin-left: -5px;
+                   background: var(--ink); transform: translateY(-5px) rotate(45deg); }
+.compass::after { content: ""; position: absolute; z-index: 1; left: 50%; bottom: 0; width: 2px; height: 9px; margin-left: -1px; background: var(--ink); }
+.compass { cursor: ew-resize; touch-action: none; }
+.hint { position: absolute; left: 50%; top: 12px; z-index: 3; transform: translateX(-50%); display: flex; gap: 6px; transition: opacity .4s; pointer-events: none; white-space: nowrap; }
+.hint i { font-style: normal; padding: 9px 11px; background: var(--field); }
+.hint.gone { opacity: 0; }
+
+/* Loading */
+.loader { position: fixed; inset: 0; z-index: 50; background: var(--field); display: grid; place-items: center; transition: opacity .35s, visibility .35s; }
+.loader.gone { opacity: 0; visibility: hidden; }
+.loader div { display: grid; justify-items: center; gap: 22px; }
+.loader svg { width: 54px; height: 66px; animation: hop .9s var(--ease) infinite; }
+@keyframes hop { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(-22px); } }
+
+/* Map: a transparent canvas over the panorama. The globe has no background: in photo mode it is small in the corner,
+   on tap it flies to the centre and grows. The canvas never resizes; only the camera moves. */
+#map { position: fixed; z-index: 10; left: 0; right: 0; bottom: var(--foot); top: calc(var(--top) + var(--safe-top)); background: transparent; pointer-events: none; }
+.is-map #map { pointer-events: auto; }
+.is-map .hint { visibility: hidden; }
+/* On entering the globe, the tape slides down behind the credits row; on return to the photo it slides back
+   with a short delay, once the globe is already returning to the corner. */
+.compass { transition: transform .42s var(--ease) .12s, visibility 0s; }
+.is-map .compass { transform: translateY(100%); visibility: hidden; transition: transform .34s var(--ease), visibility 0s .34s; }
+
+/* Mini globe and the caption with an arrow */
+.globe-hit { position: fixed; z-index: 12; right: 12px; bottom: calc(var(--foot) + var(--tape) + 16px); width: var(--mini); height: var(--mini); }
+.call { position: fixed; z-index: 12; right: calc(var(--mini) + 22px); bottom: calc(var(--foot) + var(--tape) + 16px + var(--mini) / 2 - 31px);
+        display: grid; justify-items: end; gap: 4px; pointer-events: none; transition: opacity .3s, transform .3s var(--ease); }
+.call b { padding: 10px 12px; background: var(--panel); color: var(--on-panel); font: 700 22px/1 var(--display); letter-spacing: .03em; text-transform: uppercase; }
+.call span { padding: 6px 8px; background: var(--field); color: var(--ink); }
+.call em { display: inline-block; font-style: normal; animation: nudge 1.4s var(--ease) infinite; }
+@keyframes nudge { 0%, 100% { transform: none; } 50% { transform: translateX(5px); } }
+.is-map .globe-hit, .is-map .call { visibility: hidden; }
+.is-map .call { opacity: 0; transform: translateX(-10px); }
+
+/* Waiting and result are separate plates over the map. Nothing slides in from the bottom:
+   the plates exist only in map mode and simply fade in; in photo mode they are absent entirely. */
+.ov-top, .ov-bot { position: fixed; z-index: 15; left: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+                   opacity: 0; visibility: hidden; transform: translateY(6px); transition: opacity .3s, transform .3s var(--ease), visibility .3s; }
+.ov-top { top: calc(var(--top) + var(--safe-top) + 12px); pointer-events: none; }
+.ov-bot { right: 8px; bottom: calc(var(--foot) + 82px); }
+.is-map .ov-top.on, .is-map .ov-bot.on { opacity: 1; visibility: visible; transform: none; }
+/* Plates are darker than water, otherwise they blend into it over the sea. */
+.pl { padding: 8px 10px; background: var(--field-deep); }
+.pl.w { background: var(--panel); color: var(--on-panel); }
+
+/* Bottom strip of the map: slides up when the globe is open (the compass slides down meanwhile).
+   Until there is a pin, a single "Ещё разглядеть" button. With a pin it smoothly splits:
+   "Разглядеть" on the left, white "Финальный ответ" on the right (in the result, "Переслать в чат"). The halves are equal. */
+.act { position: fixed; z-index: 25; left: 0; right: 0; bottom: var(--foot); padding: 12px 16px; background: var(--field);
+       display: grid; grid-template-columns: 1fr 0fr; gap: 0;
+       transform: translateY(110%); transition: transform .38s var(--ease), grid-template-columns .42s var(--ease), gap .42s var(--ease); }
+.is-map .act { transform: none; }
+.act.on { grid-template-columns: 1fr 1fr; gap: 6px; }
+.act button { min-width: 0; overflow: hidden; white-space: nowrap; height: 58px; font: 700 clamp(13px, 4.2vw, 17px)/1 var(--label); letter-spacing: .05em; text-transform: uppercase; }
+.act button:active { transform: scale(.985); }
+#look { background: var(--field-deep); color: var(--ink); }
+#go { background: var(--panel); color: var(--on-panel); }
+
+.toast { position: fixed; z-index: 40; left: 16px; right: 16px; top: calc(var(--top) + var(--safe-top) + 88px); padding: 12px 14px; background: var(--panel); color: var(--on-panel);
+         font: 700 15px/1.25 var(--label); letter-spacing: .02em; transform: translateY(-14px); opacity: 0; transition: transform .3s var(--ease), opacity .3s; pointer-events: none; }
+.toast.on { transform: none; opacity: 1; }
+
+/* Pin and markers */
+.pin { width: 38px; height: 45px; display: block; transform-origin: 50% 100%; animation: drop .36s cubic-bezier(.2, 1.5, .4, 1); }
+@keyframes drop { from { transform: translateY(-34px) scaleY(1.15); opacity: 0; } to { transform: none; opacity: 1; } }
+.target { width: 30px; height: 30px; display: block; }
+/* A zero-size friend marker sits exactly at its point; the dot, label and leader line are laid out by layoutMarks(). */
+.friend { width: 0; height: 0; }
+.friend .g { position: absolute; left: 0; top: 0; }
+.friend i { position: absolute; left: -9px; top: -9px; outline-color: var(--ink); }
+.friend b { position: absolute; left: 0; top: 0; white-space: nowrap; font: 700 10px/1 var(--label); letter-spacing: .08em; text-transform: uppercase;
+            padding: 3px 4px; background: var(--field-deep); outline: 1.5px solid var(--ink); transition: transform .22s var(--ease); }
+.friend s { position: absolute; left: 0; top: -1px; height: 2px; width: 0; background: var(--field-deep); transform-origin: 0 50%;
+            transition: width .22s var(--ease), transform .22s var(--ease); }
+/* The mini globe in the corner shows only your own pin: friends' labels and the target turn into a mess there. */
+body:not(.is-map) .friend, body:not(.is-map) .target { visibility: hidden; }
+
+/* States: waiting and result */
+.nums { display: flex; align-items: flex-end; gap: 10px; }
+.nums b { font: 700 58px/.8 var(--display); }
+.nums .up { color: var(--ink-soft); line-height: 1.25; }
+/* Result: a single place plate above the buttons. Tap shows a fact about the place; the cross collapses it into a small tab. */
+.place { display: flex; align-items: flex-start; max-width: min(360px, calc(100vw - 16px)); background: var(--field-deep); }
+.place .t { flex: 1; min-width: 0; padding: 8px 10px; text-align: left; line-height: 1.25; color: var(--ink); }
+.place .x { flex: none; width: 32px; align-self: stretch; color: var(--ink-soft); font: 400 18px/1 var(--text); }
+.place p { margin: 6px 0 0; color: var(--ink-soft); font: 400 14px/1.4 var(--text); text-transform: none; letter-spacing: 0; user-select: text; }
+.place p:empty { display: none; }
+.place.min .t, .place.min .x { display: none; }
+.place .tab { display: none; padding: 8px 10px; color: var(--ink-soft); }
+.place.min .tab { display: block; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chips span { padding: 8px 10px; background: var(--field-deep); }
+.chips .me { background: var(--panel); color: var(--on-panel); }
+.chips .no { color: var(--ink-muted); }
+.demo { padding: 8px 10px; background: var(--field-deep); color: var(--ink-muted); text-decoration: underline; font: 500 12px/1 var(--text); }
+.hidden { display: none !important; }
+@media (prefers-reduced-motion: reduce) { .compass, .ov-top, .ov-bot, .call, .call em, .act, .toast, .pin, .loader svg, .prog, .lb .bar i { transition: none !important; animation: none !important; } }
