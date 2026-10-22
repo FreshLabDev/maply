@@ -68,3 +68,17 @@ func (c *Countries) Locate(p Point) (Country, bool) {
 	}
 	return Country{}, false
 }
+
+// ByISO returns the country with the ISO code, for a point the simplified
+// borders put just offshore.
+func (c *Countries) ByISO(iso string) (Country, bool) {
+	if c == nil {
+		return Country{}, false
+	}
+	for _, country := range c.list {
+		if country.ISO == iso {
+			return country, true
+		}
+	}
+	return Country{}, false
+}
