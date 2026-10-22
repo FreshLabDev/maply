@@ -17,6 +17,11 @@ of the Go service.
 
 ### Added
 
+- The Mini App plays in a plain browser too, as the site: nobody signs in,
+  the answer stays in the browser's `localStorage`, nothing is ranked. The
+  place and the score open only after the latest reveal among the zones maply
+  offers (20:00 in Los Angeles), and a browser claiming a zone ahead of all of
+  them still gets no date that has not begun in one. A plate links to the bot.
 - A group admin moves the morning post by an hour or a quarter (05:00–19:00)
   and turns the intrigue and the streak mentions on or off under Settings. A
   post that has not gone out yet follows the new time the same day.

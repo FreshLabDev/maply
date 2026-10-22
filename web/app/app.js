@@ -36,15 +36,50 @@ async function loadTexts(lang) {
 }
 
 /* ---------- Server ---------- */
-// Every request carries initData; the server checks its signature and works out the chat from start_param.
+// In Telegram every request carries initData; the server checks its signature and works out the chat from
+// start_param. In a plain browser it is the site: nobody is signed in, the answer stays in localStorage, and the
+// place opens only after the latest reveal among maply's zones.
+const SITE = !inTg;
 async function api(path, body) {
+  if (SITE) return site(path, body);
   const headers = { Authorization: "tma " + tg.initData };
   if (body) headers["Content-Type"] = "application/json";
   const r = await fetch(path, { method: body ? "POST" : "GET", headers, body: body && JSON.stringify(body) });
+  return reply(r);
+}
+async function reply(r) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(data.error || "network"), { data });
   return data;
 }
+const KEPT = "maply.answers";
+function kept() { try { return JSON.parse(localStorage.getItem(KEPT)) || {}; } catch { return {}; } }
+function keep(date, pin) {
+  const all = kept(); all[date] = pin;
+  // Two weeks are enough to see any result; older answers go.
+  Object.keys(all).sort().slice(0, -14).forEach((d) => delete all[d]);
+  try { localStorage.setItem(KEPT, JSON.stringify(all)); } catch { throw new Error("network"); }
+}
+async function site(path, body) {
+  if (path === "/api/guess") {
+    if (kept()[TODAY.date]) throw new Error("already_answered");
+    if (!secondsTo(TODAY.deadline)) throw new Error("closed");
+    keep(TODAY.date, body);
+    return { status: "accepted" };
+  }
+  if (path === "/api/today") {
+    let tz = ""; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch {}
+    const today = await reply(await fetch("/api/site/today?" + new URLSearchParams({ tz, lang: LANG0 })));
+    today.answer = kept()[today.date] || null;
+    return today;
+  }
+  const q = { date: TODAY.date, lang: LANG }, mine = kept()[TODAY.date];
+  if (mine) { q.lat = mine.lat; q.lon = mine.lon; }
+  return reply(await fetch("/api/site/result?" + new URLSearchParams(q)));
+}
+// On the site a plate under the map says where the real game is: the ranking and the group live in Telegram.
+const tgLink = () => SITE && TODAY && TODAY.bot
+  ? '<a class="pl w tgl" href="https://t.me/' + encodeURIComponent(TODAY.bot) + '" target="_blank" rel="noopener">' + esc(T("play_telegram")) + ' →</a>' : "";
 let toastT = 0;
 function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2300); }
 
@@ -318,7 +353,7 @@ function toWaiting(how) {
   split(false); setCall(T(how === "closed" ? "closed" : "sent"), T("result_at", { time: AT }));
   $("timer").classList.add("hidden");
   overlay('<div class="pl nums"><b id="wleft">' + hm(secondsTo(TODAY.reveal)) + '</b><span class="up">' + esc(T("until_answer")) + '<br>' +
-    esc(T("at", { time: AT, zone: ZONE_NAME })) + '</span></div>', "");
+    esc(T("at", { time: AT, zone: ZONE_NAME })) + '</span></div>', tgLink());
   // Zoom past the edge of the globe unfolding: at 3.5 the map is still slightly curved, and a pinch immediately snapped it back to a globe.
   if (guess && view === "map") map.easeTo({ padding: bigCam().padding, center: guess, zoom: GLOBE_Z[1] + 0.4, duration: 700, easing: easeOut });
 }
@@ -500,7 +535,7 @@ function toReveal(res) {
   $("timer").classList.add("hidden"); split(!!mine); $("go").textContent = T("share");
   setCall(T("day_result"), T("see"));
   const where = esc([P.city, regionName(P.country)].filter(Boolean).join(", ")), fact = esc(P.fact || "");
-  overlay("",
+  overlay("", tgLink() +
     '<div class="place up" id="place"><button class="t" id="placeT">' + where + (fact ? ' ↓' : '') + '<p></p></button>' +
     '<button class="x" id="placeX" aria-label="' + esc(T("aria_collapse")) + '">×</button><button class="tab" id="placeTab">' + esc(T("about_place")) + ' ↑</button></div>');
   countUp();
@@ -533,12 +568,12 @@ function share() {
   navigator.clipboard.writeText(line + " " + SHARE_URL).then(() => toast(T("copied", { line })), () => toast(line));
 }
 /* ---------- Start ---------- */
-// Outside Telegram there is no initData; the site for browsers comes separately (#67).
+// Opened inside Telegram without initData (a plain link in the in-app browser) there is nothing to play as.
 async function boot() {
   // The client's language first, so nothing on the first screen is blank; the person's own choice from core
   // arrives with /api/today and wins.
   const [today] = await Promise.all([
-    inTg && tg.initData ? api("/api/today").catch((e) => e) : null,
+    SITE || tg.initData ? api("/api/today").catch((e) => e) : null,
     loadTexts(LANG0).catch(() => {}),
   ]);
   setCall(T("where"), T("drop_pin"));

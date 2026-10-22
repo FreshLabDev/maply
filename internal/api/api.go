@@ -58,8 +58,10 @@ type Server struct {
 	Zones     round.Zones
 	Countries *geo.Countries
 	ImagesDir string
-	Log       *slog.Logger
-	Now       func() time.Time
+	// BotUsername is where the site sends a visitor to play in Telegram.
+	BotUsername string
+	Log         *slog.Logger
+	Now         func() time.Time
 
 	ipLimit   *limiter
 	userLimit *limiter
@@ -75,6 +77,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/today", s.today)
 	mux.HandleFunc("POST /api/guess", s.guess)
 	mux.HandleFunc("GET /api/result", s.result)
+	mux.HandleFunc("GET /api/site/today", s.siteToday)
+	mux.HandleFunc("GET /api/site/result", s.siteResult)
 	mux.HandleFunc("GET /img/{key}", s.image)
 	return mux
 }
@@ -254,6 +258,8 @@ type todayResponse struct {
 	Deadline time.Time `json:"deadline"`
 	Reveal   time.Time `json:"reveal"`
 	Answer   *pin      `json:"answer"`
+	// Bot is set on the site only: the Telegram bot to play in.
+	Bot string `json:"bot,omitempty"`
 }
 
 func (s *Server) today(w http.ResponseWriter, r *http.Request) {

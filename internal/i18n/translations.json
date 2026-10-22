@@ -1025,6 +1025,24 @@
     "uk": "Шпилька стоїть",
     "zh": "图钉已插好"
   },
+  "app.play_telegram": {
+    "en": "Play in Telegram with your group’s table",
+    "ru": "Играть в Telegram с таблицей группы",
+    "uk": "Грати в Telegram із таблицею групи",
+    "be": "Гуляць у Telegram з табліцай групы",
+    "es": "Juega en Telegram con la tabla de tu grupo",
+    "fr": "Joue dans Telegram avec le classement de ton groupe",
+    "de": "In Telegram spielen, mit der Tabelle deiner Gruppe",
+    "it": "Gioca su Telegram con la classifica del tuo gruppo",
+    "pl": "Graj w Telegramie z tabelą swojej grupy",
+    "cs": "Hraj v Telegramu s tabulkou své skupiny",
+    "tr": "Grubunun tablosuyla Telegram’da oyna",
+    "sv": "Spela i Telegram med din grupps tabell",
+    "ca": "Juga a Telegram amb la taula del teu grup",
+    "zh": "在 Telegram 里和群组一起玩，看排行",
+    "ja": "Telegramでグループの順位表と一緒に遊ぶ",
+    "ar": "العب في تيليغرام مع جدول مجموعتك"
+  },
   "app.result_at": {
     "ar": "النتيجة في {time}",
     "be": "вынік у {time}",

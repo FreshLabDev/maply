@@ -89,14 +89,15 @@ func run(log *slog.Logger) error {
 	})
 
 	game := (&api.Server{
-		Store:     store,
-		InitData:  auth.NewVerifier(cfg.TelegramBotToken),
-		Payloads:  auth.NewSigner(cfg.TelegramBotToken),
-		Members:   auth.NewMembers(client),
-		Zones:     zones,
-		Countries: countries,
-		ImagesDir: cfg.ImagesDir,
-		Log:       log,
+		Store:       store,
+		InitData:    auth.NewVerifier(cfg.TelegramBotToken),
+		Payloads:    auth.NewSigner(cfg.TelegramBotToken),
+		Members:     auth.NewMembers(client),
+		Zones:       zones,
+		Countries:   countries,
+		ImagesDir:   cfg.ImagesDir,
+		BotUsername: me.Username,
+		Log:         log,
 	}).Handler()
 
 	app, err := web.Handler()

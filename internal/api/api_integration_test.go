@@ -339,3 +339,56 @@ func TestImages(t *testing.T) {
 		}
 	}
 }
+
+// The site: no sign-in, the place only after the latest reveal among the
+// zones maply offers, and no date that has not begun in one of them.
+func TestSiteWaitsForTheLatestReveal(t *testing.T) {
+	hs := setup(t)
+	hs.srv.BotUsername = "maplyin_bot"
+	// 11:00 UTC: already 11 December on Kiritimati, still the 10th in Sydney.
+	hs.now = time.Date(2026, time.December, 10, 11, 0, 0, 0, time.UTC)
+	var today todayResponse
+	for _, tz := range []string{"Europe/Kyiv", "Pacific/Kiritimati", "Not/AZone", ""} {
+		body := hs.expect("GET", "/api/site/today?lang=uk&tz="+url.QueryEscape(tz), "", "", http.StatusOK)
+		if leaks(body) {
+			t.Fatalf("site today for %q leaks the place: %s", tz, body)
+		}
+		if err := json.Unmarshal([]byte(body), &today); err != nil {
+			t.Fatal(err)
+		}
+		if today.Date != "2026-12-10" || today.Bot != "maplyin_bot" || today.Image != "/img/"+testImageKey {
+			t.Fatalf("site today for %q = %+v", tz, today)
+		}
+	}
+	// Los Angeles is the last of the zones: 20:00 there is 04:00 UTC.
+	latest := time.Date(2026, time.December, 11, 4, 0, 0, 0, time.UTC)
+	if !today.Reveal.Equal(latest) {
+		t.Fatalf("site reveal = %v, want %v", today.Reveal, latest)
+	}
+	kyiv := hs.expect("GET", "/api/site/today?tz=Europe/Kyiv", "", "", http.StatusOK)
+	if err := json.Unmarshal([]byte(kyiv), &today); err != nil || !today.Deadline.Equal(time.Date(2026, time.December, 10, 18, 0, 0, 0, time.UTC)) {
+		t.Fatalf("Kyiv deadline = %v (%v)", today.Deadline, err)
+	}
+
+	hs.now = latest.Add(-time.Minute)
+	body := hs.expect("GET", "/api/site/result?date=2026-12-10&lat=50&lon=30", "", "", http.StatusForbidden)
+	if leaks(body) || !strings.Contains(body, "opens_at") {
+		t.Fatalf("site result before the latest reveal: %s", body)
+	}
+	hs.expect("GET", "/api/site/result?date=yesterday", "", "", http.StatusBadRequest)
+
+	hs.now = latest
+	body = hs.expect("GET", "/api/site/result?date=2026-12-10&lang=uk&lat=50.45&lon=30.52", "", "", http.StatusOK)
+	var res resultResponse
+	if err := json.Unmarshal([]byte(body), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Place.City != "Львів" || len(res.Table) != 1 || !res.Table[0].Me || res.Table[0].Km == nil || *res.Table[0].Km < 400 {
+		t.Fatalf("site result = %+v", res)
+	}
+	// Without a pin it is the place alone.
+	body = hs.expect("GET", "/api/site/result?date=2026-12-10", "", "", http.StatusOK)
+	if err := json.Unmarshal([]byte(body), &res); err != nil || len(res.Table) != 0 {
+		t.Fatalf("site result without a pin = %s", body)
+	}
+}

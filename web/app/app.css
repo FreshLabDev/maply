@@ -159,6 +159,8 @@ button { font: inherit; color: inherit; border: 0; border-radius: 0; background:
 /* Plates are darker than water, otherwise they blend into it over the sea. */
 .pl { padding: 8px 10px; background: var(--field-deep); }
 .pl.w { background: var(--panel); color: var(--on-panel); }
+/* The site's way to Telegram: a plate like the others, but a link. */
+.tgl { text-decoration: none; font-weight: 500; }
 
 /* Bottom strip of the map: slides up when the globe is open (the compass slides down meanwhile).
    Until there is a pin, a single "Look again" button. With a pin it smoothly splits:
