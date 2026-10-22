@@ -11,11 +11,31 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
-Nothing is released yet. The repository holds the design, the MVP plan, the
-source measurements, the clickable prototype of the Mini App and the skeleton
-of the Go service.
+## v0.0.1-alpha.1 - 2026-10-23
+
+The first cut that plays a whole day on its own. @maplyin_bot posts the
+day's place every morning in each chat's zone, takes one answer per person
+through the Mini App or a location, teases between 16:00 and 18:00, and
+sends the result with the group's table at 20:00. The same game runs on
+https://maply.ws04.cc in a browser without Telegram, unranked. 118 places
+are prepared: about four months of queue.
+
+To run it, the host needs `core` migration 018 (the `maply_core` role and
+the `maply` schema), `MAPLY_CORE_PASSWORD` and `TELEGRAM_BOT_TOKEN` in the
+stack's `.env`, the place images in `./images` next to the compose file, and
+the hostname routed through the Cloudflare Tunnel. Load the places with the
+`places.sql` that `cmd/maply-places` writes. The Mini App itself is
+registered in BotFather (`/newapp`, short name `play`).
 
 ### Added
+
+- `cmd/maply-places` turns a batch's kept candidates into approved places:
+  the frame re-encoded without EXIF under a random key, the city the curator
+  named with its outline from Nominatim when the outline contains the point,
+  the heading from Mapillary, the country and continent from the same borders
+  scoring uses, and the curator's city names and facts in all sixteen
+  languages. It writes the images and a `places.sql` that adds nothing on a
+  rerun.
 
 - The Mini App plays in a plain browser too, as the site: nobody signs in,
   the answer stays in the browser's `localStorage`, nothing is ranked. The
@@ -149,3 +169,16 @@ of the Go service.
   points on every continent.
 - `scripts/curation/`: candidate harvest from Mapillary vector tiles with
   weighted regions.
+
+### Known Limitations
+
+- The 20:00 result is the place's photo with the table in the caption, not
+  yet the rendered map card (#65).
+- Sharing from the Mini App opens `t.me/share` with a line of text; the card
+  through `shareMessage` comes with the renderer (#68).
+- There is no operator chat yet (#50): places are approved in `curation/`
+  and loaded by hand, and nothing warns when the queue runs low.
+- A group that adds maply gets today's post right away when it is before
+  20:00 there, instead of the warm-up on yesterday's place the plan
+  describes (#57).
+- Not yet checked on real Telegram clients (#69).
