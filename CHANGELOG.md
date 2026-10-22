@@ -31,8 +31,15 @@ of the Go service.
   post moved past the 20:00 reveal.
 - Scoring: haversine distance, `3500 · e^(−d / 1492.7)`, and the bonus ladder
   for continent, country and city. Point-in-polygon handles shared borders,
-  enclaves, rings across the antimeridian and polar caps. The Natural Earth
-  countries are not embedded yet.
+  enclaves, rings across the antimeridian and polar caps. The right country
+  counts as the right continent too, so a pin in Paris for a place in French
+  Guiana earns the country bonus.
+- Country borders embedded in the binary: Natural Earth 1:10m admin-0 from the
+  Ukrainian point of view, so Crimea and Sevastopol are Ukraine. Borders are
+  simplified to about 220 m, which moves one land point in 90,000 to another
+  country. Each polygon carries its own continent: Russia is split at the
+  Urals, and France's overseas regions, Hawaii, the Caribbean Netherlands and
+  Istanbul's European side sit where they are on the map.
 - The game calendar: the round of a date, created from the place queue by
   weekday difficulty and numbered from the first round; the reveal at 20:00 in
   the capital of the chat's language; and a person's answer window, which

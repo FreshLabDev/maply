@@ -18,6 +18,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/bot"
 	"github.com/FreshLabDev/maply/internal/config"
 	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/health"
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/migrations"
@@ -43,6 +44,10 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	zones, err := round.LoadZones()
+	if err != nil {
+		return err
+	}
+	countries, err := geo.World()
 	if err != nil {
 		return err
 	}
@@ -80,6 +85,7 @@ func run(log *slog.Logger) error {
 		Payloads:  auth.NewSigner(cfg.TelegramBotToken),
 		Members:   auth.NewMembers(client),
 		Zones:     zones,
+		Countries: countries,
 		ImagesDir: cfg.ImagesDir,
 		Log:       log,
 	}).Handler()

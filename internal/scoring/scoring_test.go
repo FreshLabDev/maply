@@ -133,3 +133,17 @@ func TestJudgeWithoutCityPolygon(t *testing.T) {
 		t.Fatalf("score = %+v", s)
 	}
 }
+
+func TestJudgeSameCountryOnAnotherContinent(t *testing.T) {
+	c := countries(t)
+	// The test world has Russia in Europe only; the place says Asia, as the
+	// real data does east of the Urals.
+	place := Place{Point: geo.Point{Lat: 65, Lon: 179.9}, Country: "RU", Continent: "asia"}
+	if s := Judge(geo.Point{Lat: 65, Lon: 175}, place, c); s.Bonus != ContinentBonus+CountryBonus {
+		t.Fatalf("score = %+v", s)
+	}
+	// Another country on the pin's continent still earns nothing.
+	if s := Judge(geo.Point{Lat: 45, Lon: 5}, place, c); s.Bonus != 0 {
+		t.Fatalf("score = %+v", s)
+	}
+}

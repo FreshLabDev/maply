@@ -3,3 +3,6 @@ Copyright 2026 Asterfield
 
 This product includes software developed for the Asterfield bot family.
 Licensed under the Apache License, Version 2.0.
+
+Country borders in internal/geo/countries.geojson.gz are derived from
+Natural Earth (naturalearthdata.com), which is in the public domain.

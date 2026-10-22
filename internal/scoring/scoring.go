@@ -85,13 +85,15 @@ func (s Score) Total() int {
 }
 
 // Judge scores a pin against the place. countries locates the pin; a pin over
-// the sea is in no country and on no continent.
+// the sea is in no country and on no continent. The right country counts as
+// the right continent too: Paris for a place in French Guiana, or Moscow for
+// one in Vladivostok, earns the country bonus.
 func Judge(pin geo.Point, place Place, countries *geo.Countries) Score {
 	km := DistanceKm(pin, place.Point)
 	var m Match
 	if c, ok := countries.Locate(pin); ok {
-		m.Continent = c.Continent == place.Continent
-		m.Country = m.Continent && c.ISO == place.Country
+		m.Country = c.ISO == place.Country
+		m.Continent = m.Country || c.Continent == place.Continent
 	}
 	m.City = m.Country && !place.City.Empty() && place.City.Contains(pin)
 	return Score{Km: km, Distance: DistancePoints(km), Bonus: Bonus(m), Match: m}
