@@ -4,6 +4,10 @@
 // the binary, with MapLibre, Pannellum and Sofia Sans vendored beside them.
 // Only telegram-web-app.js and the map tiles come from outside; unpkg,
 // jsdelivr and Google Fonts are unreliable from Russia.
+//
+// The app's words are not in its files: /texts/<lang>.json carries the "app."
+// keys of internal/i18n and the names of the time zones, one file per
+// language.
 package web
 
 import (
@@ -11,11 +15,15 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"encoding/json"
 	"io/fs"
 	"net/http"
 	"path"
 	"strings"
 	"time"
+
+	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/FreshLabDev/maply/internal/round"
 )
 
 //go:embed app
@@ -43,6 +51,7 @@ var contentTypes = map[string]string{
 	".svg":   "image/svg+xml",
 	".woff2": "font/woff2",
 	".txt":   "text/plain; charset=utf-8",
+	".json":  "application/json; charset=utf-8",
 }
 
 type file struct {
@@ -73,20 +82,48 @@ func Handler() (http.Handler, error) {
 		if err != nil {
 			return err
 		}
-		sum := sha256.Sum256(data)
-		ctype, ok := contentTypes[path.Ext(name)]
-		if !ok {
-			ctype = "application/octet-stream"
-		}
-		h.files["/"+name] = file{
-			data:      data,
-			etag:      `"` + hex.EncodeToString(sum[:12]) + `"`,
-			ctype:     ctype,
-			immutable: strings.HasPrefix(name, "vendor/"),
-		}
+		h.add("/"+name, data, strings.HasPrefix(name, "vendor/"))
 		return nil
 	})
-	return h, err
+	if err != nil {
+		return nil, err
+	}
+	for _, lang := range i18n.Codes() {
+		data, err := Texts(lang)
+		if err != nil {
+			return nil, err
+		}
+		h.add("/texts/"+lang+".json", data, false)
+	}
+	return h, nil
+}
+
+func (h *handler) add(name string, data []byte, immutable bool) {
+	sum := sha256.Sum256(data)
+	ctype, ok := contentTypes[path.Ext(name)]
+	if !ok {
+		ctype = "application/octet-stream"
+	}
+	h.files[name] = file{
+		data:      data,
+		etag:      `"` + hex.EncodeToString(sum[:12]) + `"`,
+		ctype:     ctype,
+		immutable: immutable,
+	}
+}
+
+// Texts is what the app reads in lang: its strings without the "app." prefix,
+// and the name of every zone a chat can be in.
+func Texts(lang string) ([]byte, error) {
+	t := map[string]string{}
+	for key, text := range i18n.WithPrefix(lang, "app.") {
+		t[strings.TrimPrefix(key, "app.")] = text
+	}
+	zones := map[string]string{}
+	for _, name := range round.ZoneChoices {
+		zones[name] = i18n.T(lang, "zone."+name)
+	}
+	return json.Marshal(map[string]any{"lang": lang, "t": t, "zone": zones})
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -29,6 +29,14 @@ of the Go service.
   the earliest reveal among a person's chats. `chat_settings.lang` is dropped:
   a group's language is core's, never a member's, so every member of a group
   gets the same reveal.
+- The Mini App holds no words of its own. `/texts/<lang>.json` carries its
+  strings and the zone names from `internal/i18n`; the app starts in the
+  client's language and switches to the person's choice from core when
+  `/api/today` names it (`lang`). Map labels follow the language, and country
+  labels come from the browser's names for the ISO code, as on the result.
+  Arabic reads English labels on the map until the RTL text plugin ships.
+  Curated city names and facts fall back to English for a language the
+  curators have not written yet.
 - The Go service skeleton, built the way voicy and branchy are: validated
   environment, PostgreSQL in the `maply` schema with migrations embedded in the
   binary, Telegram long polling through `FreshLabDev/tg` that records people

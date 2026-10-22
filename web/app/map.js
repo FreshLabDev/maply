@@ -3,9 +3,23 @@
 // Flat fills without shadows or glow, as in the design system; only the graticule gives the globe volume.
 const C = { water: "#245A3C", land: "#DDE5E0", park: "#C9D7CE", build: "#C3D0C8",
             road: "#FFFFFF", major: "#59826B", line: "#59826B", deep: "#1A412B", muted: "#B5C7BD" };
-const name = ["coalesce", ["get", "name:ru"], ["get", "name"]];
-const country = ["match", name, "Китайская Народная Республика", "Китай", "Южно-Африканская Республика", "ЮАР",
-  "Соединённые Штаты Америки", "США", "Республика Корея", "Южная Корея", "Корейская Народно-Демократическая Республика", "КНДР", "Демократическая Республика Конго", "ДР Конго", "Центральноафриканская Республика", "ЦАР", name];
+// Labels in the reader's language where OpenStreetMap has one. Arabic needs MapLibre's RTL plugin to be shaped,
+// and the service does not carry it yet, so an Arabic reader gets the English names on the map.
+const mapLang = (lang) => (lang === "ar" ? "en" : lang);
+const nameIn = (lang) => ["coalesce", ["get", "name:" + lang], ["get", "name"]];
+// Country labels are the browser's short name for the ISO code: the same source as the country on the result.
+function countryIn(lang) {
+  let dn;
+  try { dn = new Intl.DisplayNames([lang], { type: "region", style: "short", fallback: "none" }); } catch { return nameIn(lang); }
+  const pairs = [];
+  for (let a = 65; a <= 90; a++) for (let b = 65; b <= 90; b++) {
+    const iso = String.fromCharCode(a, b);
+    let n; try { n = dn.of(iso); } catch { continue; }
+    if (n && n !== iso) pairs.push(iso, n);
+  }
+  return pairs.length ? ["match", ["get", "iso_a2"], ...pairs, nameIn(lang)] : nameIn(lang);
+}
+const name = nameIn(mapLang(LANG0)), country = countryIn(mapLang(LANG0));
 const z = (...stops) => ["interpolate", ["linear"], ["zoom"], ...stops];
 // Parallels and meridians every 15°: on the globe this is the main beauty; they dissolve by zoom 4.5.
 const grid = { type: "FeatureCollection", features: [] };
@@ -52,6 +66,15 @@ const style = {
       paint: { "text-color": C.water, "text-halo-color": C.land, "text-halo-width": 1.2 } }
   ]
 };
+// The map is drawn before /api/today says the language; this relabels it once it does.
+function setMapLanguage(lang) {
+  const l = mapLang(lang);
+  const apply = () => {
+    ["streets", "oceans", "cities"].forEach((id) => map.setLayoutProperty(id, "text-field", nameIn(l)));
+    map.setLayoutProperty("countries", "text-field", countryIn(l));
+  };
+  mapReady ? apply() : map.once("load", apply);
+}
 function createMap(zoom) {
   const m = new maplibregl.Map({ container: "map", style, center: [25, 30], zoom, minZoom: -1, maxPitch: 0, attributionControl: false, dragRotate: false, pitchWithRotate: false, fadeDuration: 150 });
   m.touchZoomRotate.disableRotation();

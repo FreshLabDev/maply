@@ -6,37 +6,34 @@ const PIN_PATH = "M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1
 const PIN = '<svg class="pin" viewBox="150 119 340 402"><path fill="#1A412B" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="miter" paint-order="stroke" fill-rule="evenodd" d="' + PIN_PATH + '"/></svg>';
 const TARGET = '<svg class="target" viewBox="0 0 30 30"><path fill="none" stroke="#FFFFFF" stroke-width="6" d="M15 3.5a11.5 11.5 0 1 1 0 23a11.5 11.5 0 1 1 0-23"/><circle cx="15" cy="15" r="7.5" fill="#FFFFFF"/><circle cx="15" cy="15" r="5" fill="#1A412B"/><path fill="none" stroke="#1A412B" stroke-width="3" d="M15 3.5a11.5 11.5 0 1 1 0 23a11.5 11.5 0 1 1 0-23"/></svg>';
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
-const av = (who, me) => '<i class="av' + (me ? ' me' : '') + '">' + (me ? TEXT.you : esc(who[0] || "?")) + '</i>';
+const av = (who, me) => '<i class="av' + (me ? ' me' : '') + '">' + (me ? esc(T("you")) : esc(who[0] || "?")) + '</i>';
 // Names come from Telegram profiles and go into innerHTML.
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => "&#" + c.charCodeAt(0) + ";");
 const el = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.firstElementChild; };
 // Thousands separated by a narrow space, as in the Asterfield system.
 const fmt = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 
-/* ---------- Touches of character ---------- */
-const LOADING = ["Завязываем глаза…", "Крутим глобус…", "Телепортируем…", "Прячем табличку с названием…", "Отключаем GPS…"];
-const ON_WATER = ["Это вода. Рыбы оценят.", "Смело. Прямо в море.", "Капитан, мы точно не на суше?"];
-const ON_LAND = ["Записали. Отступать некуда.", "Чуйка говорит — тут.", "Смело.", "Хм. Интересный выбор.", "Окей, Колумб."];
-const MOVED = ["Передумал? Бывает.", "Ещё разок прицелимся.", "Сомнения — признак ума."];
-const LOGO = ["Логотип не подсказывает. Мы проверяли.", "Нет, жать сюда бесполезно.", "Ладно, вот подсказка: это на Земле."];
-// Interface lines; they move to internal/i18n with uk and be (#66).
-const TEXT = {
-  you: "ты", km: "км",
-  zone: { "Europe/Moscow": "по москве", "Europe/Minsk": "по минску", "Europe/Kyiv": "по киеву" },
-  openInTelegram: "maply живёт в Telegram: открой его из бота или из поста в группе.",
-  noImage: "Кадр не загрузился. Даже мы не знаем, где это.",
-  sent: "Ответ принят", closedCall: "Приём закрыт", wait: "итог в ", noAnswer: "в этот день ты не отвечал",
-  errors: {
-    unauthorized: "Telegram не подтвердил, что это ты. Открой maply заново.",
-    not_a_member: "Это игра группы, в которой тебя нет.",
-    not_started: "Этот день в группе ещё не начался.",
-    no_round: "Сегодня места нет. Мы уже чиним.",
-    rate_limited: "Слишком часто. Подожди минуту.",
-    closed: "Приём ответов закрыт: правда уже открылась в одном из твоих чатов.",
-    network: "Связь пропала. Попробуй ещё раз.",
-  },
+/* ---------- Words ---------- */
+// Every line comes from /texts/<lang>.json, built from internal/i18n: the app holds no text of its own.
+let LANG = "en", TX = {}, ZONES = {};
+const T = (key, vars) => {
+  let s = TX[key] === undefined ? key : TX[key];
+  for (const k in vars || {}) s = s.split("{" + k + "}").join(vars[k]);
+  return s;
 };
-const errorText = (e) => TEXT.errors[e.message] || TEXT.errors.network;
+const lines = (key) => T(key).split("\n");
+const errorText = (e) => TX["error." + e.message] ? T("error." + e.message) : T("error.network");
+async function loadTexts(lang) {
+  let r = await fetch("texts/" + lang + ".json").catch(() => null);
+  if (!r || !r.ok) r = await fetch("texts/en.json");
+  const d = await r.json();
+  LANG = d.lang; TX = d.t; ZONES = d.zone;
+  document.documentElement.lang = LANG;
+  document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = T(e.dataset.t); });
+  document.querySelectorAll("[data-aria]").forEach((e) => e.setAttribute("aria-label", T(e.dataset.aria)));
+  buildTape();
+  if (typeof setMapLanguage === "function" && map) setMapLanguage(LANG);
+}
 
 /* ---------- Server ---------- */
 // Every request carries initData; the server checks its signature and works out the chat from start_param.
@@ -52,14 +49,14 @@ let toastT = 0;
 function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2300); }
 
 let li = 0;
-const loadTimer = setInterval(() => { $("loadtext").textContent = LOADING[++li % LOADING.length]; }, 900);
+const loadTimer = setInterval(() => { if (TX.loading) { const l = lines("loading"); $("loadtext").textContent = l[++li % l.length]; } }, 900);
 function stopLoading(text) { clearInterval(loadTimer); $("loadtext").textContent = text; }
 let logoTaps = 0;
-$("logo").addEventListener("click", () => { if (++logoTaps % 3 === 0) toast(pick(LOGO)); });
+$("logo").addEventListener("click", () => { if (++logoTaps % 3 === 0) toast(pick(lines("logo"))); });
 
 /* ---------- Countdown ---------- */
 // Before the answer the timer runs to the deadline: the earliest reveal among the person's chats. After it, to the reveal
-// of this chat. Both are instants from the server; AT says the reveal in the capital's time of the chat's language.
+// of this chat. Both are instants from the server; AT says the reveal in the chat's own zone.
 let AT = "", ZONE_NAME = "";
 const secondsTo = (iso) => Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 1000));
 const hm = (s) => Math.floor(s / 3600) + ":" + String(Math.floor(s % 3600 / 60)).padStart(2, "0");
@@ -101,7 +98,7 @@ function startPano() {
     backgroundColor: [0.10, 0.25, 0.17], pitch: 0
   }, TODAY.kind === "panorama" ? {} : { haov: 80, vaov: 50, maxHfov: 80 }));
   viewer.on("load", () => { clearInterval(loadTimer); $("loader").classList.add("gone"); });
-  viewer.on("error", () => stopLoading(TEXT.noImage));
+  viewer.on("error", () => stopLoading(T("no_image")));
 }
 addEventListener("resize", () => viewer && viewer.setHfov(baseHfov(), 0));
 let lastTap = 0;
@@ -118,11 +115,12 @@ let HEADING = 0;
 let TAPE_K = 1.5, TAPE_W = 0;
 function buildTape() {
   TAPE_W = $("compass").clientWidth || innerWidth; TAPE_K = TAPE_W / 150;
-  const NAMES = { 0: "С", 45: "СВ", 90: "В", 135: "ЮВ", 180: "Ю", 225: "ЮЗ", 270: "З", 315: "СЗ" };
+  const NAMES = {};
+  ["n", "ne", "e", "se", "s", "sw", "w", "nw"].forEach((k, i) => { NAMES[i * 45] = esc(TX["compass_" + k] || ""); });
   let svg = "";
   for (let d = -360; d <= 720; d += 5) {
     const x = ((d + 360) * TAPE_K).toFixed(1), n = ((d % 360) + 360) % 360;
-    if (n === 0) svg += '<rect x="' + (x - 12) + '" y="6" width="24" height="26" fill="#FFFFFF"/><text x="' + x + '" y="26" text-anchor="middle" fill="#245A3C" style="font: 700 19px/1 var(--display)">С</text>';
+    if (n === 0) svg += '<rect x="' + (x - 12) + '" y="6" width="24" height="26" fill="#FFFFFF"/><text x="' + x + '" y="26" text-anchor="middle" fill="#245A3C" style="font: 700 19px/1 var(--display)">' + NAMES[0] + '</text>';
     else if (n % 90 === 0) svg += '<text x="' + x + '" y="26" text-anchor="middle" fill="#FFFFFF" style="font: 700 19px/1 var(--display)">' + NAMES[n] + '</text>';
     else if (n % 45 === 0) svg += '<text x="' + x + '" y="24" text-anchor="middle" fill="#B5C7BD" style="font: 700 11px/1 var(--label); letter-spacing: .06em">' + NAMES[n] + '</text>';
     else if (n % 15 === 0) svg += '<path d="M' + x + ' 13v12" stroke="#59826B" stroke-width="2"/>';
@@ -253,10 +251,10 @@ $("look").addEventListener("click", toPhoto);
 if (tgAt("6.1")) tg.BackButton.onClick(toPhoto);
 // Splits the bottom strip into two buttons or merges it back into one.
 // The left button label depends on the stage: before the answer it invites a closer look, after the answer simply to enjoy.
-const LOOK = { guess: ["Ещё разглядеть", "Разглядеть"], wait: ["Полюбоваться", "Полюбоваться"], reveal: ["Погулять там", "Погулять там"] };
-function split(on) { $("act").classList.toggle("on", on); $("look").textContent = LOOK[state][on ? 1 : 0]; }
+const LOOK = { guess: ["look_more", "look"], wait: ["admire", "admire"], reveal: ["walk", "walk"] };
+function split(on) { $("act").classList.toggle("on", on); $("look").textContent = T(LOOK[state][on ? 1 : 0]); }
 addEventListener("resize", () => { if (mapReady) map.jumpTo(view === "map" ? { padding: bigCam().padding } : miniCam()); });
-function setCall(b, sub) { $("callB").textContent = b; $("callS").innerHTML = sub + " <em>→</em>"; }
+function setCall(b, sub) { $("callB").textContent = b; $("callS").innerHTML = esc(sub) + " <em>→</em>"; }
 
 map = createMap(miniCam().zoom);
 map.setPadding(miniCam().padding);
@@ -272,16 +270,16 @@ function putPin(lngLat, point) {
   const first = !guess; guess = lngLat;
   if (!marker) {
     marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom", draggable: true }).setLngLat(guess).addTo(map);
-    marker.on("dragend", () => { guess = marker.getLngLat(); haptic("select"); toast(pick(MOVED)); });
+    marker.on("dragend", () => { guess = marker.getLngLat(); haptic("select"); toast(pick(lines("moved"))); });
   } else {
     marker.setLngLat(guess);
     const p = marker.getElement(); p.style.animation = "none"; void p.offsetWidth; p.style.animation = "";
   }
   const wet = map.queryRenderedFeatures(point, { layers: ["water"] }).length > 0;
-  toast(pick(wet ? ON_WATER : first ? ON_LAND : MOVED));
+  toast(pick(lines(wet ? "on_water" : first ? "on_land" : "moved")));
   haptic("medium");
   // The pin is placed but the answer is not sent: Telegram will ask for confirmation before closing the app.
-  if (first) { split(true); setCall("Булавка стоит", "ответить"); if (tgAt("6.2")) tg.enableClosingConfirmation(); }
+  if (first) { split(true); setCall(T("pin_set"), T("answer")); if (tgAt("6.2")) tg.enableClosingConfirmation(); }
 }
 map.on("click", (e) => {
   // A tap beside the globe, in the void around it, returns to the photo. We check the surface itself via MapLibre:
@@ -317,9 +315,10 @@ function toWaiting(how) {
   state = "wait"; if (marker) marker.setDraggable(false);
   if (how === "sent") haptic("success");
   if (tgAt("6.2")) tg.disableClosingConfirmation();
-  split(false); setCall(how === "closed" ? TEXT.closedCall : TEXT.sent, TEXT.wait + AT);
+  split(false); setCall(T(how === "closed" ? "closed" : "sent"), T("result_at", { time: AT }));
   $("timer").classList.add("hidden");
-  overlay('<div class="pl nums"><b id="wleft">' + hm(secondsTo(TODAY.reveal)) + '</b><span class="up">до ответа<br>в ' + AT + ' ' + ZONE_NAME + '</span></div>', "");
+  overlay('<div class="pl nums"><b id="wleft">' + hm(secondsTo(TODAY.reveal)) + '</b><span class="up">' + esc(T("until_answer")) + '<br>' +
+    esc(T("at", { time: AT, zone: ZONE_NAME })) + '</span></div>', "");
   // Zoom past the edge of the globe unfolding: at 3.5 the map is still slightly curved, and a pinch immediately snapped it back to a globe.
   if (guess && view === "map") map.easeTo({ padding: bigCam().padding, center: guess, zoom: GLOBE_Z[1] + 0.4, duration: 700, easing: easeOut });
 }
@@ -383,36 +382,37 @@ const pct = (x) => (x / 50).toFixed(2) + "%";
 // rows: { who, d (km), pts, lvl, me } from /api/result. The grey part of a bar is the points for the distance.
 function paintBoard(rows) {
   // Collapsed, the first rows and yours are visible; if you are lower, there is one fewer row so the height does not change.
-  const meAt = rows.findIndex((r) => r.me), top = meAt >= ROWS ? ROWS - 1 : ROWS, IF = ["континент", "страну", "город"];
+  const meAt = rows.findIndex((r) => r.me), top = meAt >= ROWS ? ROWS - 1 : ROWS, IF = [T("what_continent"), T("what_country"), T("what_city")];
+  // Segment tooltips sit in data-tip, not data-t: data-t marks the static lines loadTexts fills.
   $("lb").innerHTML = rows.map((r, i) => {
-    const b0 = r.pts - bonusOf(r.lvl), segs = ['<i class="km" data-t="' + fmt(b0) + ' за ' + fmt(r.d) + ' км" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
+    const b0 = r.pts - bonusOf(r.lvl), segs = ['<i class="km" data-tip="' + esc(T("km_points", { points: fmt(b0), km: fmt(r.d) })) + '" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
     BONUS.forEach((x, k) => {
-      if (k < r.lvl) segs.push('<i data-t="+' + x + ' за ' + IF[k] + '" style="width:' + pct(x) + ';--d:' + T_B(k) + 's"></i>');
-      else if (r.me) segs.push('<i class="if" data-t="+' + x + ' за ' + IF[k] + ' — мимо" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
+      if (k < r.lvl) segs.push('<i data-tip="' + esc(T("bonus", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + T_B(k) + 's"></i>');
+      else if (r.me) segs.push('<i class="if" data-tip="' + esc(T("bonus_missed", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
     });
     const x = i >= top && !r.me ? " x" : "";
     return '<div class="r' + (r.me ? " me" : "") + x + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me) + '<span>' + esc(r.who) + '</span>' +
-      '<span class="hit" data-rest="до 5 000 не хватило ' + fmt(5000 - r.pts) + '"><span class="bar">' + segs.join("") + '</span></span>' +
-      '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '">0</b><span class="k">' + fmt(r.d) + ' км</span></div>';
+      '<span class="hit" data-rest="' + esc(T("short_of", { points: fmt(5000 - r.pts) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
+      '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '">0</b><span class="k">' + fmt(r.d) + ' ' + esc(T("km")) + '</span></div>';
   }).join("");
   const hidden = rows.length - Math.min(rows.length, top + (meAt >= top ? 1 : 0));
   $("lb").classList.remove("open");
   $("more").classList.toggle("hidden", hidden <= 0);
   $("more").dataset.n = hidden;
-  $("more").textContent = "ещё " + hidden + " ↓";
+  $("more").textContent = T("more", { n: hidden }) + " ↓";
   // Legend and "what if" at the same distance: one line, wraps in whole chunks.
-  const t = (h) => '<span>' + h + '</span>', me = rows[meAt], legend = t('<i class="km"></i>за км') + ' ' + t('<i></i>бонусы');
-  if (!me) { $("ifs").innerHTML = rows.length ? legend : t(TEXT.noAnswer); return; }
-  const d = me.d, lvl = me.lvl;
-  $("ifs").innerHTML = legend + ' · ' + (lvl >= 3 ? t("все бонусы твои") :
-    t('<i class="if"></i>угадал бы ' + IF[lvl] + ' — <b>' + fmt(score(d, lvl + 1)) + '</b>') +
-    IF.slice(lvl + 1).map((n, j) => ', ' + t(n + ' — <b>' + fmt(score(d, lvl + j + 2)) + '</b>')).join(""));
+  const t = (h) => '<span>' + h + '</span>', me = rows[meAt], legend = t('<i class="km"></i>' + esc(T("legend_km"))) + ' ' + t('<i></i>' + esc(T("legend_bonus")));
+  if (!me) { $("ifs").innerHTML = rows.length ? legend : t(esc(T("no_answer"))); return; }
+  const d = me.d, lvl = me.lvl, b = (n) => '<b>' + fmt(n) + '</b>';
+  $("ifs").innerHTML = legend + ' · ' + (lvl >= 3 ? t(esc(T("all_bonuses"))) :
+    t('<i class="if"></i>' + T("if_first", { what: esc(IF[lvl]), score: b(score(d, lvl + 1)) })) +
+    IF.slice(lvl + 1).map((n, j) => ', ' + t(T("if_next", { what: esc(n), score: b(score(d, lvl + j + 2)) }))).join(""));
 }
-// Full leaderboard: a tap on the table or on "ещё N" expands and collapses it.
+// Full leaderboard: a tap on the table or on "N more" expands and collapses it.
 function toggleBoard() {
   if ($("more").classList.contains("hidden")) return;
   const open = $("lb").classList.toggle("open");
-  $("more").textContent = open ? "свернуть ↑" : "ещё " + $("more").dataset.n + " ↓";
+  $("more").textContent = open ? T("less") + " ↑" : T("more", { n: $("more").dataset.n }) + " ↓";
 }
 $("more").addEventListener("click", toggleBoard);
 // The plates over the map stay under the table and move down as it expands.
@@ -427,7 +427,7 @@ function showTip(e) {
   const seg = segs.find((g) => { const r = g.getBoundingClientRect(); return x >= r.left - 1 && x <= r.right + 1; });
   segs.forEach((g) => g.classList.toggle("lit", g === seg));
   const tip = $("tip"), pr = $("prog").getBoundingClientRect(), rr = (seg || hit).getBoundingClientRect();
-  tip.textContent = seg ? seg.dataset.t : hit.dataset.rest;
+  tip.textContent = seg ? seg.dataset.tip : hit.dataset.rest;
   const cx = seg ? (rr.left + rr.right) / 2 : x, w = tip.offsetWidth;
   tip.style.left = Math.max(4, Math.min(pr.width - w - 4, cx - pr.left - w / 2)) + "px";
   tip.style.top = hit.getBoundingClientRect().top - pr.top - tip.offsetHeight + 2 + "px";
@@ -453,7 +453,7 @@ function countUp() {
   matchMedia("(prefers-reduced-motion: reduce)").matches ? tick(t0 + 9e3) : requestAnimationFrame(tick);
 }
 // The country's name in the interface language, from the browser: the server sends only the ISO code.
-const regionName = (iso) => { try { return new Intl.DisplayNames(["ru"], { type: "region" }).of(iso); } catch { return iso; } };
+const regionName = (iso) => { try { return new Intl.DisplayNames([LANG], { type: "region" }).of(iso); } catch { return iso; } };
 let resultLoading = false;
 async function loadResult() {
   if (resultLoading || state === "reveal") return;
@@ -470,7 +470,7 @@ function toReveal(res) {
   state = "reveal";
   const P = res.place, truth = new maplibregl.LngLat(P.lon, P.lat);
   credits(P);
-  const rows = res.table.map((r) => ({ who: r.me ? TEXT.you : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), me: !!r.me }))
+  const rows = res.table.map((r) => ({ who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), me: !!r.me }))
     .sort((a, b) => b.pts - a.pts);
   mine = rows.find((r) => r.me) || null;
   // A pin that never reached the server is not an answer: it leaves the map rather than draw a line to the place.
@@ -497,12 +497,12 @@ function toReveal(res) {
     map.addLayer({ id: "line-case", type: "line", source: "line", paint: { "line-color": "#FFFFFF", "line-width": 5 } });
     map.addLayer({ id: "line", type: "line", source: "line", paint: { "line-color": "#1A412B", "line-width": 2, "line-dasharray": [2, 1.5] } });
   }
-  $("timer").classList.add("hidden"); split(!!mine); $("go").textContent = "Переслать в чат";
-  setCall("Итог дня", "смотреть");
+  $("timer").classList.add("hidden"); split(!!mine); $("go").textContent = T("share");
+  setCall(T("day_result"), T("see"));
   const where = esc([P.city, regionName(P.country)].filter(Boolean).join(", ")), fact = esc(P.fact || "");
   overlay("",
     '<div class="place up" id="place"><button class="t" id="placeT">' + where + (fact ? ' ↓' : '') + '<p></p></button>' +
-    '<button class="x" id="placeX" aria-label="свернуть">×</button><button class="tab" id="placeTab">о месте ↑</button></div>');
+    '<button class="x" id="placeX" aria-label="' + esc(T("aria_collapse")) + '">×</button><button class="tab" id="placeTab">' + esc(T("about_place")) + ' ↑</button></div>');
   countUp();
   // The fact expands on tap; the cross collapses the plate into a tab so it does not cover the map on a phone.
   $("placeT").onclick = () => {
@@ -527,20 +527,29 @@ $("go").addEventListener("click", () => {
 // In Telegram we open the chat picker; in a browser, the system "Share" menu or the clipboard.
 const SHARE_URL = window.MAPLY_SHARE_URL || location.origin;
 function share() {
-  const line = "maply #" + TODAY.day + (mine ? " · " + fmt(mine.d) + " " + TEXT.km + " · " + fmt(mine.pts) : "");
+  const line = "maply #" + TODAY.day + (mine ? " · " + fmt(mine.d) + " " + T("km") + " · " + fmt(mine.pts) : "");
   if (inTg) { tg.openTelegramLink("https://t.me/share/url?url=" + encodeURIComponent(SHARE_URL) + "&text=" + encodeURIComponent(line)); return; }
   if (navigator.share) { navigator.share({ text: line, url: SHARE_URL }).catch(() => {}); return; }
-  navigator.clipboard.writeText(line + " " + SHARE_URL).then(() => toast("Скопировано: " + line), () => toast(line));
+  navigator.clipboard.writeText(line + " " + SHARE_URL).then(() => toast(T("copied", { line })), () => toast(line));
 }
 /* ---------- Start ---------- */
 // Outside Telegram there is no initData; the site for browsers comes separately (#67).
 async function boot() {
-  if (!inTg || !tg.initData) { stopLoading(TEXT.openInTelegram); return; }
-  try { TODAY = await api("/api/today"); } catch (e) { stopLoading(errorText(e)); return; }
+  // The client's language first, so nothing on the first screen is blank; the person's own choice from core
+  // arrives with /api/today and wins.
+  const [today] = await Promise.all([
+    inTg && tg.initData ? api("/api/today").catch((e) => e) : null,
+    loadTexts(LANG0).catch(() => {}),
+  ]);
+  setCall(T("where"), T("drop_pin"));
+  if (!today) { stopLoading(T("open_in_telegram")); return; }
+  if (today instanceof Error) { stopLoading(errorText(today)); return; }
+  TODAY = today;
+  if (TODAY.lang && TODAY.lang !== LANG) { await loadTexts(TODAY.lang).catch(() => {}); setCall(T("where"), T("drop_pin")); }
   $("day").textContent = "#" + TODAY.day;
   HEADING = TODAY.heading || 0;
-  AT = new Intl.DateTimeFormat("ru-RU", { timeZone: TODAY.zone, hour: "2-digit", minute: "2-digit" }).format(new Date(TODAY.reveal));
-  ZONE_NAME = TEXT.zone[TODAY.zone] || "";
+  AT = new Intl.DateTimeFormat(LANG, { timeZone: TODAY.zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(TODAY.reveal));
+  ZONE_NAME = ZONES[TODAY.zone] || "";
   startPano();
   // The answer and the result need the map's style: markers and the line are added to it.
   if (!mapReady) await new Promise((r) => map.once("load", r));

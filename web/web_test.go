@@ -2,12 +2,16 @@
 package web
 
 import (
+	"encoding/json"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/FreshLabDev/maply/internal/round"
 )
 
 func serve(t *testing.T, target string, header http.Header) *httptest.ResponseRecorder {
@@ -86,6 +90,73 @@ func TestNoThirdPartyHosts(t *testing.T) {
 			if !allowed[u] && !links[u] {
 				t.Errorf("%s reaches %s", name, u)
 			}
+		}
+	}
+}
+
+func TestTextsPerLanguage(t *testing.T) {
+	for _, lang := range i18n.Codes() {
+		rec := serve(t, "/texts/"+lang+".json", nil)
+		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/json; charset=utf-8" ||
+			rec.Header().Get("Cache-Control") != "no-cache" {
+			t.Fatalf("/texts/%s.json = %d %v", lang, rec.Code, rec.Header())
+		}
+		var got struct {
+			Lang string            `json:"lang"`
+			T    map[string]string `json:"t"`
+			Zone map[string]string `json:"zone"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Lang != lang || got.T["where"] == "" || len(got.Zone) != len(round.ZoneChoices) {
+			t.Fatalf("%s: lang %q, where %q, %d zones", lang, got.Lang, got.T["where"], len(got.Zone))
+		}
+		if _, ok := got.T["btn.play"]; ok {
+			t.Fatalf("%s: bot strings reached the app", lang)
+		}
+	}
+	if rec := serve(t, "/texts/xx.json", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown language = %d", rec.Code)
+	}
+}
+
+// The app holds no words of its own (AGENTS.md): every key it asks for is in
+// internal/i18n, so a typo shows up here and not as a raw key on a phone.
+func TestAppKeysExist(t *testing.T) {
+	known := map[string]bool{}
+	for key := range i18n.WithPrefix("en", "app.") {
+		known[strings.TrimPrefix(key, "app.")] = true
+	}
+	uses := regexp.MustCompile(`\b(?:T|lines)\("([a-z_.]*[a-z_])"|data-(?:t|aria)="([a-z_.]+)"|LOOK = \{([^}]*)\}`)
+	quoted := regexp.MustCompile(`"([a-z_]+)"`)
+	for _, name := range []string{"index.html", "app.js", "map.js", "tg.js"} {
+		data, err := fs.ReadFile(embedded, "app/"+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range uses.FindAllStringSubmatch(string(data), -1) {
+			keys := []string{m[1] + m[2]}
+			if m[3] != "" {
+				keys = nil
+				for _, q := range quoted.FindAllStringSubmatch(m[3], -1) {
+					keys = append(keys, q[1])
+				}
+			}
+			for _, key := range keys {
+				if !known[key] {
+					t.Errorf("%s asks for %q, which internal/i18n does not have", name, key)
+				}
+			}
+		}
+		if cyr := regexp.MustCompile(`[\p{Cyrillic}]`).FindString(string(data)); cyr != "" {
+			t.Errorf("%s has Cyrillic text in it; it belongs in internal/i18n", name)
+		}
+	}
+	for _, key := range []string{"compass_n", "compass_ne", "compass_e", "compass_se", "compass_s", "compass_sw", "compass_w", "compass_nw",
+		"loading", "on_water", "on_land", "moved", "logo", "error.network"} {
+		if !known[key] {
+			t.Errorf("the app builds %q, which internal/i18n does not have", key)
 		}
 	}
 }

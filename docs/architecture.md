@@ -60,7 +60,8 @@ maply/
 │   ├── i18n/             translations.json: the family's sixteen languages
 │   └── health/           /healthz: database, polling, queue depth
 ├── migrations/           NNN_name.sql, applied at start, recorded in schema_migrations
-├── web/                  package web: embeds app/ and serves it with a CSP
+├── web/                  package web: embeds app/ and serves it with a CSP, and
+│                         /texts/<lang>.json from internal/i18n
 │   ├── app/              the Mini App served by the binary: index.html, app.css,
 │   │                     tg.js, map.js, app.js, vendor/
 │   └── prototype/        the single-file prototype, kept as the reference

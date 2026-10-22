@@ -3,6 +3,10 @@
 const tg = window.Telegram && Telegram.WebApp;
 const inTg = !!tg && tg.platform !== "unknown";
 const tgAt = (v) => inTg && tg.isVersionAtLeast(v);
+// A first guess at the language, from the client, so the first screen is not blank. /api/today then names the one
+// core holds: what the person picked in any bot of the family.
+const LANG0 = (((inTg && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code) || navigator.language || "en") + "")
+  .toLowerCase().split(/[-_]/)[0];
 if (inTg) {
   tg.ready(); tg.expand();
   // Telegram header and backdrop in the field colour, bottom bar in the credits-row colour.
