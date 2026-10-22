@@ -82,6 +82,11 @@ func (s *Store) EnsureRound(ctx context.Context, d round.Date) (Round, error) {
 	return Round{Date: d, DayNo: dayNo, PlaceID: placeID}, nil
 }
 
+// RoundOn returns the round for d if it exists, without creating it.
+func (s *Store) RoundOn(ctx context.Context, d round.Date) (Round, bool, error) {
+	return s.roundFor(ctx, s.pool, d)
+}
+
 type querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }

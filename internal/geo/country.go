@@ -55,8 +55,12 @@ func ParseCountries(raw []byte) (*Countries, error) {
 }
 
 // Locate returns the country under p, or false over the sea. Countries do not
-// overlap in Natural Earth admin-0, so the first match is the only one.
+// overlap in Natural Earth admin-0, so the first match is the only one. A nil
+// Countries knows no country at all.
 func (c *Countries) Locate(p Point) (Country, bool) {
+	if c == nil {
+		return Country{}, false
+	}
 	for _, country := range c.list {
 		if country.shape.Contains(p) {
 			return country, true

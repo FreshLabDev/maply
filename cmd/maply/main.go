@@ -13,10 +13,13 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/maply/internal/api"
+	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/bot"
 	"github.com/FreshLabDev/maply/internal/config"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/health"
+	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/migrations"
 )
 
@@ -36,6 +39,10 @@ func main() {
 
 func run(log *slog.Logger) error {
 	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	zones, err := round.LoadZones()
 	if err != nil {
 		return err
 	}
@@ -67,8 +74,20 @@ func run(log *slog.Logger) error {
 	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
 	b := bot.New(store, client, log)
 
+	game := (&api.Server{
+		Store:     store,
+		InitData:  auth.NewVerifier(cfg.TelegramBotToken),
+		Payloads:  auth.NewSigner(cfg.TelegramBotToken),
+		Members:   auth.NewMembers(client),
+		Zones:     zones,
+		ImagesDir: cfg.ImagesDir,
+		Log:       log,
+	}).Handler()
+
 	started := time.Now()
 	mux := http.NewServeMux()
+	mux.Handle("/api/", game)
+	mux.Handle("/img/", game)
 	mux.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
 		Version: version, Commit: commit, Date: date,
 	}, log))

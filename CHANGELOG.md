@@ -42,6 +42,14 @@ of the Go service.
   `auth_date` at most a day old, repeated fields refused), a signed `startapp`
   payload for group posts (date and chat under a 16-byte HMAC, 36 characters),
   and a group membership check through `getChatMember`, cached per day.
+- The game API: `GET /api/today` (the picture, the day number, the person's
+  deadline and their own pin), `POST /api/guess` (one answer a day, answered
+  with "accepted" and nothing else), `GET /api/result` (the place, the fact and
+  the chat's table, only after that chat's reveal; a DM waits for the latest
+  reveal among the person's chats), and `GET /img/<key>`. Requests are
+  rate-limited by person and by address. An integration test plays a winter
+  day across Kyiv, Moscow and Minsk and checks that no response and no log
+  line before the reveal says where the place is.
 - CI (modules, gofmt, vet, race tests, database tests, govulncheck, image build,
   Compose validation), the release workflow that publishes the image to GHCR,
   Dependabot, a local `docker-compose.yml` and the WS04 stack.

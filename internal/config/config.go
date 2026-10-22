@@ -19,6 +19,9 @@ type Config struct {
 	AutoMigrate      bool
 	HTTPAddr         string
 	LogLevel         string
+	// ImagesDir holds the place images, one file per random key. Empty
+	// serves none.
+	ImagesDir string
 }
 
 func Load() (Config, error) {
@@ -28,6 +31,7 @@ func Load() (Config, error) {
 		TelegramAPIBase:  strings.TrimRight(valueOrDefault("TELEGRAM_API_BASE", DefaultTelegramAPIBase), "/"),
 		HTTPAddr:         valueOrDefault("HTTP_ADDR", ":8080"),
 		LogLevel:         valueOrDefault("LOG_LEVEL", "info"),
+		ImagesDir:        strings.TrimSpace(os.Getenv("IMAGES_DIR")),
 	}
 	var err error
 	if cfg.AutoMigrate, err = strconv.ParseBool(valueOrDefault("AUTO_MIGRATE", "true")); err != nil {
