@@ -6,8 +6,8 @@ polling through the family's `tg` client, PostgreSQL in the shared
 apart is that the HTTP surface is real: the same process serves the Mini App,
 its API and the place images.
 
-The service is not written yet. This document fixes where things go, so the
-first commits land in the right place. The product rules are in
+The service is a skeleton so far. This document fixes where things go, so each
+piece lands in the right place. The product rules are in
 [`design.md`](design.md) and the order of work in [`mvp-plan.md`](mvp-plan.md).
 
 ## Boundaries
@@ -83,9 +83,11 @@ maply/
 └── .env.example          every variable the code reads, with a comment
 ```
 
-Today the repository holds `web/prototype/`, `scripts/`, `docs/` and the root
-files. `cmd/`, `internal/`, `migrations/`, `web/app/`, `deploy/` and the CI
-workflows arrive with the Go skeleton. `curation/` exists only on the operator's
+Today the Go side holds `cmd/maply`, `internal/config`, `internal/db`,
+`internal/bot`, `internal/health`, `migrations/`, `deploy/` and the CI
+workflows; the other packages and `web/app/` arrive with their stages.
+`migrations/` is a Go package too: it embeds the SQL into the binary, so an
+image always carries the schema its code was built for. `curation/` exists only on the operator's
 machine: its batches carry source IDs and coordinates and are gitignored.
 
 ## Data Flow

@@ -50,7 +50,8 @@ maply is deliberately narrow:
 | Next | `v0.1.0-alpha.1` | The Go service, the daily round and the Mini App |
 
 The design, the MVP plan and a clickable prototype of the Mini App are here.
-The service is not written yet. Work is tracked on the
+The Go service is a skeleton: it connects to the database, polls Telegram and
+answers `/healthz`, but does not play yet. Work is tracked on the
 [project board](https://github.com/orgs/FreshLabDev/projects/2); what the MVP
 includes and where it departs from the design is in
 [`docs/mvp-plan.md`](docs/mvp-plan.md).

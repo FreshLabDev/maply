@@ -9,7 +9,9 @@ player, and production-minded.
   map, the answer at 20:00. The product is in [`docs/design.md`](docs/design.md),
   the order of work in [`docs/mvp-plan.md`](docs/mvp-plan.md). Read them before
   changing behavior.
-- The Go service does not exist yet. What exists: the Mini App prototype
+- The Go service is a skeleton: config, the database with embedded
+  migrations, Telegram long polling that records people and chats in `core`,
+  and `/healthz`. Next to it are the Mini App prototype
   (`web/prototype/index.html`), the curation scripts (`scripts/curation/`) and
   the source measurements (`scripts/sources/`).
 - The service will be one Go binary (module `github.com/FreshLabDev/maply`): the
@@ -150,13 +152,6 @@ the diff looks like.
 
 ## Verification
 
-Until the Go service exists, verify the prototype in a browser at phone width
-(375×812 and 320×568), with and without the Telegram emulation hash
-(`#tgWebAppData=…&tgWebAppVersion=8.0&tgWebAppPlatform=ios`), and check the
-console has no errors.
-
-Once it exists:
-
 ```sh
 gofmt -l .
 go vet ./...
@@ -165,7 +160,17 @@ docker compose -f deploy/ws04/compose.yaml config
 ```
 
 The database tests need a real PostgreSQL and a disposable database whose name
-contains `test`; they refuse to run anywhere else.
+contains `test`; they refuse to run anywhere else:
+
+```sh
+MAPLY_TEST_DATABASE_URL=postgres://maply:maply@localhost:5432/maply_test?sslmode=disable \
+  go test -tags=integration -p 1 ./...
+```
+
+Verify the Mini App in a browser at phone width (375×812 and 320×568), with and
+without the Telegram emulation hash
+(`#tgWebAppData=…&tgWebAppVersion=8.0&tgWebAppPlatform=ios`), and check the
+console has no errors.
 
 ## Release Checklist
 

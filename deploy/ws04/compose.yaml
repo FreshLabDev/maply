@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# Production stack on WS04. Joins the shared core_net / core-postgres.
+#
+# The image is pulled, never built here: MAPLY_IMAGE names what CI tested and
+# the release workflow published, digest for preference:
+#
+#   MAPLY_IMAGE=ghcr.io/freshlabdev/maply@sha256:<digest>
+#
+# The Cloudflare Tunnel network for maply.ws04.cc joins when the Mini App
+# lands; until then nothing outside the host reaches the service.
+name: maply
+
+services:
+  bot:
+    image: ${MAPLY_IMAGE:?MAPLY_IMAGE must be an immutable GHCR reference}
+    container_name: maply-bot
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      DATABASE_URL: "postgres://maply_core:${MAPLY_CORE_PASSWORD:?MAPLY_CORE_PASSWORD must be set}@core-postgres:5432/core?sslmode=disable"
+      HTTP_ADDR: :8080
+      AUTO_MIGRATE: "true"
+    expose:
+      - "8080"
+    networks: [core_net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  core_net:
+    external: true
+    name: core_net

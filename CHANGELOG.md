@@ -12,9 +12,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 ## Unreleased
 
 Nothing is released yet. The repository holds the design, the MVP plan, the
-source measurements and the clickable prototype of the Mini App.
+source measurements, the clickable prototype of the Mini App and the skeleton
+of the Go service.
 
 ### Added
+
+- The Go service skeleton, built the way voicy and branchy are: validated
+  environment, PostgreSQL in the `maply` schema with migrations embedded in the
+  binary, Telegram long polling through `FreshLabDev/tg` that records people
+  and groups in `core`, a `Preflight` check before polling starts, and
+  `/healthz` reporting the database and polling freshness.
+- CI (modules, gofmt, vet, race tests, database tests, govulncheck, image build,
+  Compose validation), the release workflow that publishes the image to GHCR,
+  Dependabot, a local `docker-compose.yml` and the WS04 stack.
 
 - `docs/design.md`: the daily cycle, scoring, anti-cheat rules, the intrigue
   window, groups, the site, where places come from and how they are picked.
