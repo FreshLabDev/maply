@@ -29,6 +29,15 @@ of the Go service.
   send queue keyed for idempotency. Constraints refuse an answer after its
   deadline, an approved place without the data a round needs, and a morning
   post moved past the 20:00 reveal.
+- Scoring: haversine distance, `3500 · e^(−d / 1492.7)`, and the bonus ladder
+  for continent, country and city. Point-in-polygon handles shared borders,
+  enclaves, rings across the antimeridian and polar caps. The Natural Earth
+  countries are not embedded yet.
+- The game calendar: the round of a date, created from the place queue by
+  weekday difficulty and numbered from the first round; the reveal at 20:00 in
+  the capital of the chat's language; and a person's answer window, which
+  closes at the earliest reveal among every chat core has seen them in with
+  maply. Zones come from tzdata.
 - CI (modules, gofmt, vet, race tests, database tests, govulncheck, image build,
   Compose validation), the release workflow that publishes the image to GHCR,
   Dependabot, a local `docker-compose.yml` and the WS04 stack.

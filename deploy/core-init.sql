@@ -1,5 +1,7 @@
 -- SPDX-License-Identifier: Apache-2.0
--- LOCAL-DEV ONLY. Minimal core.person/core.chat/core.touch plus the maply schema.
+-- LOCAL-DEV ONLY. Minimal core.person/core.chat/core.presence/core.touch plus the
+-- maply schema. Production gets all of this from the core repository
+-- (migrations 001 and 018).
 CREATE SCHEMA IF NOT EXISTS core;
 CREATE SCHEMA IF NOT EXISTS maply;
 
@@ -20,6 +22,22 @@ CREATE TABLE IF NOT EXISTS core.chat (
   last_seen_at  timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now()
 );
+
+-- chat_id 0 is the DM, as in core.
+CREATE TABLE IF NOT EXISTS core.presence (
+  telegram_user_id bigint NOT NULL REFERENCES core.person(telegram_user_id),
+  bot text NOT NULL,
+  chat_id bigint NOT NULL DEFAULT 0,
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at  timestamptz NOT NULL DEFAULT now(),
+  event_count bigint NOT NULL DEFAULT 0,
+  PRIMARY KEY (telegram_user_id, bot, chat_id)
+);
+
+CREATE OR REPLACE VIEW core.maply_presence AS
+  SELECT telegram_user_id, chat_id, first_seen_at, last_seen_at
+    FROM core.presence
+   WHERE bot = 'maply';
 
 CREATE OR REPLACE FUNCTION core.touch(
   p_bot text, p_user_id bigint,
@@ -47,6 +65,11 @@ BEGIN
       username = COALESCE(EXCLUDED.username, ch.username),
       last_seen_at = EXCLUDED.last_seen_at, updated_at = EXCLUDED.updated_at;
   END IF;
+  INSERT INTO core.presence AS pr (telegram_user_id, bot, chat_id, first_seen_at, last_seen_at, event_count)
+  VALUES (p_user_id, p_bot, COALESCE(p_chat_id, 0), p_at, p_at, 1)
+  ON CONFLICT (telegram_user_id, bot, chat_id) DO UPDATE SET
+    last_seen_at = GREATEST(pr.last_seen_at, EXCLUDED.last_seen_at),
+    event_count = pr.event_count + 1;
   IF p_tg_lang IS NOT NULL AND btrim(p_tg_lang) <> '' THEN
     INSERT INTO core.user_language AS ul (bot, subject_id, language, source)
     VALUES (p_bot, p_user_id, lower(split_part(btrim(p_tg_lang), '-', 1)), 'client')
