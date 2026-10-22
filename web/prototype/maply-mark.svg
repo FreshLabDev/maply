@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640">
+  <!-- maply: булавка карты. Головка r150, острие под 45° (касательные), круглый вырез r60. -->
+  <rect width="640" height="640" fill="#245A3C"/>
+  <path fill="#FFFFFF" fill-rule="evenodd" d="M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1 0 320 349 A60 60 0 1 0 320 229 Z"/>
+</svg>

@@ -1,0 +1,235 @@
+# Release Process
+
+Every Asterfield repository releases the same way. This document is identical in
+all of them; only the verification section is specific to maply.
+
+See [`versioning.md`](versioning.md) for what the numbers mean and why
+pre-releases are tagged on `dev` and stable versions on `main`.
+
+## The changelog is the release notes
+
+`CHANGELOG.md` is the source of truth for history, and the release workflow reads
+it directly — the GitHub Release body is the `## <tag>` section, copied verbatim.
+There is no second place to write release notes, and no step where the two can
+disagree.
+
+Which means the changelog has to be written for somebody else to read:
+
+- Put unreleased changes under `## Unreleased`, in the section that fits:
+  `Added`, `Changed`, `Fixed`, `Removed`, `Security`, `Breaking`,
+  `Known Limitations`.
+- Record what matters to a user, an operator, or the next person deciding
+  whether to upgrade. Not every refactor.
+- Say what changed and why it mattered, concretely. "Fixed a bug" tells nobody
+  anything.
+- Call out anything an operator must act on — a new or renamed environment
+  variable, a migration, a changed deployment assumption — explicitly, in its
+  own entry.
+- Exactly one `## Unreleased` section, always at the top. Two of them means the
+  next release renames the wrong one.
+
+## Publishing a pre-release
+
+A pre-release is tagged on `dev`. Nothing merges anywhere.
+
+1. Finish the work on `dev` and run the verification below.
+2. Rename `## Unreleased` to the version, and open a fresh empty `## Unreleased`
+   above it:
+
+   ```text
+   ## Unreleased
+
+   ## v1.2.3-alpha.4 - 2026-09-09
+   ```
+
+3. Commit that on `dev` and push it.
+4. Tag the pushed commit and push the tag:
+
+   ```sh
+   git tag -a v1.2.3-alpha.4 -m "v1.2.3-alpha.4"
+   git push origin dev
+   git push origin v1.2.3-alpha.4
+   ```
+
+The tag push runs `.github/workflows/release.yml`. It runs CI (`ci.yml`) on
+the tagged commit first and publishes nothing unless it passed; then it
+refuses the tag if it is not on `dev` or has no changelog section, builds and
+publishes the image, adds its digest to the notes, and creates the GitHub
+Release marked as a pre-release.
+
+Then point the test bot at it. A pre-release nobody ran is a pre-release that
+proved nothing.
+
+## Publishing a stable release
+
+A stable version is tagged on `main`, on the merge commit.
+
+1. The version being promoted should already have been through at least one
+   pre-release that actually ran somewhere. If it has not, say why in the
+   changelog.
+2. On `dev`, rename `## Unreleased` to the stable version and push.
+3. Merge into `main` with a merge commit, so the tag has something to sit on:
+
+   ```sh
+   git checkout main
+   git merge --no-ff dev
+   git push origin main
+   ```
+
+4. Tag the merge commit and push the tag:
+
+   ```sh
+   git tag -a v1.2.3 -m "v1.2.3"
+   git push origin v1.2.3
+   ```
+
+5. Deploy it, and check the running version says what it should.
+
+## Publishing without CI
+
+A pushed tag publishes only after CI passed on the tagged commit. When CI could
+not run (an Actions outage, a spending limit) or failed for a reason that is not
+the code, and the release cannot wait, publish the existing tag by hand:
+
+```sh
+gh workflow run release.yml -f tag=v1.2.3 -f reason="why CI is skipped"
+```
+
+That run skips CI and puts the reason at the top of the GitHub Release, so the
+release itself says it was not checked.
+
+## Rolling back
+
+Do not retag and do not delete a published release. Roll back by deploying the
+previous version — the images are pinned by digest, so the previous digest is
+the whole rollback — and then publish a new patch that fixes what went wrong.
+
+A version that was published is a fact about what existed. Rewriting it makes
+every other record of it wrong.
+
+## Deploying
+
+The host is WS04. Every stack lives in `/opt/stacks/<stack>` and is driven by the
+`ws04` CLI, which exists on the operator's machine and reaches the host over the
+LAN. Nothing here is built on the host any more: a stack pulls the image the
+release workflow published and runs that. If you find a `build:` section in a
+production manifest, that is a bug, not a shortcut.
+
+### One deploy
+
+```sh
+ws04 deploy maply --dry-run --yes    # prints what it would do, changes nothing
+ws04 deploy maply --yes
+```
+
+`deploy` snapshots the stack's compose, env and image ids into
+`/opt/stacks/.ws04/deploy-snapshots/maply/<timestamp>`, pulls, brings the stack
+up, waits up to ninety seconds for the container to report healthy, and **rolls
+back on its own** if it does not. The snapshot is kept either way.
+
+### Pointing the stack at a version
+
+The image is chosen by one variable in the stack's env file on the host, not by
+anything in this repository:
+
+```sh
+MAPLY_IMAGE=ghcr.io/freshlabdev/maply@sha256:<digest>
+```
+
+Pin the **digest**, not the tag. A tag can be moved; a digest names one build
+that was tested, so a rollback is one line with nothing to rebuild, and
+`docker inspect` on the running container answers which commit it came from. The
+digest of a release is in its GitHub Release notes. To read it off the host that
+will run it, pull the tag once and ask the daemon:
+
+```sh
+docker pull ghcr.io/freshlabdev/maply:<tag>
+docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/freshlabdev/maply:<tag>
+```
+
+That pull used to be mandatory, and it is worth saying why it no longer is,
+because the reason was never the digest. Deploying straight to
+`ghcr.io/freshlabdev/maply@sha256:<digest>` answered `403` on a blob, and
+pulling the tag first always cleared it.
+
+The cause was the account doing the deploying. `ws04 deploy` runs as root, and
+root's stored GHCR credential could not read the private package; the
+pull-by-tag only worked because it was run as the login user, whose credential
+can — which left the image in the shared local store for `up` to find. The
+registry says which is which: asked for a manifest digest as if it were a blob,
+an account that can read the package answers `404`, one that cannot answers
+`403`. A `403` here is an access problem wearing a not-found costume.
+
+So the fix is on the host, not in the recipe: make sure the account the deploy
+runs as can read the package (`sudo docker login ghcr.io`), and pinning a digest
+works on its own. Pulling the tag first is still a fine way to warm the layers.
+
+Without a shell on the host, the API answers the same question:
+
+```sh
+gh api /orgs/FreshLabDev/packages/container/maply/versions \
+  --jq '.[] | select(.metadata.container.tags[]? == "<tag>") | .name'
+```
+
+The variable has no default. An unset one stops the stack with a message naming
+it, rather than quietly starting something else.
+
+### Rolling back
+
+Set `MAPLY_IMAGE` to the previous digest and deploy again. That is the whole
+rollback — the images are still on the host, and nothing is rebuilt. Then publish
+a patch that fixes what went wrong; never retag or delete the bad release.
+
+### What this stack needs to exist
+
+| | |
+|:--|:--|
+| Stack | `maply` — `/opt/stacks/maply` |
+| Manifest | [`deploy/ws04/compose.yaml`](../deploy/ws04/compose.yaml) in this repository |
+| Env file | `.env` on the host, never in git |
+| Networks | `core_net` (core-postgres), the Cloudflare Tunnel network for `maply.ws04.cc` |
+| Volume | place images, rehosted without EXIF; backed up together with the database |
+
+maply talks to Telegram's own `api.telegram.org`. It sends photos well under the
+cloud limits and downloads nothing large, so by the rule in `core`'s
+architecture document it does not need the self-hosted Bot API server.
+
+The image volume is as much state as the database: a round whose picture is
+gone cannot be shown again. Restore both from the same backup.
+
+### Checking what is running
+
+```sh
+ws04 container list                    # health of everything
+ws04 logs maply-bot --since 1h
+ws04 container inspect maply-bot     # includes the image digest
+```
+
+The bot also reports its own version — from the About card in Telegram, and from
+its health endpoint where it has one. Those two and `docker inspect` should
+agree; if they do not, something was deployed by hand.
+
+## Verification
+
+```sh
+gofmt -l .
+go vet ./...
+go test -race ./...
+docker compose -f deploy/ws04/compose.yaml config
+```
+
+The database tests need a real PostgreSQL and a disposable database whose name
+contains `test`; they refuse to run anywhere else:
+
+```sh
+MAPLY_TEST_DATABASE_URL=postgres://maply:maply@localhost:5432/maply_test?sslmode=disable \
+  go test -tags=integration -p 1 ./...
+```
+
+CI additionally runs `go mod verify`, `govulncheck`, the Docker build, and
+Compose validation.
+
+For `beta`, `rc`, and stable: one full day on the test bot with the schedule
+compressed, in a DM and in a group, including a restart in the middle of the
+day. The morning post, the intrigue and the result arrive exactly once each, and
+no API response or log line contains the place's coordinates before the reveal.

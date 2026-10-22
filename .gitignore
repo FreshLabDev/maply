@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+.env
+.env.*
+!.env.example
+*.exe
+/bin/
+/out/
+/tmp/
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.log
+coverage.out
+__pycache__/
+
+# Curation batches: candidate pictures, LLM reviews and contact sheets.
+# They hold source IDs and coordinates, which must never reach a public repo.
+/curation/
+
+# Promo cards and posts made for a release; kept outside git
+/outputs/

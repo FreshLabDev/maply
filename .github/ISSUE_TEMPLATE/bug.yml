@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Bug
+description: Something does not work as it should
+labels: ["bug"]
+projects: ["FreshLabDev/2"]
+body:
+  - type: markdown
+    attributes:
+      value: If the bug lets anyone learn today's place before 20:00, do not file it here. See SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you saw. Telegram client and device.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce

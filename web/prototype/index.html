@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#245A3C">
+<title>maply</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400;500;700&family=Sofia+Sans+Extra+Condensed:wght@700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.css">
+<script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
+<style>
+  /* maply theme per Asterfield rules: single field colour, white mark, no shadows, rounded corners or transparency. */
+  :root {
+    --field: #245A3C; --field-deep: #1A412B; --field-tint: #59826B;
+    --ink: #FFFFFF; --ink-soft: #D8E1DC; --ink-muted: #B5C7BD;
+    --panel: #FFFFFF; --on-panel: #245A3C;
+    /* Insets for the notch and Telegram buttons. In a fullscreen Mini App, "Close" and "⋯" sit on top of the page:
+       their height comes from Telegram in --tg-content-safe-area-inset-top. Outside Telegram these variables are absent, so env() remains. */
+    --safe-top: max(env(safe-area-inset-top), calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)));
+    --safe-bottom: max(env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px));
+    --top: 52px; --mini: 136px; --foot: calc(18px + var(--safe-bottom)); --tape: 38px;
+    --ease: cubic-bezier(.2, .9, .25, 1);
+    --display: "DIN Condensed", "Sofia Sans Extra Condensed", sans-serif;
+    --label: "DIN Alternate", "Sofia Sans", sans-serif;
+    --text: "Sofia Sans", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--field); color: var(--ink); overscroll-behavior: none; }
+  body { position: fixed; inset: 0; overflow: hidden; font: 400 16px/1.35 var(--text); -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
+  button { font: inherit; color: inherit; border: 0; border-radius: 0; background: none; padding: 0; cursor: pointer; }
+  .up { font: 700 13px/1 var(--label); letter-spacing: .1em; text-transform: uppercase; }
+
+  /* Header */
+  .top { position: fixed; z-index: 30; top: 0; left: 0; right: 0; height: calc(var(--top) + var(--safe-top)); padding: var(--safe-top) 16px 0;
+         display: flex; align-items: center; justify-content: space-between; background: var(--field); }
+  .logo { display: flex; align-items: baseline; gap: 8px; }
+  .logo b { font: 700 32px/1 var(--display); }
+  .logo span { color: var(--ink-muted); }
+  .timer { display: flex; align-items: baseline; gap: 8px; }
+  .timer span { color: var(--ink-muted); }
+  .timer b { font: 700 26px/1 var(--display); letter-spacing: .02em; }
+  /* Result: below the header is the day's table. One row per player: rank, avatar, name, a score bar on a 0–5,000 scale,
+     points and kilometres. The bar is split into parts: grey for kilometres, white for bonuses; in your own row
+     dashed outlines also show the bonuses you missed. Below that, one "what if" line. */
+  .prog { position: absolute; left: 0; right: 0; top: 100%; padding: 4px 12px 8px; background: var(--field-deep);
+          transform: scaleY(0); transform-origin: 50% 0; transition: transform .3s var(--ease); }
+  .is-reveal.is-map .prog { transform: none; }
+  .lb .r { height: 26px; overflow: hidden; display: grid; grid-template-columns: 10px 18px 44px 1fr 46px 54px; gap: 7px; align-items: center;
+           font: 700 11px/1 var(--label); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); }
+  .lb .r em { font-style: normal; color: var(--ink-muted); text-align: center; }
+  .lb .r.me { color: var(--ink); }
+  .lb .hit { height: 100%; display: flex; align-items: center; cursor: default; }
+  .lb .bar { width: 100%; height: 8px; display: flex; gap: 1px; background: var(--field); }
+  .lb .bar i.lit { outline: 2px solid var(--ink); outline-offset: 1px; }
+  /* Long leaderboard: collapsed, the first rows and yours are visible; the rest slide out on tap. */
+  .lb .r.x { height: 0; opacity: 0; transition: height .3s var(--ease), opacity .2s; }
+  .lb.open .r.x { height: 26px; opacity: 1; }
+  .lb.open { max-height: calc(100dvh - var(--top) - 220px); overflow-y: auto; }
+  .prog .more { display: block; width: 100%; height: 22px; padding: 0 0 0 17px; text-align: left; font: 700 10px/1 var(--label); letter-spacing: .1em;
+              text-transform: uppercase; color: var(--ink-muted); }
+  .tip { position: absolute; z-index: 2; padding: 4px 6px; background: var(--panel); color: var(--on-panel); white-space: nowrap; pointer-events: none;
+         font: 700 10px/1 var(--label); letter-spacing: .08em; text-transform: uppercase; opacity: 0; transition: opacity .12s; }
+  .tip.on { opacity: 1; }
+  .lb .bar i { flex: none; background: var(--ink); transform: scaleX(0); transform-origin: 0 50%; transition: transform .45s var(--ease) var(--d); }
+  .lb .bar i.km { background: var(--ink-muted); }
+  .lb .bar i.if { background: none; outline: 1px dashed var(--ink-muted); outline-offset: -1px; transform: none; opacity: 0; transition: opacity .3s var(--d); }
+  .is-reveal .lb .bar i { transform: none; }
+  .is-reveal .lb .bar i.if { opacity: 1; }
+  .lb .s { font: 700 18px/1 var(--display); text-align: right; color: var(--ink); }
+  .lb .k { text-align: right; font-size: 10px; color: var(--ink-muted); white-space: nowrap; }
+  .prog .ifs { margin: 5px 0 0; font: 700 10px/1.4 var(--label); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+  .prog .ifs span { white-space: nowrap; }
+  .prog .ifs b { color: var(--ink-soft); }
+  .prog .ifs i { display: inline-block; width: 8px; height: 8px; margin-right: 4px; background: var(--ink); }
+  .prog .ifs i.km { background: var(--ink-muted); }
+  .prog .ifs i.if { background: none; outline: 1px dashed var(--ink-muted); outline-offset: -1px; }
+  .sub { color: var(--ink-soft); }
+  /* Avatar: a square with a letter until there is a Telegram photo. A field-coloured ring separates neighbours in a stack. */
+  .av { width: 18px; height: 18px; display: grid; place-items: center; background: var(--field-deep); color: var(--ink); outline: 2px solid var(--field);
+        font: 700 10px/1 var(--label); letter-spacing: 0; text-transform: uppercase; font-style: normal; }
+  .av.me { background: var(--ink); color: var(--field-deep); }
+
+  /* Fullscreen panorama */
+  .stage { position: fixed; top: calc(var(--top) + var(--safe-top)); left: 0; right: 0; bottom: var(--foot); background: var(--field-deep); }
+  #pano { position: absolute; inset: 0; }
+  .pnlm-container { background: var(--field-deep) !important; font-family: var(--text) !important; }
+  .pnlm-load-box, .pnlm-about-msg, .pnlm-ui .pnlm-orientation-button { display: none !important; }
+  /* Photo credits and map attribution share one strip at the bottom, always visible. License labels are not hidden under sheets or buttons. */
+  .credits { position: fixed; z-index: 35; left: 0; right: 0; bottom: 0; height: var(--foot); padding: 0 8px var(--safe-bottom);
+             display: flex; align-items: center; justify-content: safe center; gap: 5px; background: var(--field-deep); color: var(--field-tint);
+             font: 500 9px/1 var(--text); letter-spacing: .02em; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .credits::-webkit-scrollbar { display: none; }
+  .credits a { color: inherit; text-decoration: none; }
+
+  /* Compass: a heading tape at the bottom above the credits, like in an aircraft cockpit: the cardinal directions slide under a fixed mark.
+     North is a white tile with a field-coloured letter, like a system button. Tap turns the view to north. */
+  .compass { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: var(--tape); background: var(--field-deep); overflow: hidden; }
+  .compass svg { position: absolute; left: 0; top: 0; height: var(--tape); will-change: transform; }
+  .compass::before { content: ""; position: absolute; z-index: 1; left: 50%; top: 0; width: 10px; height: 10px; margin-left: -5px;
+                     background: var(--ink); transform: translateY(-5px) rotate(45deg); }
+  .compass::after { content: ""; position: absolute; z-index: 1; left: 50%; bottom: 0; width: 2px; height: 9px; margin-left: -1px; background: var(--ink); }
+  .compass { cursor: ew-resize; touch-action: none; }
+  .hint { position: absolute; left: 50%; top: 12px; z-index: 3; transform: translateX(-50%); display: flex; gap: 6px; transition: opacity .4s; pointer-events: none; white-space: nowrap; }
+  .hint i { font-style: normal; padding: 9px 11px; background: var(--field); }
+  .hint.gone { opacity: 0; }
+
+  /* Loading */
+  .loader { position: fixed; inset: 0; z-index: 50; background: var(--field); display: grid; place-items: center; transition: opacity .35s, visibility .35s; }
+  .loader.gone { opacity: 0; visibility: hidden; }
+  .loader div { display: grid; justify-items: center; gap: 22px; }
+  .loader svg { width: 54px; height: 66px; animation: hop .9s var(--ease) infinite; }
+  @keyframes hop { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(-22px); } }
+
+  /* Map: a transparent canvas over the panorama. The globe has no background: in photo mode it is small in the corner,
+     on tap it flies to the centre and grows. The canvas never resizes; only the camera moves. */
+  #map { position: fixed; z-index: 10; left: 0; right: 0; bottom: var(--foot); top: calc(var(--top) + var(--safe-top)); background: transparent; pointer-events: none; }
+  .is-map #map { pointer-events: auto; }
+  .is-map .hint { visibility: hidden; }
+  /* On entering the globe, the tape slides down behind the credits row; on return to the photo it slides back
+     with a short delay, once the globe is already returning to the corner. */
+  .compass { transition: transform .42s var(--ease) .12s, visibility 0s; }
+  .is-map .compass { transform: translateY(100%); visibility: hidden; transition: transform .34s var(--ease), visibility 0s .34s; }
+
+  /* Mini globe and the caption with an arrow */
+  .globe-hit { position: fixed; z-index: 12; right: 12px; bottom: calc(var(--foot) + var(--tape) + 16px); width: var(--mini); height: var(--mini); }
+  .call { position: fixed; z-index: 12; right: calc(var(--mini) + 22px); bottom: calc(var(--foot) + var(--tape) + 16px + var(--mini) / 2 - 31px);
+          display: grid; justify-items: end; gap: 4px; pointer-events: none; transition: opacity .3s, transform .3s var(--ease); }
+  .call b { padding: 10px 12px; background: var(--panel); color: var(--on-panel); font: 700 22px/1 var(--display); letter-spacing: .03em; text-transform: uppercase; }
+  .call span { padding: 6px 8px; background: var(--field); color: var(--ink); }
+  .call em { display: inline-block; font-style: normal; animation: nudge 1.4s var(--ease) infinite; }
+  @keyframes nudge { 0%, 100% { transform: none; } 50% { transform: translateX(5px); } }
+  .is-map .globe-hit, .is-map .call { visibility: hidden; }
+  .is-map .call { opacity: 0; transform: translateX(-10px); }
+
+  /* Waiting and result are separate plates over the map. Nothing slides in from the bottom:
+     the plates exist only in map mode and simply fade in; in photo mode they are absent entirely. */
+  .ov-top, .ov-bot { position: fixed; z-index: 15; left: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+                     opacity: 0; visibility: hidden; transform: translateY(6px); transition: opacity .3s, transform .3s var(--ease), visibility .3s; }
+  .ov-top { top: calc(var(--top) + var(--safe-top) + 12px); pointer-events: none; }
+  .ov-bot { right: 8px; bottom: calc(var(--foot) + 82px); }
+  .is-map .ov-top.on, .is-map .ov-bot.on { opacity: 1; visibility: visible; transform: none; }
+  /* Plates are darker than water, otherwise they blend into it over the sea. */
+  .pl { padding: 8px 10px; background: var(--field-deep); }
+  .pl.w { background: var(--panel); color: var(--on-panel); }
+
+  /* Bottom strip of the map: slides up when the globe is open (the compass slides down meanwhile).
+     Until there is a pin, a single "Ещё разглядеть" button. With a pin it smoothly splits:
+     "Разглядеть" on the left, white "Финальный ответ" on the right (in the result, "Переслать в чат"). The halves are equal. */
+  .act { position: fixed; z-index: 25; left: 0; right: 0; bottom: var(--foot); padding: 12px 16px; background: var(--field);
+         display: grid; grid-template-columns: 1fr 0fr; gap: 0;
+         transform: translateY(110%); transition: transform .38s var(--ease), grid-template-columns .42s var(--ease), gap .42s var(--ease); }
+  .is-map .act { transform: none; }
+  .act.on { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .act button { min-width: 0; overflow: hidden; white-space: nowrap; height: 58px; font: 700 clamp(13px, 4.2vw, 17px)/1 var(--label); letter-spacing: .05em; text-transform: uppercase; }
+  .act button:active { transform: scale(.985); }
+  #look { background: var(--field-deep); color: var(--ink); }
+  #go { background: var(--panel); color: var(--on-panel); }
+
+  .toast { position: fixed; z-index: 40; left: 16px; right: 16px; top: calc(var(--top) + var(--safe-top) + 88px); padding: 12px 14px; background: var(--panel); color: var(--on-panel);
+           font: 700 15px/1.25 var(--label); letter-spacing: .02em; transform: translateY(-14px); opacity: 0; transition: transform .3s var(--ease), opacity .3s; pointer-events: none; }
+  .toast.on { transform: none; opacity: 1; }
+
+  /* Pin and markers */
+  .pin { width: 38px; height: 45px; display: block; transform-origin: 50% 100%; animation: drop .36s cubic-bezier(.2, 1.5, .4, 1); }
+  @keyframes drop { from { transform: translateY(-34px) scaleY(1.15); opacity: 0; } to { transform: none; opacity: 1; } }
+  .target { width: 30px; height: 30px; display: block; }
+  /* A zero-size friend marker sits exactly at its point; the dot, label and leader line are laid out by layoutMarks(). */
+  .friend { width: 0; height: 0; }
+  .friend .g { position: absolute; left: 0; top: 0; }
+  .friend i { position: absolute; left: -9px; top: -9px; outline-color: var(--ink); }
+  .friend b { position: absolute; left: 0; top: 0; white-space: nowrap; font: 700 10px/1 var(--label); letter-spacing: .08em; text-transform: uppercase;
+              padding: 3px 4px; background: var(--field-deep); outline: 1.5px solid var(--ink); transition: transform .22s var(--ease); }
+  .friend s { position: absolute; left: 0; top: -1px; height: 2px; width: 0; background: var(--field-deep); transform-origin: 0 50%;
+              transition: width .22s var(--ease), transform .22s var(--ease); }
+  /* The mini globe in the corner shows only your own pin: friends' labels and the target turn into a mess there. */
+  body:not(.is-map) .friend, body:not(.is-map) .target { visibility: hidden; }
+
+  /* States: waiting and result */
+  .nums { display: flex; align-items: flex-end; gap: 10px; }
+  .nums b { font: 700 58px/.8 var(--display); }
+  .nums .up { color: var(--ink-soft); line-height: 1.25; }
+  /* Result: a single place plate above the buttons. Tap shows a fact about the place; the cross collapses it into a small tab. */
+  .place { display: flex; align-items: flex-start; max-width: min(360px, calc(100vw - 16px)); background: var(--field-deep); }
+  .place .t { flex: 1; min-width: 0; padding: 8px 10px; text-align: left; line-height: 1.25; color: var(--ink); }
+  .place .x { flex: none; width: 32px; align-self: stretch; color: var(--ink-soft); font: 400 18px/1 var(--text); }
+  .place p { margin: 6px 0 0; color: var(--ink-soft); font: 400 14px/1.4 var(--text); text-transform: none; letter-spacing: 0; user-select: text; }
+  .place p:empty { display: none; }
+  .place.min .t, .place.min .x { display: none; }
+  .place .tab { display: none; padding: 8px 10px; color: var(--ink-soft); }
+  .place.min .tab { display: block; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chips span { padding: 8px 10px; background: var(--field-deep); }
+  .chips .me { background: var(--panel); color: var(--on-panel); }
+  .chips .no { color: var(--ink-muted); }
+  .demo { padding: 8px 10px; background: var(--field-deep); color: var(--ink-muted); text-decoration: underline; font: 500 12px/1 var(--text); }
+  .hidden { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { .compass, .ov-top, .ov-bot, .call, .call em, .act, .toast, .pin, .loader svg, .prog, .lb .bar i { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <button class="logo" id="logo" aria-label="maply"><b>maply</b><span class="up" id="day">#142</span></button>
+  <div class="timer" id="timer"><span class="up">до правды</span><b id="left">—</b></div>
+  <div class="prog" id="prog"><div class="lb" id="lb"></div><button class="more hidden" id="more"></button><p class="ifs" id="ifs"></p><div class="tip" id="tip"></div></div>
+</header>
+
+<main class="stage">
+  <div id="pano"></div>
+    <button class="compass" id="compass" aria-label="Повернуться на север"><svg id="tape"></svg></button>
+  <div class="hint up" id="hint"><i>крути пальцем</i><i>щипок — ближе</i></div>
+</main>
+
+<div id="map"></div>
+<button class="globe-hit" id="globeHit" aria-label="Открыть глобус"></button>
+<div class="call" id="call"><b id="callB">Где это?</b><span class="up" id="callS">ставь булавку <em>→</em></span></div>
+<div class="act" id="act"><button id="look">Ещё разглядеть</button><button id="go">Финальный ответ</button></div>
+<div class="ov-top" id="ovTop"></div>
+<div class="ov-bot" id="ovBot"></div>
+<div class="toast" id="toast"></div>
+<footer class="credits" id="credits"></footer>
+
+<div class="loader" id="loader"><div>
+  <svg viewBox="170 139 300 362"><path fill="#FFFFFF" fill-rule="evenodd" d="M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1 0 320 349 A60 60 0 1 0 320 229 Z"/></svg>
+  <span class="up" id="loadtext">Завязываем глаза…</span>
+</div></div>
+
+<script>
+const ROUND = window.MAPLY_ROUND || { n: 142, img: "sample.jpg", pano: true, lat: 38.7139, lon: -9.1389, cc: "pt", city: "Лиссабон", place: "Лиссабон, Португалия · площадь Россиу",
+  fact: "Волнистая мостовая этой площади стала образцом для набережной Копакабаны в Рио.", author: "southglos", revealHour: 20,
+  heading: 164.1, tz: "Europe/Moscow", tzName: "по москве" }; // heading: where the frame centre points (computed_compass_angle from Mapillary), 0 = north
+const $ = (id) => document.getElementById(id);
+const PIN_PATH = "M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1 0 320 349 A60 60 0 1 0 320 229 Z";
+// On the map, markers are dark with a white outline: visible on both light land and green water.
+const PIN = '<svg class="pin" viewBox="150 119 340 402"><path fill="#1A412B" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="miter" paint-order="stroke" fill-rule="evenodd" d="' + PIN_PATH + '"/></svg>';
+const TARGET = '<svg class="target" viewBox="0 0 30 30"><path fill="none" stroke="#FFFFFF" stroke-width="6" d="M15 3.5a11.5 11.5 0 1 1 0 23a11.5 11.5 0 1 1 0-23"/><circle cx="15" cy="15" r="7.5" fill="#FFFFFF"/><circle cx="15" cy="15" r="5" fill="#1A412B"/><path fill="none" stroke="#1A412B" stroke-width="3" d="M15 3.5a11.5 11.5 0 1 1 0 23a11.5 11.5 0 1 1 0-23"/></svg>';
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const av = (who, me) => '<i class="av' + (me ? ' me' : '') + '">' + (me ? "ты" : who[0]) + '</i>';
+const el = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.firstElementChild; };
+// Thousands separated by a narrow space, as in the Asterfield system.
+const fmt = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+
+/* ---------- Touches of character ---------- */
+const LOADING = ["Завязываем глаза…", "Крутим глобус…", "Телепортируем…", "Прячем табличку с названием…", "Отключаем GPS…"];
+const ON_WATER = ["Это вода. Рыбы оценят.", "Смело. Прямо в море.", "Капитан, мы точно не на суше?"];
+const ON_LAND = ["Записали. Отступать некуда.", "Чуйка говорит — тут.", "Смело.", "Хм. Интересный выбор.", "Окей, Колумб."];
+const MOVED = ["Передумал? Бывает.", "Ещё разок прицелимся.", "Сомнения — признак ума."];
+const LOGO = ["Логотип не подсказывает. Мы проверяли.", "Нет, жать сюда бесполезно.", "Ладно, вот подсказка: это на Земле."];
+/* ---------- Telegram Mini App ---------- */
+// Outside Telegram the SDK also loads, but platform is "unknown": then we behave as a regular website.
+const tg = window.Telegram && Telegram.WebApp;
+const inTg = !!tg && tg.platform !== "unknown";
+const tgAt = (v) => inTg && tg.isVersionAtLeast(v);
+if (inTg) {
+  tg.ready(); tg.expand();
+  // Telegram header and backdrop in the field colour, bottom bar in the credits-row colour.
+  if (tgAt("6.9")) { tg.setHeaderColor("#245A3C"); tg.setBackgroundColor("#245A3C"); }
+  if (tgAt("7.10")) tg.setBottomBarColor("#1A412B");
+  // The panorama and globe are dragged in every direction: a swipe down must not collapse the app.
+  if (tgAt("7.7")) tg.disableVerticalSwipes();
+  // Cutouts, fullscreen buttons or window height changed: recompute the camera, tape and panorama.
+  ["viewportChanged", "safeAreaChanged", "contentSafeAreaChanged"].forEach((e) => tg.onEvent(e, () => dispatchEvent(new Event("resize"))));
+}
+// Feedback: in Telegram, its haptics (works on iPhone too, where navigator.vibrate is absent); in a browser, vibrate.
+const VIBRATE = { light: 8, soft: 6, medium: 14, select: 10, success: [10, 40, 10] };
+function haptic(kind) {
+  if (tgAt("6.1")) {
+    const h = tg.HapticFeedback;
+    if (kind === "success") h.notificationOccurred("success"); else if (kind === "select") h.selectionChanged(); else h.impactOccurred(kind);
+  } else if (navigator.vibrate) navigator.vibrate(VIBRATE[kind]);
+}
+// Telegram's system Back button is shown while the globe is open and returns to the photo.
+function syncBack() { if (tgAt("6.1")) view === "map" ? tg.BackButton.show() : tg.BackButton.hide(); }
+// External links open in Telegram's browser, otherwise the page leaves the Mini App.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a[href^='http']");
+  if (a && inTg) { e.preventDefault(); tg.openLink(a.href); }
+});
+
+let toastT = 0;
+function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2300); }
+
+let li = 0;
+const loadTimer = setInterval(() => { $("loadtext").textContent = LOADING[++li % LOADING.length]; }, 900);
+let logoTaps = 0;
+$("logo").addEventListener("click", () => { if (++logoTaps % 3 === 0) toast(pick(LOGO)); });
+
+/* ---------- Countdown to the result, by the language capital's time ---------- */
+const AT = ROUND.revealHour + ":00";
+function secondsLeft() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: ROUND.tz, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+    .formatToParts(new Date()).map((x) => [x.type, x.value]));
+  const s = ROUND.revealHour * 3600 - (+p.hour * 3600 + +p.minute * 60 + +p.second);
+  return s < 0 ? s + 86400 : s;
+}
+const hm = (s) => Math.floor(s / 3600) + ":" + String(Math.floor(s % 3600 / 60)).padStart(2, "0");
+function tick() { $("left").textContent = hm(secondsLeft()); const w = $("wleft"); if (w) w.textContent = hm(secondsLeft()); }
+tick(); setInterval(tick, 15000);
+
+/* ---------- Panorama: Pannellum, inertia, pinch, double tap ---------- */
+$("credits").innerHTML = '<span>© ' + ROUND.author + ', <a href="https://www.mapillary.com" target="_blank" rel="noopener">Mapillary</a> CC BY-SA ·</span>' +
+  '<span>© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, OpenMapTiles, <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a></span>';
+// Pannellum sets the horizontal field of view. On a portrait phone this gave ~140° vertically,
+// and tilting up/down hit the limits. We pick hfov so that the vertical span is ~95°.
+function baseHfov() {
+  const w = $("pano").clientWidth || innerWidth, h = $("pano").clientHeight || innerHeight, v = 95 * Math.PI / 180;
+  const hf = 2 * Math.atan(Math.tan(v / 2) * w / h) * 180 / Math.PI;
+  return Math.max(50, Math.min(105, hf));
+}
+const viewer = pannellum.viewer("pano", Object.assign({
+  type: "equirectangular", panorama: ROUND.img, autoLoad: true, showControls: false, compass: false,
+  hfov: baseHfov(), minHfov: 20, maxHfov: 110, friction: 0.1, keyboardZoom: false, disableKeyboardCtrl: true,
+  backgroundColor: [0.10, 0.25, 0.17], pitch: 0
+}, ROUND.pano ? {} : { haov: 80, vaov: 50, maxHfov: 80 }));
+addEventListener("resize", () => viewer.setHfov(baseHfov(), 0));
+viewer.on("load", () => { clearInterval(loadTimer); $("loader").classList.add("gone"); });
+viewer.on("error", () => { clearInterval(loadTimer); $("loadtext").textContent = "Кадр не загрузился. Даже мы не знаем, где это."; });
+let lastTap = 0;
+$("pano").addEventListener("pointerdown", () => $("hint").classList.add("gone"));
+$("pano").addEventListener("pointerup", () => {
+  const now = Date.now();
+  if (now - lastTap < 280) { const b = baseHfov(), h = viewer.getHfov(); viewer.setHfov(h > b * 0.8 ? b * 0.5 : b, 350); haptic("light"); }
+  lastTap = now;
+});
+// Direction by compass = frame centre direction + camera rotation. The compass card rotates the opposite way.
+const HEADING = ROUND.heading || 0;
+// Full-width tape: about 150° is visible in the window, so the cardinal directions are readable rather than flickering.
+// Drawn over three turns (−360…720°) and shifted: crossing north does not jump.
+let TAPE_K = 1.5, TAPE_W = 0;
+function buildTape() {
+  TAPE_W = $("compass").clientWidth || innerWidth; TAPE_K = TAPE_W / 150;
+  const NAMES = { 0: "С", 45: "СВ", 90: "В", 135: "ЮВ", 180: "Ю", 225: "ЮЗ", 270: "З", 315: "СЗ" };
+  let svg = "";
+  for (let d = -360; d <= 720; d += 5) {
+    const x = ((d + 360) * TAPE_K).toFixed(1), n = ((d % 360) + 360) % 360;
+    if (n === 0) svg += '<rect x="' + (x - 12) + '" y="6" width="24" height="26" fill="#FFFFFF"/><text x="' + x + '" y="26" text-anchor="middle" fill="#245A3C" style="font: 700 19px/1 var(--display)">С</text>';
+    else if (n % 90 === 0) svg += '<text x="' + x + '" y="26" text-anchor="middle" fill="#FFFFFF" style="font: 700 19px/1 var(--display)">' + NAMES[n] + '</text>';
+    else if (n % 45 === 0) svg += '<text x="' + x + '" y="24" text-anchor="middle" fill="#B5C7BD" style="font: 700 11px/1 var(--label); letter-spacing: .06em">' + NAMES[n] + '</text>';
+    else if (n % 15 === 0) svg += '<path d="M' + x + ' 13v12" stroke="#59826B" stroke-width="2"/>';
+    else svg += '<path d="M' + x + ' 17v4" stroke="#59826B" stroke-width="1.5"/>';
+  }
+  const t = $("tape"), w = (1080 * TAPE_K).toFixed(0);
+  t.setAttribute("width", w); t.setAttribute("viewBox", "0 0 " + w + " 38"); t.innerHTML = svg;
+}
+buildTape();
+addEventListener("resize", buildTape);
+(function spin() {
+  const h = (((viewer.getYaw() + HEADING) % 360) + 360) % 360;
+  $("tape").style.transform = "translateX(" + (TAPE_W / 2 - (h + 360) * TAPE_K) + "px)";
+  requestAnimationFrame(spin);
+})();
+// The tape can be dragged with a finger or mouse; the panorama rotates along, with inertia after release.
+// A short tap without movement turns the view to north. The wheel over the tape also rotates.
+const tapeEl = $("compass");
+let tdrag = null, spinV = 0, spinRaf = 0;
+function faceNorth() {
+  const north = ((-HEADING + 540) % 360) - 180; // yaw at which we face north, within −180…180
+  viewer.lookAt(viewer.getPitch(), north, viewer.getHfov(), 700); haptic("select");
+}
+function coast() {
+  // Inertia: velocity in degrees per frame decays, like the panorama's own.
+  if (Math.abs(spinV) < 0.05) return;
+  viewer.setYaw(viewer.getYaw() + spinV, false); spinV *= 0.92;
+  spinRaf = requestAnimationFrame(coast);
+}
+tapeEl.addEventListener("pointerdown", (e) => {
+  cancelAnimationFrame(spinRaf); spinV = 0;
+  tdrag = { x: e.clientX, last: e.clientX, t: performance.now(), moved: false };
+  tapeEl.setPointerCapture(e.pointerId); $("hint").classList.add("gone");
+});
+tapeEl.addEventListener("pointermove", (e) => {
+  if (!tdrag) return;
+  const dx = e.clientX - tdrag.last, now = performance.now(), dt = Math.max(1, now - tdrag.t);
+  if (Math.abs(e.clientX - tdrag.x) > 4) tdrag.moved = true;
+  // Dragging the tape right moves it right, so the heading decreases.
+  const dYaw = -dx / TAPE_K;
+  viewer.setYaw(viewer.getYaw() + dYaw, false);
+  spinV = 0.7 * (dYaw / dt * 16) + 0.3 * spinV;
+  tdrag.last = e.clientX; tdrag.t = now;
+});
+function tapeUp() {
+  if (!tdrag) return;
+  const moved = tdrag.moved, idle = performance.now() - tdrag.t; tdrag = null;
+  if (!moved) { spinV = 0; faceNorth(); return; }
+  if (idle < 80) coast(); // finger stopped before release: no inertia
+}
+tapeEl.addEventListener("pointerup", tapeUp);
+tapeEl.addEventListener("pointercancel", tapeUp);
+tapeEl.addEventListener("wheel", (e) => {
+  e.preventDefault(); cancelAnimationFrame(spinRaf);
+  viewer.setYaw(viewer.getYaw() + (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / TAPE_K * 0.6, false);
+}, { passive: false });
+
+/* ---------- Two views: photo with a mini globe, and the big map ---------- */
+let state = "guess", view = "photo";
+let map = null, mapReady = false; // declared up front: otherwise window.map is the div#map
+const MINI = 136, ACT = 82, TAPE_H = 38; // TAPE_H is the height of the compass tape at the bottom (--tape)
+// Globe radius on screen: the equator is 512·2^zoom px long, which gives the zoom for a target diameter.
+const zoomFor = (d) => Math.log2(d * Math.PI / 512);
+const globeR = (zm) => 512 * 2 ** zm / (2 * Math.PI);
+function onGlobe(pt) {
+  const T = map.transform;
+  if (typeof T.isPointOnMapSurface === "function") return T.isPointOnMapSurface(pt);
+  const c = map.project(map.getCenter()); // fallback in case MapLibre's internal method disappears
+  return map.getZoom() >= GLOBE_Z[1] || Math.hypot(pt.x - c.x, pt.y - c.y) <= globeR(map.getZoom()) * 0.88;
+}
+function box() { const m = $("map"); return { W: m.clientWidth, H: m.clientHeight }; }
+function miniCam() {
+  // Globe centre in the bottom-right corner: shift the focus point with padding; the canvas stays fullscreen.
+  const { W, H } = box(), cx = W - 12 - MINI / 2, cy = H - TAPE_H - 16 - MINI / 2;
+  // MapLibre rejects negative padding and fails entirely; this happens while the canvas is still zero-sized.
+  return { padding: { left: Math.max(0, 2 * cx - W), top: Math.max(0, 2 * cy - H), right: 0, bottom: 0 }, zoom: zoomFor(MINI - 4) };
+}
+// How much space the plates take at top and bottom: the camera keeps the globe and markers in the free part.
+function reserve() {
+  const top = $("map").getBoundingClientRect().top, on = (id) => $(id).classList.contains("on");
+  // On the result there is also the day's table at the top. We measure by the header, not the table itself: at that moment it is still expanding.
+  const board = document.body.classList.contains("is-reveal") ? $("prog").parentElement.getBoundingClientRect().bottom + $("prog").offsetHeight - top + 8 : 0;
+  const t = Math.max(board, on("ovTop") ? $("ovTop").getBoundingClientRect().bottom - top + 8 : 0);
+  const b = (on("ovBot") ? $("ovBot").offsetHeight + 20 : 0) + ACT; // the bottom strip is always present in map mode
+  return { t, b };
+}
+function bigCam() {
+  const { W, H } = box(), { t, b } = reserve();
+  return { padding: { left: 0, top: t, right: 0, bottom: b }, zoom: zoomFor(Math.max(MINI, 0.86 * Math.min(W, H - t - b))) };
+}
+function overlay(top, bot) {
+  $("ovTop").innerHTML = top; $("ovBot").innerHTML = bot;
+  $("ovTop").classList.toggle("on", !!top); $("ovBot").classList.toggle("on", !!bot);
+}
+function toMap() {
+  if (view === "map") return;
+  view = "map"; document.body.classList.add("is-map"); haptic("light"); paintBackdrop(); cancelAnimationFrame(tween); syncBack();
+  const c = bigCam();
+  map.easeTo({ ...c, zoom: guess ? Math.max(map.getZoom(), 2.2) : c.zoom, center: guess || map.getCenter(), duration: 750, easing: easeOut });
+}
+function toPhoto() {
+  if (view === "photo") return;
+  view = "photo"; document.body.classList.remove("is-map"); haptic("soft"); paintBackdrop(); syncBack();
+  glideToMini(650);
+}
+// Not easeTo: if zooming out starts from a flat map (zoom > 3.6), MapLibre clamps the final zoom right at the start
+// to "the world is no narrower than the screen", log2(H/512), and the globe gets stuck large. A frame-by-frame jumpTo does not know this:
+// by the time zoom drops below 3.6 the projection is already a globe, and there is no constraint.
+let tween = 0;
+function glideToMini(ms) {
+  cancelAnimationFrame(tween); map.stop();
+  const z0 = map.getZoom(), c0 = map.getCenter(), p0 = map.getPadding(), t0 = performance.now();
+  const c1 = guess || c0, dl = ((c1.lng - c0.lng + 540) % 360) - 180, mix = (a, b, e) => a + (b - a) * e;
+  const step = (now) => {
+    if (view !== "photo") return;
+    const k = Math.min(1, (now - t0) / ms), e = easeOut(k), cam = miniCam(), p = cam.padding;
+    map.jumpTo({ zoom: mix(z0, cam.zoom, e), center: [c0.lng + dl * e, mix(c0.lat, c1.lat, e)],
+      padding: { left: mix(p0.left, p.left, e), top: mix(p0.top, p.top, e), right: mix(p0.right, p.right, e), bottom: mix(p0.bottom, p.bottom, e) } });
+    // The last frame may have landed on the flat projection, so we finish with a couple more frames.
+    if (k < 1 || (Math.abs(map.getZoom() - cam.zoom) > .01 && now - t0 < ms + 500)) tween = requestAnimationFrame(step);
+  };
+  tween = requestAnimationFrame(step);
+}
+const easeOut = (t) => 1 - (1 - t) ** 3;
+$("globeHit").addEventListener("click", toMap);
+$("look").addEventListener("click", toPhoto);
+if (tgAt("6.1")) tg.BackButton.onClick(toPhoto);
+// Splits the bottom strip into two buttons or merges it back into one.
+// The left button label depends on the stage: before the answer it invites a closer look, after the answer simply to enjoy.
+const LOOK = { guess: ["Ещё разглядеть", "Разглядеть"], wait: ["Полюбоваться", "Полюбоваться"], reveal: ["Погулять там", "Погулять там"] };
+function split(on) { $("act").classList.toggle("on", on); $("look").textContent = LOOK[state][on ? 1 : 0]; }
+addEventListener("resize", () => { if (mapReady) map.jumpTo(view === "map" ? { padding: bigCam().padding } : miniCam()); });
+function setCall(b, sub) { $("callB").textContent = b; $("callS").innerHTML = sub + " <em>→</em>"; }
+
+/* ---------- Map: a paper globe from afar, a regular map up close ---------- */
+// Palette: land is light "paper", water is the maply field colour, no background around the globe.
+// Flat fills without shadows or glow, as in the design system; only the graticule gives the globe volume.
+const C = { water: "#245A3C", land: "#DDE5E0", park: "#C9D7CE", build: "#C3D0C8",
+            road: "#FFFFFF", major: "#59826B", line: "#59826B", deep: "#1A412B", muted: "#B5C7BD" };
+const name = ["coalesce", ["get", "name:ru"], ["get", "name"]];
+const country = ["match", name, "Китайская Народная Республика", "Китай", "Южно-Африканская Республика", "ЮАР",
+  "Соединённые Штаты Америки", "США", "Республика Корея", "Южная Корея", "Корейская Народно-Демократическая Республика", "КНДР", "Демократическая Республика Конго", "ДР Конго", "Центральноафриканская Республика", "ЦАР", name];
+const z = (...stops) => ["interpolate", ["linear"], ["zoom"], ...stops];
+// Parallels and meridians every 15°: on the globe this is the main beauty; they dissolve by zoom 4.5.
+const grid = { type: "FeatureCollection", features: [] };
+for (let lon = -180; lon < 180; lon += 15) grid.features.push({ type: "Feature", properties: { eq: lon === 0 }, geometry: { type: "LineString", coordinates: Array.from({ length: 37 }, (_, i) => [lon, -90 + i * 5]) } });
+for (let lat = -75; lat <= 75; lat += 15) grid.features.push({ type: "Feature", properties: { eq: lat === 0 }, geometry: { type: "LineString", coordinates: Array.from({ length: 73 }, (_, i) => [-180 + i * 5, lat]) } });
+const style = {
+  version: 8, glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+  // Globe up to zoom 2.2, unfolding smoothly into a regular flat map by zoom 3.6 (see GLOBE_Z below).
+  // The day's result (usually 3.5–9) thus almost never lands in the middle of the unfolding, where the map looks cropped.
+  projection: { type: ["interpolate", ["linear"], ["zoom"], 2.2, "vertical-perspective", 3.6, "mercator"] },
+  sky: { "atmosphere-blend": 0 },
+  sources: { omt: { type: "vector", url: "https://tiles.openfreemap.org/planet" }, grid: { type: "geojson", data: grid } },
+  layers: [
+    { id: "land", type: "background", paint: { "background-color": C.land } },
+    { id: "park", type: "fill", source: "omt", "source-layer": "landcover", minzoom: 6, filter: ["in", ["get", "class"], ["literal", ["wood", "grass", "farmland"]]], paint: { "fill-color": C.park } },
+    { id: "water", type: "fill", source: "omt", "source-layer": "water", paint: { "fill-color": C.water } },
+    { id: "grid", type: "line", source: "grid", maxzoom: 3.6,
+      paint: { "line-color": C.line, "line-width": ["case", ["get", "eq"], 1.4, 0.7], "line-opacity": z(2.2, 1, 3.4, 0) } },
+    { id: "rivers", type: "line", source: "omt", "source-layer": "waterway", minzoom: 6, paint: { "line-color": C.water, "line-width": z(6, 0.6, 14, 2.5) } },
+    { id: "buildings", type: "fill", source: "omt", "source-layer": "building", minzoom: 14, paint: { "fill-color": C.build } },
+    { id: "roads", type: "line", source: "omt", "source-layer": "transportation", minzoom: 8,
+      filter: ["all", ["in", ["get", "class"], ["literal", ["secondary", "tertiary", "minor", "service"]]], ["==", ["geometry-type"], "LineString"]],
+      layout: { "line-cap": "square" }, paint: { "line-color": C.road, "line-width": z(8, 0.5, 16, 7) } },
+    { id: "highways", type: "line", source: "omt", "source-layer": "transportation", minzoom: 5,
+      filter: ["all", ["in", ["get", "class"], ["literal", ["motorway", "trunk", "primary"]]], ["==", ["geometry-type"], "LineString"]],
+      layout: { "line-cap": "square" },
+      // From afar, highways are green; up close they become ordinary, wider white streets.
+      paint: { "line-color": ["interpolate", ["linear"], ["zoom"], 11, C.major, 13, C.road], "line-width": z(5, 0.5, 16, 10) } },
+    { id: "borders", type: "line", source: "omt", "source-layer": "boundary", filter: ["all", ["==", ["get", "admin_level"], 2], ["!=", ["get", "maritime"], 1]],
+      paint: { "line-color": C.deep, "line-width": z(1, 0.6, 8, 1.4), "line-dasharray": [3, 2] } },
+    { id: "streets", type: "symbol", source: "omt", "source-layer": "transportation_name", minzoom: 14,
+      layout: { "symbol-placement": "line", "text-field": name, "text-font": ["Noto Sans Regular"], "text-size": 11 },
+      paint: { "text-color": C.major, "text-halo-color": C.road, "text-halo-width": 1.5 } },
+    { id: "oceans", type: "symbol", source: "omt", "source-layer": "water_name", minzoom: 0.8, maxzoom: 6, filter: ["in", ["get", "class"], ["literal", ["ocean", "sea"]]],
+      layout: { "text-field": name, "text-font": ["Noto Sans Italic"], "text-size": z(1, 10, 5, 13), "text-letter-spacing": 0.25, "text-max-width": 6 },
+      paint: { "text-color": C.muted } },
+    { id: "cities", type: "symbol", source: "omt", "source-layer": "place", minzoom: 5, filter: ["in", ["get", "class"], ["literal", ["city", "town"]]],
+      layout: { "text-field": name, "text-font": ["Noto Sans Regular"], "text-size": z(5, 11, 12, 16) },
+      paint: { "text-color": C.deep, "text-halo-color": C.land, "text-halo-width": 1.5 } },
+    // From afar only large countries are labelled, and the mini globe in the corner has no labels at all.
+    { id: "countries", type: "symbol", source: "omt", "source-layer": "place", minzoom: 0.8, maxzoom: 7,
+      filter: ["all", ["==", ["get", "class"], "country"], ["<=", ["get", "rank"], ["step", ["zoom"], 1, 2, 2, 3, 3, 4, 5]]],
+      layout: { "text-field": country, "text-font": ["Noto Sans Bold"], "text-size": z(1, 9, 5, 14), "text-transform": "uppercase", "text-letter-spacing": 0.14, "text-max-width": 7, "text-padding": 6 },
+      paint: { "text-color": C.water, "text-halo-color": C.land, "text-halo-width": 1.2 } }
+  ]
+};
+map = new maplibregl.Map({ container: "map", style, center: [25, 30], zoom: miniCam().zoom, minZoom: -1, maxPitch: 0, attributionControl: false, dragRotate: false, pitchWithRotate: false, fadeDuration: 150 });
+map.touchZoomRotate.disableRotation();
+
+/* Globe → map transition.
+   1. While the globe unfolds, the canvas corners are filled with the water colour: otherwise bits of the photo flash there.
+   2. The middle of the unfolding looks broken, so we do not linger there: release your fingers and
+      the camera continues to the flat map (if you were zooming in) or back to the globe (if zooming out). */
+const GLOBE_Z = [2.2, 3.6];
+function paintBackdrop() {
+  const t = Math.min(1, Math.max(0, (map.getZoom() - GLOBE_Z[0]) / (GLOBE_Z[1] - GLOBE_Z[0])));
+  $("map").style.backgroundColor = view === "map" && t > 0 ? "rgba(36, 90, 60, " + t.toFixed(3) + ")" : "transparent";
+}
+map.on("zoom", paintBackdrop);
+let zoomFrom = null, snapT = 0;
+map.on("zoomstart", (e) => { clearTimeout(snapT); if (e.originalEvent && zoomFrom === null) zoomFrom = map.getZoom(); });
+map.on("zoomend", (e) => {
+  if (!e.originalEvent || zoomFrom === null) return;
+  clearTimeout(snapT);
+  // The mouse wheel fires zoomend on every click: wait until the gesture really ends.
+  snapT = setTimeout(() => {
+    const zm = map.getZoom(), dir = zm - zoomFrom; zoomFrom = null;
+    if (zm <= GLOBE_Z[0] || zm >= GLOBE_Z[1]) return;
+    map.easeTo({ zoom: dir >= 0 ? GLOBE_Z[1] + 0.4 : GLOBE_Z[0] - 0.3, duration: 520, easing: easeOut });
+  }, 160);
+});
+
+map.setPadding(miniCam().padding);
+map.on("load", () => { mapReady = true; map.jumpTo(miniCam()); });
+// While there is no pin, the mini globe rotates slowly: it shows it is alive and can be touched.
+(function spinGlobe() {
+  if (mapReady && view === "photo" && !guess && !map.isMoving()) { const c = map.getCenter(); map.setCenter([c.lng + 0.12, c.lat]); }
+  requestAnimationFrame(spinGlobe);
+})();
+
+let guess = null, marker = null;
+function putPin(lngLat, point) {
+  const first = !guess; guess = lngLat;
+  if (!marker) {
+    marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom", draggable: true }).setLngLat(guess).addTo(map);
+    marker.on("dragend", () => { guess = marker.getLngLat(); haptic("select"); toast(pick(MOVED)); });
+  } else {
+    marker.setLngLat(guess);
+    const p = marker.getElement(); p.style.animation = "none"; void p.offsetWidth; p.style.animation = "";
+  }
+  const wet = map.queryRenderedFeatures(point, { layers: ["water"] }).length > 0;
+  toast(pick(wet ? ON_WATER : first ? ON_LAND : MOVED));
+  haptic("medium");
+  // The pin is placed but the answer is not sent: Telegram will ask for confirmation before closing the app.
+  if (first) { split(true); setCall("Булавка стоит", "ответить"); if (tgAt("6.2")) tg.enableClosingConfirmation(); }
+}
+map.on("click", (e) => {
+  // A tap beside the globe, in the void around it, returns to the photo. We check the surface itself via MapLibre:
+  // for a point off the globe it still returns a coordinate on its edge, and previously a pin was placed there.
+  if (!onGlobe(e.point)) { toPhoto(); return; }
+  if (state === "guess") putPin(e.lngLat, e.point);
+});
+
+/* ---------- Waiting and result ---------- */
+function km(a, b) {
+  const R = 6371, r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLon = (b.lng - a.lng) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+// Score: up to 3,500 for distance plus bonuses for guessing the continent, country and city. The maximum is the same: 5,000.
+const BONUS = [300, 500, 700];
+const base = (d) => 3500 * Math.exp(-d / 1492.7);
+const score = (d, lvl) => base(d) + BONUS.slice(0, lvl).reduce((a, b) => a + b, 0);
+// The pin's country comes from the OSM reverse geocoder, the continent from a country table. This is for the prototype only:
+// in the production version the server computes the level from Natural Earth polygons, with no external requests.
+const CONT = {
+  eu: "ad al at ax ba be bg by ch cy cz de dk ee es fi fo fr gb gg gi gr hr hu ie im is it je li lt lu lv mc md me mk mt nl no pl pt ro rs ru se si sj sk sm ua va xk",
+  as: "ae af am az bd bh bn bt cn ge hk id il in iq ir jo jp kg kh kp kr kw kz la lb lk mm mn mo mv my np om ph pk ps qa sa sg sy th tj tl tm tr tw uz vn ye",
+  af: "ao bf bi bj bw cd cf cg ci cm cv dj dz eg eh er et ga gh gm gn gq gw ke km lr ls ly ma mg ml mr mu mw mz na ne ng re rw sc sd sh sl sn so ss st sz td tg tn tz ug yt za zm zw",
+  na: "ag ai aw bb bl bm bq bs bz ca cr cu cw dm do gd gl gp gt hn ht jm kn ky lc mf mq ms mx ni pa pm pr sv sx tc tt us vc vg vi",
+  sa: "ar bo br cl co ec fk gf gy pe py sr uy ve",
+  oc: "as au ck fj fm gu ki mh mp nc nf nr nu nz pf pg pn pw sb tk to tv um vu wf ws",
+};
+const contOf = (cc) => Object.keys(CONT).find((k) => CONT[k].split(" ").includes(cc));
+async function nearness(g, d) {
+  if (d < 25) return 3;
+  const r = await fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&accept-language=ru&lat=" + g.lat.toFixed(4) + "&lon=" + g.lng.toFixed(4));
+  const a = (await r.json()).address || {}, cc = a.country_code;
+  if (!cc) return 0; // water
+  if (cc !== ROUND.cc) return contOf(cc) && contOf(cc) === contOf(ROUND.cc) ? 1 : 0;
+  const city = (a.city || a.town || a.village || a.municipality || "").toLowerCase();
+  return city === ROUND.city.toLowerCase() ? 3 : 2;
+}
+
+function toWaiting() {
+  state = "wait"; marker.setDraggable(false); haptic("success");
+  if (tgAt("6.2")) tg.disableClosingConfirmation();
+  split(false); setCall("Ответ принят", "итог в " + AT);
+  $("timer").classList.add("hidden");
+  overlay(
+    '<div class="pl nums"><b id="wleft">' + hm(secondsLeft()) + '</b><span class="up">до ответа<br>в ' + AT + ' ' + ROUND.tzName + '</span></div>',
+    '<div class="chips up"><span class="me">ты ✓</span><span>маша ✓</span><span>лёша ✓</span><span class="no">артём думает…</span></div>' +
+    '<button class="demo" id="demo">демо: показать итог ' + AT + '</button>');
+  $("demo").onclick = toReveal;
+  // Zoom past the edge of the globe unfolding: at 3.5 the map is still slightly curved, and a pinch immediately snapped it back to a globe.
+  map.easeTo({ padding: bigCam().padding, center: guess, zoom: GLOBE_Z[1] + 0.4, duration: 700, easing: easeOut });
+}
+// Result markers are laid out in pixels on every map-motion frame. A friend's point that falls under the target
+// moves out onto a ring around it; nearby points are pushed apart; a label takes the first free spot, and if it
+// ends up far away, a leader line is drawn to the point.
+let marks = null, lvlMe = 0;
+const RING = 27, GAP = 23;
+function layoutMarks() {
+  if (!marks) return;
+  const T = map.project(marks.truth), G = map.project(guess), c = map.getContainer(), W = c.clientWidth;
+  const rect = (x, y, w, h) => ({ x, y, w, h });
+  const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const pts = marks.friends.map((f) => { const p = map.project(f.at); return { f, p, d: { x: p.x, y: p.y }, w: f.b.offsetWidth, h: f.b.offsetHeight }; });
+  for (let k = 0; k < 6; k++) {
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+      const a = pts[i].d, b = pts[j].d; let dx = b.x - a.x, dy = b.y - a.y, r = Math.hypot(dx, dy);
+      if (r >= GAP) continue;
+      if (r < .5) { dx = 1; dy = 0; r = 1; }
+      const m = (GAP - r) / 2; a.x -= dx / r * m; a.y -= dy / r * m; b.x += dx / r * m; b.y += dy / r * m;
+    }
+    pts.forEach((a, i) => {
+      let dx = a.d.x - T.x, dy = a.d.y - T.y, r = Math.hypot(dx, dy);
+      if (r >= RING) return;
+      if (r < .5) { const ang = -Math.PI / 4 + i * 1.3; dx = Math.cos(ang); dy = Math.sin(ang); r = 1; }
+      a.d.x = T.x + dx / r * RING; a.d.y = T.y + dy / r * RING;
+    });
+  }
+  const taken = [rect(T.x - 17, T.y - 17, 34, 34), rect(G.x - 20, G.y - 46, 40, 46), ...pts.map((a) => rect(a.d.x - 11, a.d.y - 11, 22, 22))];
+  pts.forEach((a) => {
+    const { w, h } = a;
+    // First flush on the right, then left, below, above; then the diagonals with a leader line.
+    const slots = [[14, -h / 2], [-14 - w, -h / 2], [-w / 2, 14], [-w / 2, -14 - h],
+      [22, -h - 16], [-22 - w, -h - 16], [22, 16], [-22 - w, 16], [34, -h - 30], [-34 - w, -h - 30], [34, 30], [-34 - w, 30]];
+    let n = slots.findIndex(([x, y]) => { const r = rect(a.d.x + x, a.d.y + y, w, h); return r.x >= 4 && r.x + w <= W - 4 && !taken.some((t) => hit(r, t)); });
+    if (n < 0) n = 0;
+    const [x, y] = slots[n];
+    taken.push(rect(a.d.x + x, a.d.y + y, w, h));
+    a.f.g.style.transform = "translate(" + (a.d.x - a.p.x) + "px," + (a.d.y - a.p.y) + "px)";
+    a.f.b.style.transform = "translate(" + x + "px," + y + "px)";
+    const lx = Math.max(x, Math.min(0, x + w)), ly = Math.max(y, Math.min(0, y + h)), len = n < 4 ? 0 : Math.hypot(lx, ly);
+    a.f.s.style.width = len + "px";
+    a.f.s.style.transform = "rotate(" + Math.atan2(ly, lx) + "rad)";
+  });
+}
+map.on("move", layoutMarks);
+map.on("resize", layoutMarks);
+// Result table under the header. Delays are shared by bars and counters: first the kilometres, then the bonuses one by one,
+// then the dashed missed part.
+const T_KM = .25, T_B = (k) => .75 + k * .3, ROWS = 4;
+const pct = (x) => (x / 50).toFixed(2) + "%";
+function paintBoard(rows, d, lvl) {
+  // Collapsed, the first rows and yours are visible; if you are lower, there is one fewer row so the height does not change.
+  const meAt = rows.findIndex((r) => r.me), top = meAt >= ROWS ? ROWS - 1 : ROWS, IF = ["континент", "страну", "город"];
+  $("lb").innerHTML = rows.map((r, i) => {
+    const b0 = Math.round(base(r.d)), segs = ['<i class="km" data-t="' + fmt(b0) + ' за ' + fmt(r.d) + ' км" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
+    BONUS.forEach((x, k) => {
+      if (k < r.lvl) segs.push('<i data-t="+' + x + ' за ' + IF[k] + '" style="width:' + pct(x) + ';--d:' + T_B(k) + 's"></i>');
+      else if (r.me) segs.push('<i class="if" data-t="+' + x + ' за ' + IF[k] + ' — мимо" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
+    });
+    const x = i >= top && !r.me ? " x" : "";
+    return '<div class="r' + (r.me ? " me" : "") + x + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me) + '<span>' + r.who + '</span>' +
+      '<span class="hit" data-rest="до 5 000 не хватило ' + fmt(5000 - score(r.d, r.lvl)) + '"><span class="bar">' + segs.join("") + '</span></span>' +
+      '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '">0</b><span class="k">' + fmt(r.d) + ' км</span></div>';
+  }).join("");
+  const hidden = rows.length - Math.min(rows.length, top + (meAt >= top ? 1 : 0));
+  $("lb").classList.remove("open");
+  $("more").classList.toggle("hidden", hidden <= 0);
+  $("more").dataset.n = hidden;
+  $("more").textContent = "ещё " + hidden + " ↓";
+  // Legend and "what if" at the same distance: one line, wraps in whole chunks.
+  const t = (h) => '<span>' + h + '</span>';
+  $("ifs").innerHTML = t('<i class="km"></i>за км') + ' ' + t('<i></i>бонусы') + ' · ' + (lvl >= 3 ? t("все бонусы твои") :
+    t('<i class="if"></i>угадал бы ' + IF[lvl] + ' — <b>' + fmt(score(d, lvl + 1)) + '</b>') +
+    IF.slice(lvl + 1).map((n, j) => ', ' + t(n + ' — <b>' + fmt(score(d, lvl + j + 2)) + '</b>')).join(""));
+}
+// Full leaderboard: a tap on the table or on "ещё N" expands and collapses it.
+function toggleBoard() {
+  if ($("more").classList.contains("hidden")) return;
+  const open = $("lb").classList.toggle("open");
+  $("more").textContent = open ? "свернуть ↑" : "ещё " + $("more").dataset.n + " ↓";
+}
+$("more").addEventListener("click", toggleBoard);
+// The plates over the map stay under the table and move down as it expands.
+const ovUnderBoard = () => { $("ovTop").style.top = $("prog").getBoundingClientRect().top + $("prog").offsetHeight + 10 + "px"; };
+new ResizeObserver(() => { if (state === "reveal") ovUnderBoard(); }).observe($("prog"));
+$("lb").addEventListener("click", (e) => { if (!e.target.closest(".hit")) toggleBoard(); });
+// Tooltip above the bar: which segment is under the finger or cursor. We look the segment up by x so it is easy to hit.
+function showTip(e) {
+  const hit = e.target.closest(".hit");
+  if (!hit) return hideTip();
+  const segs = [...hit.querySelectorAll("i")], x = e.clientX;
+  const seg = segs.find((g) => { const r = g.getBoundingClientRect(); return x >= r.left - 1 && x <= r.right + 1; });
+  segs.forEach((g) => g.classList.toggle("lit", g === seg));
+  const tip = $("tip"), pr = $("prog").getBoundingClientRect(), rr = (seg || hit).getBoundingClientRect();
+  tip.textContent = seg ? seg.dataset.t : hit.dataset.rest;
+  const cx = seg ? (rr.left + rr.right) / 2 : x, w = tip.offsetWidth;
+  tip.style.left = Math.max(4, Math.min(pr.width - w - 4, cx - pr.left - w / 2)) + "px";
+  tip.style.top = hit.getBoundingClientRect().top - pr.top - tip.offsetHeight + 2 + "px";
+  tip.classList.add("on");
+}
+function hideTip() { $("tip").classList.remove("on"); document.querySelectorAll(".lb .lit").forEach((g) => g.classList.remove("lit")); }
+$("lb").addEventListener("pointermove", showTip);
+$("lb").addEventListener("pointerdown", showTip);
+$("lb").addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hideTip(); });
+document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".lb")) hideTip(); });
+// Points in the rows count up in time with the bars.
+function countUp() {
+  const t0 = performance.now(), ease = (x) => 1 - (1 - Math.min(1, Math.max(0, x))) ** 3, els = [...document.querySelectorAll(".lb .s")];
+  const tick = (now) => {
+    const t = (now - t0) / 1000;
+    els.forEach((e) => {
+      let v = +e.dataset.b * ease((t - T_KM) / .45);
+      BONUS.slice(0, +e.dataset.l).forEach((x, k) => { v += x * ease((t - T_B(k)) / .45); });
+      e.textContent = fmt(v);
+    });
+    if (t < 2.4) requestAnimationFrame(tick);
+  };
+  matchMedia("(prefers-reduced-motion: reduce)").matches ? tick(t0 + 9e3) : requestAnimationFrame(tick);
+}
+async function toReveal() {
+  if (state === "reveal") return;
+  state = "reveal";
+  if (!guess) { guess = new maplibregl.LngLat(16.37, 48.21); marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat(guess).addTo(map); }
+  const truth = new maplibregl.LngLat(ROUND.lon, ROUND.lat), d = km(guess, truth);
+  // We wait for the geocoder response only briefly: if it is late, we score without bonuses.
+  const lvl = await Promise.race([nearness(guess, d).catch(() => 0), new Promise((r) => setTimeout(() => r(0), 1500))]);
+  lvlMe = lvl;
+  const friends = [
+    { who: "маша", lng: ROUND.lon + 0.35, lat: ROUND.lat + 0.12, lvl: 2 }, { who: "лёша", lng: ROUND.lon + 13.5, lat: ROUND.lat + 6.2, lvl: 1 },
+    { who: "костя", lng: ROUND.lon + 0.02, lat: ROUND.lat + 0.01, lvl: 3 }, { who: "ваня", lng: -8.61, lat: 41.15, lvl: 2 },
+    { who: "ира", lng: -3.70, lat: 40.42, lvl: 1 }, { who: "артём", lng: 31.24, lat: 30.04, lvl: 0 },
+  ];
+  const rows = [...friends.map((f) => ({ who: f.who, d: km(f, truth), lvl: f.lvl })), { who: "ты", d, lvl, me: true }]
+    .map((r) => ({ ...r, pts: score(r.d, r.lvl) })).sort((a, b) => b.pts - a.pts);
+  paintBoard(rows, d, lvl);
+  $("lb").offsetWidth; // the bar and avatars must catch the closed state, otherwise there will be no animation
+  document.body.classList.add("is-reveal");
+  ovUnderBoard();
+  // Layer order: friends, the target above them, your own pin on top.
+  marks = { truth, friends: friends.map((f) => {
+    const e = el('<div class="friend"><span class="g"><s></s>' + av(f.who) + '<b>' + f.who + '</b></span></div>');
+    new maplibregl.Marker({ element: e }).setLngLat([f.lng, f.lat]).addTo(map).getElement().style.zIndex = 1;
+    return { at: [f.lng, f.lat], g: e.firstChild, s: e.querySelector("s"), b: e.querySelector("b") };
+  }) };
+  new maplibregl.Marker({ element: el(TARGET) }).setLngLat(truth).addTo(map).getElement().style.zIndex = 2;
+  marker.getElement().style.zIndex = 3;
+  layoutMarks();
+  const line = { type: "Feature", geometry: { type: "LineString", coordinates: [[guess.lng, guess.lat], [truth.lng, truth.lat]] } };
+  map.addSource("line", { type: "geojson", data: line });
+  map.addLayer({ id: "line-case", type: "line", source: "line", paint: { "line-color": "#FFFFFF", "line-width": 5 } });
+  map.addLayer({ id: "line", type: "line", source: "line", paint: { "line-color": "#1A412B", "line-width": 2, "line-dasharray": [2, 1.5] } });
+  $("timer").classList.add("hidden"); split(true); $("go").textContent = "Переслать в чат";
+  setCall("Итог дня", "смотреть");
+  overlay("",
+    '<div class="place up" id="place"><button class="t" id="placeT">' + ROUND.place + ' ↓<p></p></button>' +
+    '<button class="x" id="placeX" aria-label="свернуть">×</button><button class="tab" id="placeTab">о месте ↑</button></div>');
+  countUp();
+  // The fact expands on tap; the cross collapses the plate into a tab so it does not cover the map on a phone.
+  $("placeT").onclick = () => {
+    const open = !$("placeT").querySelector("p").textContent;
+    $("placeT").innerHTML = ROUND.place + (open ? " ↑" : " ↓") + "<p>" + (open ? ROUND.fact : "") + "</p>";
+  };
+  $("placeX").onclick = () => $("place").classList.add("min");
+  $("placeTab").onclick = () => $("place").classList.remove("min");
+  view = "map"; document.body.classList.add("is-map"); paintBackdrop(); syncBack();
+  const b = new maplibregl.LngLatBounds(guess, guess).extend(truth); friends.forEach((f) => b.extend([f.lng, f.lat]));
+  map.setPadding({ left: 0, top: 0, right: 0, bottom: 0 });
+  const { t, b: bt } = reserve();
+  map.fitBounds(b, { padding: { top: t + 24, left: 40, right: 40, bottom: bt + 24 }, maxZoom: 9, duration: 1200 });
+  haptic("success");
+}
+$("go").addEventListener("click", () => {
+  if (state === "guess" && guess) toWaiting();
+  else if (state === "reveal") share();
+});
+// A line to forward without spoilers: day number, distance and score; the place is not in it.
+// In Telegram we open the chat picker; in a browser, the system "Share" menu or the clipboard.
+const SHARE_URL = window.MAPLY_SHARE_URL || location.origin;
+function share() {
+  const d = km(guess, { lat: ROUND.lat, lng: ROUND.lon });
+  const line = "maply #" + ROUND.n + " · " + fmt(d) + " км · " + fmt(score(d, lvlMe));
+  if (inTg) { tg.openTelegramLink("https://t.me/share/url?url=" + encodeURIComponent(SHARE_URL) + "&text=" + encodeURIComponent(line)); return; }
+  if (navigator.share) { navigator.share({ text: line, url: SHARE_URL }).catch(() => {}); return; }
+  navigator.clipboard.writeText(line + " " + SHARE_URL).then(() => toast("Скопировано: " + line), () => toast(line));
+}
+// Demo result via link: wait for both the panorama and the map style, otherwise addSource fails on an unloaded style.
+if (new URLSearchParams(location.search).get("state") === "reveal")
+  Promise.all([new Promise((r) => viewer.on("load", r)), new Promise((r) => mapReady ? r() : map.once("load", r))]).then(() => setTimeout(toReveal, 300));
+</script>
+</body>
+</html>

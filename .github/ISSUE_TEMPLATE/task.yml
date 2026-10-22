@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Task
+description: Something to build or change in maply
+projects: ["FreshLabDev/2"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What and why
+      description: What to do and why it is needed. Link the section of docs/design.md or docs/mvp-plan.md if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: The check after which this task can be closed.
+    validations:
+      required: true

@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+blank_issues_enabled: true
+contact_links:
+  - name: Project board
+    url: https://github.com/orgs/FreshLabDev/projects/2
+    about: Every maply task and its status
