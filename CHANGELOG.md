@@ -38,6 +38,10 @@ of the Go service.
   the capital of the chat's language; and a person's answer window, which
   closes at the earliest reveal among every chat core has seen them in with
   maply. Zones come from tzdata.
+- `initData` verification (HMAC-SHA256 under `HMAC("WebAppData", token)`,
+  `auth_date` at most a day old, repeated fields refused), a signed `startapp`
+  payload for group posts (date and chat under a 16-byte HMAC, 36 characters),
+  and a group membership check through `getChatMember`, cached per day.
 - CI (modules, gofmt, vet, race tests, database tests, govulncheck, image build,
   Compose validation), the release workflow that publishes the image to GHCR,
   Dependabot, a local `docker-compose.yml` and the WS04 stack.
