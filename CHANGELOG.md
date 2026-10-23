@@ -11,6 +11,17 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Added
+
+- The statistics panel shows a picture above the numbers: the Earth turns
+  slowly under the person's pins of every day, beside their points, days
+  played, streak, typical miss, best day, place in the world and the strip
+  of their last days. It is drawn once for the numbers it shows and kept by
+  Telegram's `file_id`; pictures are drawn ahead in the background for
+  everyone who played in the last days, so the button rarely waits. Back from
+  the picture sends the panel again, since a picture cannot turn into text.
+  Migration `009_profile_card.sql` keeps the `file_id`s.
+
 ## v0.0.1-alpha.5 - 2026-10-23
 
 Sharing the result from the Mini App now forwards the animation the chat

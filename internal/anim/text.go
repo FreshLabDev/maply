@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/draw"
 	"math"
+	"strings"
 	"sync"
 
 	"github.com/go-text/typesetting/di"
@@ -271,4 +272,23 @@ func Covered(r rune) bool {
 		}
 	}
 	return true
+}
+
+// Name is a person's first name as a post writes it: the letters the faces
+// have, sixteen at most, or "?" when none is left.
+func Name(first string) string {
+	name := strings.Map(func(r rune) rune {
+		if Covered(r) {
+			return r
+		}
+		return -1
+	}, strings.TrimSpace(first))
+	name = strings.Join(strings.Fields(name), " ")
+	if r := []rune(name); len(r) > 16 {
+		name = string(r[:15]) + "…"
+	}
+	if name == "" || !Covers(name) {
+		return "?"
+	}
+	return name
 }

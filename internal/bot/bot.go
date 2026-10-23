@@ -47,6 +47,7 @@ type Telegram interface {
 	SetMyCommandsForScope(ctx context.Context, commands []tg.BotCommand, scope *tg.BotCommandScope) error
 	SendText(ctx context.Context, chatID int64, text string, markup telegram.Markup) (tg.Message, error)
 	EditText(ctx context.Context, chatID, messageID int64, text string, markup telegram.Markup) error
+	EditAnimation(ctx context.Context, chatID, messageID int64, a telegram.Animation, caption string, markup telegram.Markup) (tg.Message, error)
 	DeleteMessage(ctx context.Context, chatID, messageID int64) error
 	AnswerCallbackQuery(ctx context.Context, callbackID, text string) error
 	AnswerCallbackQueryAlert(ctx context.Context, callbackID, text string) error
@@ -65,6 +66,9 @@ type Options struct {
 	Zones  round.Zones
 	// Now is time.Now unless a test sets it.
 	Now func() time.Time
+	// Profiles draws the statistics picture; nil shows the statistics as
+	// text only.
+	Profiles Profiles
 }
 
 type Bot struct {
@@ -74,6 +78,7 @@ type Bot struct {
 	opts        Options
 	lastPoll    atomic.Int64
 	initialized atomic.Bool
+	screens     screens
 }
 
 func New(store Store, client Telegram, log *slog.Logger, opts Options) *Bot {

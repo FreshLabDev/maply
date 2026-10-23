@@ -22,21 +22,6 @@ import (
 	"github.com/FreshLabDev/maply/internal/telegram"
 )
 
-func TestPostNameKeepsWhatTheFacesWrite(t *testing.T) {
-	for in, want := range map[string]string{
-		"Аня":                        "Аня",
-		"  Lucía  ":                  "Lucía",
-		"李雷":                         "?",
-		"Ann 🙂":                      "Ann",
-		"":                           "?",
-		"Christopher-Alexander Long": "Christopher-Ale…",
-	} {
-		if got := postName(in); got != want {
-			t.Errorf("postName(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestPostPlaceFallsBackToTheDefaultLanguage(t *testing.T) {
 	a := db.Answer{Point: geo.Point{Lat: -6.16, Lon: 39.19}, CountryISO: "TZ",
 		City: map[string]string{"en": "Zanzibar", "ru": "Занзибар", "zh": "桑给巴尔"}}

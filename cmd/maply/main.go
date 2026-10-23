@@ -22,6 +22,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/health"
+	"github.com/FreshLabDev/maply/internal/profile"
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/schedule"
 	"github.com/FreshLabDev/maply/internal/telegram"
@@ -83,12 +84,30 @@ func run(log *slog.Logger) error {
 	}
 	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
 	tgc := telegram.New(client)
-	b := bot.New(store, tgc, log, bot.Options{
+	tgc.Upload = &telegram.Uploader{Base: cfg.TelegramAPIBase, Token: cfg.TelegramBotToken}
+	// ffmpeg encodes the animated posts and the statistics picture. Without
+	// it posts go out as photos and text, and the statistics as text.
+	var ffmpeg string
+	if cfg.Animations {
+		if path, err := exec.LookPath(cfg.FFmpeg); err != nil {
+			log.Warn("ffmpeg not found, posts go out as photos and text", "ffmpeg", cfg.FFmpeg, "error", err)
+		} else {
+			ffmpeg = path
+			log.Info("animated posts on", "ffmpeg", path)
+		}
+	}
+	opts := bot.Options{
 		Username: me.Username,
 		Version:  version,
 		AppURL:   cfg.AppURL,
 		Zones:    zones,
-	})
+	}
+	if ffmpeg != "" {
+		profiles := &profile.Service{Store: store, Zones: zones, FFmpeg: ffmpeg, Log: log}
+		opts.Profiles = profiles
+		go profiles.Run(ctx, 10*time.Minute)
+	}
+	b := bot.New(store, tgc, log, opts)
 
 	signer := auth.NewSigner(cfg.TelegramBotToken)
 	// Without a renderer the result goes out with the place's photo and the
@@ -182,13 +201,8 @@ func run(log *slog.Logger) error {
 		if cards != nil {
 			sched.Cards = cards
 		}
-		if cfg.Animations {
-			if path, err := exec.LookPath(cfg.FFmpeg); err != nil {
-				log.Warn("ffmpeg not found, posts go out as photos and text", "ffmpeg", cfg.FFmpeg, "error", err)
-			} else {
-				sched.Anim = &schedule.Animator{FFmpeg: path}
-				log.Info("animated posts on", "ffmpeg", path)
-			}
+		if ffmpeg != "" {
+			sched.Anim = &schedule.Animator{FFmpeg: ffmpeg}
 		}
 		go func() {
 			log.Info("scheduler starting")

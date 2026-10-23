@@ -162,6 +162,20 @@ type fakeTelegram struct {
 	alerts       []string
 	answers      int
 	members      map[int64]string
+	anims        []sent
+	animated     chan struct{} // told after each animation, when set
+}
+
+func (f *fakeTelegram) EditAnimation(_ context.Context, chatID, messageID int64, a telegram.Animation, caption string, markup telegram.Markup) (tg.Message, error) {
+	f.anims = append(f.anims, sent{chatID, messageID, caption, markup})
+	if f.animated != nil {
+		f.animated <- struct{}{}
+	}
+	id := a.FileID
+	if id == "" {
+		id = "uploaded"
+	}
+	return tg.Message{MessageID: messageID, Chat: tg.Chat{ID: chatID}, Caption: caption, Document: &tg.Document{FileID: id}}, nil
 }
 
 func (f *fakeTelegram) DeleteWebhook(context.Context) error { return nil }

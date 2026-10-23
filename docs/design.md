@@ -136,6 +136,15 @@ How the scheduler sends them:
 - names and places in scripts that Sofia Sans lacks (Arabic, Chinese, Japanese, emoji) are written in English or left out of the picture; the caption keeps them;
 - the world loop has no slot yet: the world's numbers come in the morning post's caption.
 
+### Statistics picture
+
+The statistics panel shows a 24-second loop above its text: the Earth turns once under the person's pins of every day (the best day as a gold pin), beside their points, days played, streak, typical miss (the median), best day, place in the latest final world ranking, best world place, and a strip of the last 14 days. Only the Earth moves. Labels come in the person's language and shrink to fit; a language whose script Sofia Sans lacks is drawn in English, as on the posts.
+
+- The picture is named by a fingerprint of everything on it. Telegram's `file_id` for it is kept in `profile_card` per person and language, so a press with unchanged numbers draws nothing.
+- Every 10 minutes the bot draws, one at a time and with two workers, the missing pictures of everyone who answered in the last two days, in their own language. Numbers change when someone answers (the streak), at the reveal and when a day's world ranking becomes final.
+- A press with no picture ready shows the text at once and puts the picture in when it is drawn, if the panel still shows the statistics.
+- `editMessageMedia` turns the text panel into the animation. A picture cannot turn back into text, so Back sends the panel again and deletes the picture. Buttons under an animation act only on a statistics picture this process put there; a forged Close against the morning post or the result is ignored.
+
 ## Intrigue 16–18
 
 One message at a random moment of the window. Rules:

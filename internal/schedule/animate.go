@@ -213,7 +213,7 @@ func resultScene(lang string, dayNo int, answer db.Answer, guesses []db.Guess, s
 		if g.Km == nil {
 			continue
 		}
-		p := anim.Player{Name: postName(g.FirstName), Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: *g.Km, Points: float64(g.Total()), Rank: rank[g.UserID]}
+		p := anim.Player{Name: anim.Name(g.FirstName), Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: *g.Km, Points: float64(g.Total()), Rank: rank[g.UserID]}
 		if n := streaks[g.UserID]; n >= 2 {
 			p.Streak = n
 		}
@@ -244,21 +244,4 @@ func postUnit(lang string) string {
 		return u
 	}
 	return "km"
-}
-
-func postName(first string) string {
-	name := strings.Map(func(r rune) rune {
-		if anim.Covered(r) {
-			return r
-		}
-		return -1
-	}, strings.TrimSpace(first))
-	name = strings.Join(strings.Fields(name), " ")
-	if r := []rune(name); len(r) > 16 {
-		name = string(r[:15]) + "…"
-	}
-	if name == "" || !anim.Covers(name) {
-		return "?"
-	}
-	return name
 }

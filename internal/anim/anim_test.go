@@ -243,3 +243,18 @@ func TestFramesComeInOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestNameKeepsWhatTheFacesWrite(t *testing.T) {
+	for in, want := range map[string]string{
+		"Аня":                        "Аня",
+		"  Lucía  ":                  "Lucía",
+		"李雷":                         "?",
+		"Ann 🙂":                      "Ann",
+		"":                           "?",
+		"Christopher-Alexander Long": "Christopher-Ale…",
+	} {
+		if got := Name(in); got != want {
+			t.Errorf("Name(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

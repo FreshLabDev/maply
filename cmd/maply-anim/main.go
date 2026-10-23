@@ -72,6 +72,8 @@ func scene(name, pano string) (anim.Scene, error) {
 	case "world":
 		guesses, top := worldSample(zanzibar, 348)
 		return anim.NewWorld(1, zanzibar, guesses, top, "км", "ru"), nil
+	case "stats", "stats-de":
+		return statsSample(strings.TrimPrefix(strings.TrimPrefix(name, "stats"), "-") + map[bool]string{true: "ru"}[name == "stats"]), nil
 	case "intrigue":
 		return anim.NewIntrigue(1, 3, 40, "22 °C", 16+40.0/60, "20:00", "ru"), nil
 	case "results":
@@ -188,4 +190,37 @@ func worldSample(place anim.Place, n int) ([]anim.Guess, [3]*anim.Winner) {
 		guesses[i] = s.g
 	}
 	return guesses, top
+}
+
+// statsSample is a made-up person after thirty days: pins wherever they
+// guessed, the best day in gold, two days missed. The texts come in Russian or
+// in German, the longest the labels get.
+func statsSample(lang string) *anim.Profile {
+	labels := map[string][9]string{
+		"ru": {"статистика", "очков за 30 дней", "дней сыграно", "дней подряд", "средняя ошибка", "лучший день, #17", "место в мире вчера", "лучшее место", "последние 14 дней"},
+		"de": {"Statistik", "Punkte in 30 Tagen", "Tage gespielt", "Tage in Folge", "durchschnittlicher Fehler", "bester Tag, #17", "Weltrang gestern", "bester Weltrang", "die letzten 14 Tage"},
+	}[lang]
+	unit := map[string]string{"ru": "км", "de": "km"}[lang]
+	r := rand.New(rand.NewPCG(5, 0))
+	s := anim.NewProfile(lang)
+	s.Title, s.Name = labels[0], "_amti"
+	s.Total = anim.Tile{Value: "84\u00a0310", Label: labels[1]}
+	s.Tiles = [6]anim.Tile{
+		{Value: "28", Label: labels[2]},
+		{Value: "5", Label: labels[3], Flame: true},
+		{Value: "1\u00a0240 " + unit, Label: labels[4]},
+		{Value: "4\u00a0820", Label: labels[5], Gold: true},
+		{Value: "3 / 214", Label: labels[6]},
+		{Value: "1", Label: labels[7], Gold: true},
+	}
+	for range 28 {
+		lat, lon := -40+r.Float64()*100, -120+r.Float64()*270
+		s.Pins = append(s.Pins, anim.Guess{Lat: lat, Lon: lon, Km: r.Float64() * 4000})
+	}
+	s.Pins[6] = anim.Guess{Lat: 31, Lon: 48, Medal: 1}
+	for i := range 14 {
+		s.Days = append(s.Days, anim.Day{No: 17 + i, Played: i != 4 && i != 8, Best: i == 0})
+	}
+	s.DaysLabel = labels[8]
+	return s
 }

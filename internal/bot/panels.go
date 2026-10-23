@@ -152,7 +152,7 @@ func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
 	if cq.From.ID != owner {
 		return b.tg.AnswerCallbackQueryAlert(ctx, cq.ID, i18n.T(reader, "msg.not_yours"))
 	}
-	if !isPanel(cq.Message) {
+	if !isPanel(cq.Message) && !b.isCard(cq.Message) {
 		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
 	}
 	alert, err := b.runAction(ctx, cq, action, raw)
@@ -202,8 +202,30 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 		zoneLang = chatLang
 	}
 
+	msgID := cq.Message.MessageID
+	show := func(text string, markup telegram.Markup) (int64, error) {
+		if !b.isCard(cq.Message) {
+			if err := b.tg.EditText(ctx, chat.ID, msgID, text, markup); err != nil {
+				return 0, err
+			}
+			b.screens.set(chat.ID, msgID, action, false, b.opts.Now())
+			return msgID, nil
+		}
+		// A picture cannot turn back into text: the panel comes again in a
+		// new message, and the picture goes.
+		msg, err := b.tg.SendText(ctx, chat.ID, text, markup)
+		if err != nil {
+			return 0, err
+		}
+		if err := b.tg.DeleteMessage(ctx, chat.ID, msgID); err != nil {
+			b.log.Info("statistics picture not deleted", "chat", chat.ID, "error", err)
+		}
+		b.screens.set(chat.ID, msg.MessageID, action, false, b.opts.Now())
+		return msg.MessageID, nil
+	}
 	edit := func(text string, markup telegram.Markup) (string, error) {
-		return "", b.tg.EditText(ctx, chat.ID, cq.Message.MessageID, text, markup)
+		_, err := show(text, markup)
+		return "", err
 	}
 	settings := func() (string, error) {
 		zone, err := b.store.ChatZone(ctx, chat.ID)
@@ -240,7 +262,11 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 		if err != nil {
 			return "", err
 		}
-		return edit(v.stats(st))
+		text, markup := v.stats(st)
+		if b.opts.Profiles == nil || st.Days == 0 {
+			return edit(text, markup)
+		}
+		return "", b.showStats(ctx, chat.ID, msgID, cq.From.ID, v.lang, text, markup, show)
 	case actLang:
 		return edit(v.language())
 	case actLangAuto:

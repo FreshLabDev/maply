@@ -23,6 +23,8 @@ import (
 // wins.
 type Client struct {
 	*tg.Client
+	// Upload carries the uploads tg has no method for; nil leaves them out.
+	Upload *Uploader
 }
 
 func New(client *tg.Client) *Client {
