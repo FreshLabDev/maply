@@ -11,6 +11,14 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.5 - 2026-10-23
+
+Sharing the result from the Mini App now forwards the animation the chat
+saw, not a still card.
+
+Operators: migration `008_result_animation.sql` runs on start with
+`AUTO_MIGRATE=true`. Nothing is needed in `.env`.
+
 ### Changed
 
 - Sharing the result from the Mini App sends the same animation the chat's
