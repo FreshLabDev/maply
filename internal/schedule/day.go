@@ -324,7 +324,7 @@ func (s *Scheduler) groupResult(ctx context.Context, c db.Chat, rd db.Round, cr 
 	if err != nil {
 		return err
 	}
-	return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID)
+	return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID, animationID(msg))
 }
 
 // dmResult is the whole result for somebody who plays alone, and only their
@@ -357,7 +357,7 @@ func (s *Scheduler) dmResult(ctx context.Context, c db.Chat, rd db.Round, cr db.
 		if err != nil {
 			return err
 		}
-		return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID)
+		return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID, "")
 	}
 	var scene anim.Scene
 	if answered {
@@ -367,7 +367,7 @@ func (s *Scheduler) dmResult(ctx context.Context, c db.Chat, rd db.Round, cr db.
 	if err != nil {
 		return err
 	}
-	return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID)
+	return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID, animationID(msg))
 }
 
 func table(lang string, guesses []db.Guess, streaks map[int64]int) []string {

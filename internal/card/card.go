@@ -46,11 +46,15 @@ type Store interface {
 	UserLang(ctx context.Context, userID int64) (string, error)
 	ChatZone(ctx context.Context, chatID int64) (string, error)
 	Contexts(ctx context.Context, userID int64) ([]db.Context, error)
+	// ResultAnimation is the file_id of the animation the chat's result went
+	// out as, or empty.
+	ResultAnimation(ctx context.Context, chatID int64, d round.Date) (string, error)
 }
 
 // Saver hands a message to Telegram for a person to send with shareMessage.
 type Saver interface {
 	SavePreparedPhoto(ctx context.Context, userID int64, p telegram.PreparedPhoto) (telegram.PreparedMessage, error)
+	SavePreparedAnimation(ctx context.Context, userID int64, a telegram.PreparedAnimation) (telegram.PreparedMessage, error)
 }
 
 // ErrDisabled means there is no renderer; callers use the photo.
@@ -116,16 +120,14 @@ type Share struct {
 	Date   round.Date
 }
 
-// Prepare draws the card, makes it reachable for Telegram and returns the id
-// of the prepared message the Mini App passes to shareMessage. The caller has
-// checked that the result is open to this person and has scored the day.
+// Prepare returns the id of the prepared message the Mini App passes to
+// shareMessage. A result that went out as an animation is shared as that
+// animation; otherwise the card is drawn and made reachable for Telegram.
+// The caller has checked that the result is open to this person and has
+// scored the day.
 func (s *Service) Prepare(ctx context.Context, sh Share) (string, error) {
 	if !s.CanShare() {
 		return "", ErrDisabled
-	}
-	img, err := s.sharedImage(ctx, sh.ChatID, sh.Date)
-	if err != nil {
-		return "", err
 	}
 	rd, ok, err := s.Store.RoundOn(ctx, sh.Date)
 	if err != nil || !ok {
@@ -145,10 +147,29 @@ func (s *Service) Prepare(ctx context.Context, sh Share) (string, error) {
 	} else if answered && g.Km != nil {
 		caption += "\n" + i18n.T(lang, "result.your", "km", i18n.FormatKm(lang, *g.Km), "points", i18n.FormatNumber(lang, g.Total()))
 	}
+	markup := telegram.Markup{{{Text: i18n.T(lang, "btn.play"), URL: "https://t.me/" + s.Username + "/play"}}}
+	if fileID, err := s.Store.ResultAnimation(ctx, sh.ChatID, sh.Date); err != nil {
+		return "", err
+	} else if fileID != "" {
+		id, err := newKey()
+		if err != nil {
+			return "", err
+		}
+		msg, err := s.TG.SavePreparedAnimation(ctx, sh.UserID, telegram.PreparedAnimation{ID: id, FileID: fileID, Caption: caption, Markup: markup})
+		if err == nil {
+			return msg.ID, nil
+		}
+		if s.Log != nil {
+			s.Log.Warn("result animation not prepared, sharing the card", "chat", sh.ChatID, "date", sh.Date, "error", err)
+		}
+	}
+	img, err := s.sharedImage(ctx, sh.ChatID, sh.Date)
+	if err != nil {
+		return "", err
+	}
 	base := strings.TrimRight(s.PublicURL, "/") + "/card/img/" + img.key
 	msg, err := s.TG.SavePreparedPhoto(ctx, sh.UserID, telegram.PreparedPhoto{
-		ID: img.key, PhotoURL: base + ".jpg", ThumbURL: base + ".t.jpg", Caption: caption,
-		Markup: telegram.Markup{{{Text: i18n.T(lang, "btn.play"), URL: "https://t.me/" + s.Username + "/play"}}},
+		ID: img.key, PhotoURL: base + ".jpg", ThumbURL: base + ".t.jpg", Caption: caption, Markup: markup,
 	})
 	if err != nil {
 		return "", err

@@ -225,8 +225,24 @@ func (s *Store) SetIntrigueSent(ctx context.Context, chatID int64, d round.Date,
 	return s.updateChatRound(ctx, chatID, d, `intrigue_sent = true, intrigue_kind = $3, intrigue_at = $4`, kind, at)
 }
 
-func (s *Store) SetResult(ctx context.Context, chatID int64, d round.Date, msgID int64) error {
-	return s.updateChatRound(ctx, chatID, d, `result_msg_id = $3`, msgID)
+// SetResult records the result message and, when it went out as an
+// animation, its file_id; empty leaves none.
+func (s *Store) SetResult(ctx context.Context, chatID int64, d round.Date, msgID int64, fileID string) error {
+	return s.updateChatRound(ctx, chatID, d, `result_msg_id = $3, result_file_id = NULLIF($4, '')`, msgID, fileID)
+}
+
+// ResultAnimation is the file_id of the animation chatID's result for d went
+// out as, or empty.
+func (s *Store) ResultAnimation(ctx context.Context, chatID int64, d round.Date) (string, error) {
+	var id *string
+	err := s.pool.QueryRow(ctx, `SELECT result_file_id FROM chat_round WHERE chat_id = $1 AND date = $2`, chatID, d.Time()).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) || id == nil {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("result animation of %d %s: %w", chatID, d, err)
+	}
+	return *id, nil
 }
 
 func (s *Store) SetAnswered(ctx context.Context, chatID int64, d round.Date, line string, at time.Time) error {

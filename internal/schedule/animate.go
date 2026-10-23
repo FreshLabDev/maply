@@ -187,6 +187,16 @@ func (s *Scheduler) sendScene(ctx context.Context, chatID int64, scene anim.Scen
 	return tg.Message{}, false, nil
 }
 
+// animationID is the file_id of a message sent as an animation, for sharing
+// the same one later; a picture has none. Telegram sends an animation back
+// with its document too, whether it was uploaded or sent by file_id.
+func animationID(msg tg.Message) string {
+	if msg.Document == nil || len(msg.Photo) > 0 {
+		return ""
+	}
+	return msg.Document.FileID
+}
+
 // resultScene is the group's result as an animation: the pins of who
 // answered, the place and the podium. Nil when nobody was scored.
 func resultScene(lang string, dayNo int, answer db.Answer, guesses []db.Guess, streaks map[int64]int) anim.Scene {

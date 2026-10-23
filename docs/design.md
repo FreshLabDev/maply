@@ -131,6 +131,7 @@ How the scheduler sends them:
 - the morning post of a panorama place is drawn once a day, uploaded once, and sent to every other chat by its `file_id`; a photo place keeps the photo;
 - the intrigue is drawn when it tells the time there, per chat, since the dots left until 20:00 are the chat's own; the other teases stay text;
 - the result is drawn per chat, and falls back to the map card and then to the photo;
+- sharing the result from the Mini App sends the animation the chat's result went out as, by the `file_id` kept with it (`mpeg4_gif` in `savePreparedInlineMessage`); a result that went out as a picture is shared as the map card;
 - an upload goes as a document, which Telegram turns into an animation since the MP4 has no sound, because tg has no `sendAnimation` yet;
 - names and places in scripts that Sofia Sans lacks (Arabic, Chinese, Japanese, emoji) are written in English or left out of the picture; the caption keeps them;
 - the world loop has no slot yet: the world's numbers come in the morning post's caption.

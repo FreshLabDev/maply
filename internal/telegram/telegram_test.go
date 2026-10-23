@@ -198,6 +198,13 @@ func TestMenuButtonAndPreparedMessage(t *testing.T) {
 	if res := fake.requests[1].body["result"].(map[string]any); res["type"] != "photo" || fake.requests[1].body["user_id"] != float64(42) {
 		t.Fatalf("savePreparedInlineMessage = %+v", fake.requests[1].body)
 	}
+	if _, err := c.SavePreparedAnimation(ctx, 42, PreparedAnimation{ID: "r2", FileID: "CgAD", Caption: "<b>maply #1</b>"}); err != nil {
+		t.Fatal(err)
+	}
+	res := fake.requests[2].body["result"].(map[string]any)
+	if res["type"] != "mpeg4_gif" || res["mpeg4_file_id"] != "CgAD" || res["parse_mode"] != "HTML" || res["id"] != "r2" {
+		t.Fatalf("savePreparedInlineMessage = %+v", res)
+	}
 }
 
 func TestTextPanelCarriesStyleAndWebApp(t *testing.T) {

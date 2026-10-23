@@ -41,6 +41,7 @@ type fakeStore struct {
 	zone     string
 	lang     string
 	contexts []db.Context
+	anim     string // the result's animation file_id
 }
 
 func (f *fakeStore) RoundOn(context.Context, round.Date) (db.Round, bool, error) {
@@ -70,6 +71,9 @@ func (f *fakeStore) ChatZone(context.Context, int64) (string, error) { return f.
 func (f *fakeStore) Contexts(context.Context, int64) ([]db.Context, error) {
 	return f.contexts, nil
 }
+func (f *fakeStore) ResultAnimation(context.Context, int64, round.Date) (string, error) {
+	return f.anim, nil
+}
 
 type fakeShot struct {
 	mu    sync.Mutex
@@ -86,14 +90,24 @@ func (f *fakeShot) Screenshot(_ context.Context, pageURL string) ([]byte, error)
 }
 
 type fakeSaver struct {
-	user int64
-	got  telegram.PreparedPhoto
-	err  error
+	user    int64
+	got     telegram.PreparedPhoto
+	err     error
+	anim    []telegram.PreparedAnimation
+	animErr error
 }
 
 func (f *fakeSaver) SavePreparedPhoto(_ context.Context, user int64, p telegram.PreparedPhoto) (telegram.PreparedMessage, error) {
 	f.user, f.got = user, p
 	return telegram.PreparedMessage{ID: p.ID}, f.err
+}
+
+func (f *fakeSaver) SavePreparedAnimation(_ context.Context, user int64, a telegram.PreparedAnimation) (telegram.PreparedMessage, error) {
+	f.user, f.anim = user, append(f.anim, a)
+	if f.animErr != nil {
+		return telegram.PreparedMessage{}, f.animErr
+	}
+	return telegram.PreparedMessage{ID: a.ID}, nil
 }
 
 func blankPNG(t *testing.T) []byte {
@@ -340,6 +354,38 @@ func TestPrepareSavesAJPEGMessageTelegramCanFetch(t *testing.T) {
 	s.Now = func() time.Time { return afterReveal.Add(imageReuse + time.Second) }
 	if _, err := s.Prepare(context.Background(), Share{UserID: person, ChatID: group, Date: day}); err != nil || len(shot.urls) != 2 {
 		t.Fatalf("late share: %v, %d renders", err, len(shot.urls))
+	}
+}
+
+// A result that went out as an animation is shared as that animation, with
+// nothing drawn; when Telegram will not take it, the card goes instead.
+func TestPrepareSharesTheResultAnimation(t *testing.T) {
+	st := &fakeStore{lang: "ru", guesses: []db.Guess{guess(person, "Mia", 1)}, anim: "anim-file"}
+	shot := &fakeShot{image: blankPNG(t)}
+	saver := &fakeSaver{}
+	s := service(t, st, shot, afterReveal)
+	s.TG = saver
+	id, err := s.Prepare(context.Background(), Share{UserID: person, ChatID: group, Date: day})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saver.anim) != 1 || len(shot.urls) != 0 || saver.got.ID != "" {
+		t.Fatalf("animations %d, renders %d, photo %q", len(saver.anim), len(shot.urls), saver.got.ID)
+	}
+	a := saver.anim[0]
+	if a.FileID != "anim-file" || id != a.ID || len(a.ID) != 22 || saver.user != person {
+		t.Fatalf("saved %+v for %d, returned %q", a, saver.user, id)
+	}
+	if !strings.Contains(a.Caption, "Твой итог: 100 км") || len(a.Markup) != 1 || a.Markup[0][0].Text != "Играть" {
+		t.Fatalf("caption %q, markup %+v", a.Caption, a.Markup)
+	}
+
+	saver.animErr = errors.New("Bad Request: wrong file identifier")
+	if id, err = s.Prepare(context.Background(), Share{UserID: person, ChatID: group, Date: day}); err != nil {
+		t.Fatal(err)
+	}
+	if len(shot.urls) != 1 || id != saver.got.ID || saver.got.PhotoURL == "" {
+		t.Fatalf("fallback: %d renders, photo %+v, returned %q", len(shot.urls), saver.got, id)
 	}
 }
 

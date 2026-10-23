@@ -44,7 +44,7 @@ type Store interface {
 	SetPost(ctx context.Context, chatID int64, d round.Date, msgID int64, line, yesterday string, at time.Time) error
 	SetPinned(ctx context.Context, chatID int64, d round.Date, pinned bool) error
 	SetIntrigueSent(ctx context.Context, chatID int64, d round.Date, kind string, at time.Time) error
-	SetResult(ctx context.Context, chatID int64, d round.Date, msgID int64) error
+	SetResult(ctx context.Context, chatID int64, d round.Date, msgID int64, fileID string) error
 	SetAnswered(ctx context.Context, chatID int64, d round.Date, line string, at time.Time) error
 	OpenPosts(ctx context.Context, since round.Date) ([]db.OpenPost, error)
 	PhotoFileID(ctx context.Context, d round.Date) (string, error)

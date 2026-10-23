@@ -67,3 +67,29 @@ func TestReturnChatAfterABlock(t *testing.T) {
 		t.Fatal("not active after coming back")
 	}
 }
+
+// The result keeps the file_id of the animation it went out as, for sharing;
+// a result sent as a picture keeps none.
+func TestResultKeepsItsAnimation(t *testing.T) {
+	store := testStore(t)
+	seedRound(t, store)
+	ctx := context.Background()
+	d := round.NewDate(2026, 11, 1)
+	if err := store.EnsureChat(ctx, 7); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ChatRound(ctx, 7, d); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ set, want string }{{"anim-1", "anim-1"}, {"", ""}} {
+		if err := store.SetResult(ctx, 7, d, 42, c.set); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := store.ResultAnimation(ctx, 7, d); err != nil || got != c.want {
+			t.Fatalf("after %q: %q, %v", c.set, got, err)
+		}
+	}
+	if got, err := store.ResultAnimation(ctx, 7, d.AddDays(1)); err != nil || got != "" {
+		t.Fatalf("a day without a result: %q, %v", got, err)
+	}
+}

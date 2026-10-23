@@ -11,6 +11,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Changed
+
+- Sharing the result from the Mini App sends the same animation the chat's
+  result went out as, instead of a still card. A result that went out as a
+  picture is still shared as the map card. Migration `008_result_animation.sql`
+  keeps the animation's `file_id` with the chat's result.
+
 ## v0.0.1-alpha.4 - 2026-10-23
 
 The day's posts move: the morning post opens the day's panorama as a little

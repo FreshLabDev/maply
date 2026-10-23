@@ -157,3 +157,18 @@ func TestMorningAnimationOnceADay(t *testing.T) {
 		t.Fatalf("photo place: animations %d, photos %d", len(tgc.animations), len(tgc.photos))
 	}
 }
+
+func TestAnimationIDIsOnlyForAnimations(t *testing.T) {
+	for name, c := range map[string]struct {
+		msg  tg.Message
+		want string
+	}{
+		"animation": {tg.Message{Document: &tg.Document{FileID: "anim"}}, "anim"},
+		"photo":     {tg.Message{Photo: []tg.Photo{{FileID: "p"}}}, ""},
+		"text":      {tg.Message{}, ""},
+	} {
+		if got := animationID(c.msg); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+}

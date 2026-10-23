@@ -298,3 +298,26 @@ func (c *Client) SavePreparedPhoto(ctx context.Context, userID int64, p Prepared
 		"allow_user_chats": true, "allow_group_chats": true,
 	})
 }
+
+// PreparedAnimation is an animation Telegram already has, by its file_id,
+// for shareMessage.
+type PreparedAnimation struct {
+	ID      string
+	FileID  string
+	Caption string
+	Markup  Markup
+}
+
+func (c *Client) SavePreparedAnimation(ctx context.Context, userID int64, a PreparedAnimation) (PreparedMessage, error) {
+	result := map[string]any{
+		"type": "mpeg4_gif", "id": a.ID, "mpeg4_file_id": a.FileID,
+		"caption": a.Caption, "parse_mode": "HTML",
+	}
+	if a.Markup != nil {
+		result["reply_markup"] = a.Markup
+	}
+	return call[PreparedMessage](ctx, c, "savePreparedInlineMessage", map[string]any{
+		"user_id": userID, "result": result,
+		"allow_user_chats": true, "allow_group_chats": true,
+	})
+}
