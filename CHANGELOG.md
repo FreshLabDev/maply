@@ -11,6 +11,16 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.6 - 2026-10-24
+
+The statistics panel turns into a picture: the Earth turns slowly under the
+person's pins of every day, beside their numbers and places in the world.
+
+Operators: migration `009_profile_card.sql` runs on start with
+`AUTO_MIGRATE=true`. The bot now draws pictures in the background every 10
+minutes for recent players; `ANIMATIONS=false` turns them off with the
+animated posts.
+
 ### Added
 
 - The statistics panel shows a picture above the numbers: the Earth turns
