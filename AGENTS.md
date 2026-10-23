@@ -16,6 +16,11 @@ player, and production-minded.
   original single-file prototype (`web/prototype/index.html`), the curation
   scripts (`scripts/curation/`) and the source measurements
   (`scripts/sources/`).
+- The result is a map card when `CARD_RENDERER_URL` names a headless Chromium:
+  `internal/card` serves the page `/card/result/<chat>/<date>`, the renderer
+  photographs it, and `schedule` sends the PNG. Any renderer failure falls back
+  to the place's photo; never let the card block the result. The Mini App
+  forwards the same card with `shareMessage` through `POST /api/share`.
 - The service will be one Go binary (module `github.com/FreshLabDev/maply`): the
   bot with its scheduler, the HTTP API, the static Mini App and the place
   images, all from one process behind a Cloudflare Tunnel at `maply.ws04.cc`.
@@ -73,6 +78,9 @@ the diff looks like.
 - The place's coordinates, city, country, source ID and source URL never appear
   in an API response, an image name, an image's EXIF, a log line or an error
   message before the reveal.
+- The card page opens only with a card token (`auth.Signer.SignCard`, never the
+  startapp payload) and only after the chat's reveal; shared card images are
+  served under random keys. Keep both when touching `internal/card`.
 - Images are rehosted under a random key with EXIF stripped. A Mapillary ID
   resolves to coordinates through the public API, and Panoramax HD frames carry
   GPS in EXIF.

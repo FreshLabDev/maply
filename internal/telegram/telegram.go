@@ -94,10 +94,12 @@ func call[T any](ctx context.Context, c *Client, method string, req map[string]a
 	return out.Result, nil
 }
 
-// Photo is either a file Telegram already has or a local file to upload.
+// Photo is a file Telegram already has, a local file to upload, or PNG bytes
+// to upload (a drawn card).
 type Photo struct {
 	FileID string
 	Path   string
+	PNG    []byte
 }
 
 // SendPhoto posts a photo with an HTML caption and buttons. A file_id goes in
@@ -112,13 +114,17 @@ func (c *Client) SendPhoto(ctx context.Context, chatID int64, photo Photo, capti
 		}
 		return call[tg.Message](ctx, c, "sendPhoto", req)
 	}
-	data, err := os.ReadFile(photo.Path)
-	if err != nil {
-		return tg.Message{}, fmt.Errorf("read photo: %w", err)
+	data, ext := photo.PNG, ".png"
+	if data == nil {
+		var err error
+		if data, err = os.ReadFile(photo.Path); err != nil {
+			return tg.Message{}, fmt.Errorf("read photo: %w", err)
+		}
+		ext = filepath.Ext(photo.Path)
 	}
 	// The upload's name is what Telegram records; the key is random already,
 	// but a fixed name keeps even that out of Telegram.
-	msg, err := c.Client.SendPhoto(ctx, chatID, tg.InputFileUpload{Filename: "maply" + filepath.Ext(photo.Path), Data: bytes.NewReader(data)},
+	msg, err := c.Client.SendPhoto(ctx, chatID, tg.InputFileUpload{Filename: "maply" + ext, Data: bytes.NewReader(data)},
 		tg.CaptionOptions{Caption: caption})
 	if err != nil || markup == nil {
 		return msg, err

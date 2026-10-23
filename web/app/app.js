@@ -4,7 +4,6 @@ const $ = (id) => document.getElementById(id);
 const PIN_PATH = "M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1 0 320 349 A60 60 0 1 0 320 229 Z";
 // On the map, markers are dark with a white outline: visible on both light land and green water.
 const PIN = '<svg class="pin" viewBox="150 119 340 402"><path fill="#1A412B" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="miter" paint-order="stroke" fill-rule="evenodd" d="' + PIN_PATH + '"/></svg>';
-const TARGET = '<svg class="target" viewBox="0 0 30 30"><path fill="none" stroke="#FFFFFF" stroke-width="6" d="M15 3.5a11.5 11.5 0 1 1 0 23a11.5 11.5 0 1 1 0-23"/><circle cx="15" cy="15" r="7.5" fill="#FFFFFF"/><circle cx="15" cy="15" r="5" fill="#1A412B"/><path fill="none" stroke="#1A412B" stroke-width="3" d="M15 3.5a11.5 11.5 0 1 1 0 23a11.5 11.5 0 1 1 0-23"/></svg>';
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 const av = (who, me) => '<i class="av' + (me ? ' me' : '') + '">' + (me ? esc(T("you")) : esc(who[0] || "?")) + '</i>';
 // Names come from Telegram profiles and go into innerHTML.
@@ -558,14 +557,34 @@ $("go").addEventListener("click", () => {
   if (state === "guess" && guess) send();
   else if (state === "reveal") share();
 });
-// A line to forward without spoilers: day number, distance and score; the place is not in it.
-// In Telegram we open the chat picker; in a browser, the system "Share" menu or the clipboard.
+// Forwarding the result. In Telegram 8.0 and later the server prepares the result card, a map picture with a Play button,
+// and shareMessage opens Telegram's chat picker with it. If the card cannot be made (no renderer, a slow one, an old client,
+// the picker refusing it), a line with the day number, distance and score goes through t.me/share. In a browser it is
+// the system "Share" menu or the clipboard.
 const SHARE_URL = window.MAPLY_SHARE_URL || location.origin;
-function share() {
-  const line = "maply #" + TODAY.day + (mine ? " · " + fmt(mine.d) + " " + T("km") + " · " + fmt(mine.pts) : "");
+const shareLine = () => "maply #" + TODAY.day + (mine ? " · " + fmt(mine.d) + " " + T("km") + " · " + fmt(mine.pts) : "");
+function shareLink() {
+  const line = shareLine();
   if (inTg) { tg.openTelegramLink("https://t.me/share/url?url=" + encodeURIComponent(SHARE_URL) + "&text=" + encodeURIComponent(line)); return; }
   if (navigator.share) { navigator.share({ text: line, url: SHARE_URL }).catch(() => {}); return; }
   navigator.clipboard.writeText(line + " " + SHARE_URL).then(() => toast(T("copied", { line })), () => toast(line));
+}
+// Telegram reports a prepared message it could not send (expired, unsupported); declining the picker is not a failure.
+if (inTg) tg.onEvent("shareMessageFailed", (e) => { if (!e || e.error !== "USER_DECLINED") shareLink(); });
+let sharing = false;
+async function share() {
+  if (!(inTg && tgAt("8.0") && typeof tg.shareMessage === "function")) return shareLink();
+  if (sharing) return;
+  sharing = true; $("go").classList.add("busy");
+  try {
+    const { id } = await api("/api/share", {});
+    tg.shareMessage(id);
+    return;
+  } catch (e) {
+    // Too many cards in a minute is worth telling; any other reason, the person still gets to forward.
+    if (e.message === "rate_limited") { toast(errorText(e)); return; }
+  } finally { sharing = false; $("go").classList.remove("busy"); }
+  shareLink();
 }
 /* ---------- Start ---------- */
 // Opened inside Telegram without initData (a plain link in the in-app browser) there is nothing to play as.

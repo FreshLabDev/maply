@@ -10,6 +10,13 @@
 # Cloudflare Tunnel on the management network, which maps the hostname to
 # http://maply-bot:8080. Place images live in ./images next to this file:
 # they are as much state as the database, so back them up together.
+#
+# The result card is a page of the bot's own, photographed by a headless
+# Chromium in the card-renderer container. The two share the private `cards`
+# network and nothing else: the renderer is not on core_net or management, so
+# it cannot reach the database or the tunnel, and it publishes no port. It does
+# need to reach the internet, for the map tiles. Set CARD_RENDERER_URL= (empty)
+# in .env to turn the cards off: results then go out with the place's photo.
 name: maply
 
 services:
@@ -26,11 +33,13 @@ services:
       AUTO_MIGRATE: "true"
       APP_URL: ${APP_URL:-https://maply.ws04.cc/}
       IMAGES_DIR: /var/lib/maply/images
+      CARD_RENDERER_URL: ${CARD_RENDERER_URL-http://card-renderer:9222}
+      CARD_PAGE_URL: http://maply-bot:8080
     volumes:
       - ./images:/var/lib/maply/images:ro
     expose:
       - "8080"
-    networks: [core_net, management]
+    networks: [core_net, management, cards]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -43,7 +52,34 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Draws the result card: opens http://maply-bot:8080/card/result/... and takes
+  # a 1280x1280 screenshot, asked over the DevTools port by the bot. Pinned by
+  # digest (tag 156.0.8078.48, "stable" on 2026-10-22); move it by hand, after
+  # a card has rendered on the new one.
+  card-renderer:
+    image: ${CARD_RENDERER_IMAGE:-chromedp/headless-shell:156.0.8078.48@sha256:3da74b0945e4f80f00f0310bcda9f76cee283539ebd200a053a7bebf3de89423}
+    container_name: maply-card-renderer
+    restart: unless-stopped
+    init: true
+    expose:
+      - "9222"
+    networks: [cards]
+    # Chromium crashes in the default 64 MB /dev/shm.
+    shm_size: 512m
+    mem_limit: 1g
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 networks:
+  # Only the bot and the renderer. Not internal: the renderer fetches tiles.
+  cards:
+    name: maply_cards
   core_net:
     external: true
     name: core_net

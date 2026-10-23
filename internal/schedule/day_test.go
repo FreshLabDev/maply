@@ -64,9 +64,3 @@ func TestIntrigueTimeIsStableAndInTheWindow(t *testing.T) {
 		}
 	}
 }
-
-func TestCountryNameIsLocalized(t *testing.T) {
-	if got := countryName("PT", "ru"); got != "Португалия" {
-		t.Fatalf("country = %q", got)
-	}
-}

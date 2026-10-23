@@ -214,3 +214,25 @@ func TestMembersAreCachedForTheDay(t *testing.T) {
 		t.Fatalf("after the error: %v, %v", ok, err)
 	}
 }
+
+func TestCardTokenAndStartappPayloadDoNotOpenEachOther(t *testing.T) {
+	s := NewSigner(token)
+	want := Payload{Date: round.NewDate(2026, time.November, 2), ChatID: -1001234567890}
+	card, err := s.SignCard(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.VerifyCard(card); err != nil || got != want {
+		t.Fatalf("VerifyCard = %+v, %v; want %+v", got, err, want)
+	}
+	start, err := s.Sign(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.VerifyCard(start); !errors.Is(err, ErrBadPayload) {
+		t.Fatalf("a startapp payload opened a card: %v", err)
+	}
+	if _, err := s.Verify(card); !errors.Is(err, ErrBadPayload) {
+		t.Fatalf("a card token opened a round: %v", err)
+	}
+}

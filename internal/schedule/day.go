@@ -12,10 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"golang.org/x/text/language"
-	"golang.org/x/text/language/display"
-	"golang.org/x/text/message"
-
+	"github.com/FreshLabDev/maply/internal/card"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/i18n"
@@ -109,7 +106,7 @@ func (s *Scheduler) groupIntrigue(ctx context.Context, c db.Chat, d round.Date, 
 	}
 	spread := spreadOf(guesses)
 	if len(silent) == 0 && len(guesses) > 0 {
-		return "all", i18n.T(lang, "intrigue.all", "km", formatKm(lang, spread), "time", revealText()), nil
+		return "all", i18n.T(lang, "intrigue.all", "km", i18n.FormatKm(lang, spread), "time", revealText()), nil
 	}
 	last, err := s.Store.LastIntrigue(ctx, c.ID, d)
 	if err != nil {
@@ -126,7 +123,7 @@ func (s *Scheduler) groupIntrigue(ctx context.Context, c db.Chat, d round.Date, 
 		add("now", now)
 	}
 	if len(guesses) >= 2 && spread >= spreadKm {
-		add("spread", i18n.T(lang, "intrigue.spread", "km", formatKm(lang, spread)))
+		add("spread", i18n.T(lang, "intrigue.spread", "km", i18n.FormatKm(lang, spread)))
 	}
 	if text, err := s.worldLine(ctx, d, lang); err != nil {
 		return "", "", err
@@ -278,8 +275,8 @@ func (s *Scheduler) groupResult(ctx context.Context, c db.Chat, rd db.Round, cr 
 	if err != nil {
 		return err
 	}
-	head := resultHead(lang, rd.DayNo, answer)
-	msg, err := s.sendPhoto(ctx, c.ID, rd, fitCaption(head, table(lang, guesses, streaks)), markup)
+	head := card.Head(lang, rd.DayNo, answer)
+	msg, err := s.sendResult(ctx, c, rd, fitCaption(head, table(lang, guesses, streaks)), markup)
 	if err != nil {
 		return err
 	}
@@ -298,7 +295,7 @@ func (s *Scheduler) dmResult(ctx context.Context, c db.Chat, rd db.Round, cr db.
 	}
 	own := i18n.T(lang, "result.missed")
 	if answered && g.Km != nil {
-		own = i18n.T(lang, "result.your", "km", formatKm(lang, *g.Km), "points", number(lang, g.Total()))
+		own = i18n.T(lang, "result.your", "km", i18n.FormatKm(lang, *g.Km), "points", i18n.FormatNumber(lang, g.Total()))
 	}
 	inGroups, err := s.Store.InGroups(ctx, c.ID)
 	if err != nil {
@@ -311,30 +308,11 @@ func (s *Scheduler) dmResult(ctx context.Context, c db.Chat, rd db.Round, cr db.
 		}
 		return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID)
 	}
-	msg, err := s.sendPhoto(ctx, c.ID, rd, fitCaption(resultHead(lang, rd.DayNo, answer), []string{own}), markup)
+	msg, err := s.sendResult(ctx, c, rd, fitCaption(card.Head(lang, rd.DayNo, answer), []string{own}), markup)
 	if err != nil {
 		return err
 	}
 	return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID)
-}
-
-// resultHead is "maply #12 · Lisbon, Portugal" and the fact under it.
-func resultHead(lang string, dayNo int, a db.Answer) string {
-	place := localized(a.City, lang)
-	if country := countryName(a.CountryISO, lang); country != "" {
-		if place != "" {
-			place += ", "
-		}
-		place += country
-	}
-	head := fmt.Sprintf("<b>maply #%d</b>", dayNo)
-	if place != "" {
-		head += " · " + html.EscapeString(place)
-	}
-	if fact := localized(a.Fact, lang); fact != "" {
-		head += "\n<i>" + html.EscapeString(fact) + "</i>"
-	}
-	return head
 }
 
 func table(lang string, guesses []db.Guess, streaks map[int64]int) []string {
@@ -349,7 +327,7 @@ func table(lang string, guesses []db.Guess, streaks map[int64]int) []string {
 		}
 		score := "—"
 		if g.Km != nil {
-			score = i18n.T(lang, "unit.km", "km", formatKm(lang, *g.Km)) + " · " + number(lang, g.Total())
+			score = i18n.T(lang, "unit.km", "km", i18n.FormatKm(lang, *g.Km)) + " · " + i18n.FormatNumber(lang, g.Total())
 		}
 		line := fmt.Sprintf("%d. %s — %s", i+1, displayName(g.FirstName), score)
 		if n := streaks[g.UserID]; n >= 2 {
@@ -441,30 +419,4 @@ func spreadOf(gs []db.Guess) float64 {
 		}
 	}
 	return best
-}
-
-func formatKm(lang string, km float64) string {
-	if km < 10 {
-		return message.NewPrinter(language.Make(lang)).Sprintf("%.1f", km)
-	}
-	return number(lang, int(km+0.5))
-}
-
-func number(lang string, n int) string {
-	return message.NewPrinter(language.Make(lang)).Sprint(n)
-}
-
-func localized(m map[string]string, lang string) string {
-	if v := m[lang]; v != "" {
-		return v
-	}
-	return m[i18n.DefaultLang]
-}
-
-func countryName(iso, lang string) string {
-	region, err := language.ParseRegion(iso)
-	if err != nil {
-		return ""
-	}
-	return display.Regions(language.Make(lang)).Name(region)
 }

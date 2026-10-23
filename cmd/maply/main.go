@@ -16,6 +16,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/api"
 	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/bot"
+	"github.com/FreshLabDev/maply/internal/card"
 	"github.com/FreshLabDev/maply/internal/config"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
@@ -88,17 +89,40 @@ func run(log *slog.Logger) error {
 		Zones:    zones,
 	})
 
-	game := (&api.Server{
+	signer := auth.NewSigner(cfg.TelegramBotToken)
+	// Without a renderer the result goes out with the place's photo and the
+	// Mini App shares through t.me/share, as before the card existed.
+	var cards *card.Service
+	if cfg.CardRendererURL != "" {
+		cards = &card.Service{
+			Store:     store,
+			Signer:    signer,
+			Zones:     zones,
+			Shot:      card.NewChrome(cfg.CardRendererURL),
+			PageURL:   cfg.CardPageURL,
+			PublicURL: cfg.AppURL,
+			Username:  me.Username,
+			TG:        tgc,
+			Log:       log,
+		}
+		log.Info("result cards on", "renderer", cfg.CardRendererURL, "sharing", cards.CanShare())
+	}
+
+	gameAPI := &api.Server{
 		Store:       store,
 		InitData:    auth.NewVerifier(cfg.TelegramBotToken),
-		Payloads:    auth.NewSigner(cfg.TelegramBotToken),
+		Payloads:    signer,
 		Members:     auth.NewMembers(client),
 		Zones:       zones,
 		Countries:   countries,
 		ImagesDir:   cfg.ImagesDir,
 		BotUsername: me.Username,
 		Log:         log,
-	}).Handler()
+	}
+	if cards != nil {
+		gameAPI.Shares = cards
+	}
+	game := gameAPI.Handler()
 
 	app, err := web.Handler()
 	if err != nil {
@@ -109,6 +133,11 @@ func run(log *slog.Logger) error {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", game)
 	mux.Handle("/img/", game)
+	if cards != nil {
+		// The card page is for the renderer, behind a signed link and the
+		// chat's reveal; the shared images are what Telegram fetches.
+		mux.Handle("/card/", cards.Handler())
+	}
 	mux.Handle("/", app)
 	mux.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
 		Version: version, Commit: commit, Date: date,
@@ -141,13 +170,16 @@ func run(log *slog.Logger) error {
 			Store:     store,
 			TG:        tgc,
 			Weather:   schedule.OpenMeteo{},
-			Payloads:  auth.NewSigner(cfg.TelegramBotToken),
+			Payloads:  signer,
 			Zones:     zones,
 			Countries: countries,
 			ImagesDir: cfg.ImagesDir,
 			Username:  me.Username,
 			AppURL:    cfg.AppURL,
 			Log:       log,
+		}
+		if cards != nil {
+			sched.Cards = cards
 		}
 		go func() {
 			log.Info("scheduler starting")

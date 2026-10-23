@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"net/http"
 	"path/filepath"
 	"time"
 
@@ -68,6 +69,12 @@ type Telegram interface {
 	Unpin(ctx context.Context, chatID, messageID int64) error
 }
 
+// Cards draws a chat's result as a picture. An error is never fatal: the
+// result goes out with the place's photo instead.
+type Cards interface {
+	Result(ctx context.Context, chatID int64, d round.Date) ([]byte, error)
+}
+
 // Weather is what "it is now there" needs: the place's UTC offset and, when
 // known, its temperature.
 type Weather interface {
@@ -75,9 +82,11 @@ type Weather interface {
 }
 
 type Scheduler struct {
-	Store     Store
-	TG        Telegram
-	Weather   Weather
+	Store   Store
+	TG      Telegram
+	Weather Weather
+	// Cards draws the result's map card; nil sends the photo.
+	Cards     Cards
 	Payloads  *auth.Signer
 	Zones     round.Zones
 	Countries *geo.Countries
@@ -332,6 +341,30 @@ func (s *Scheduler) sendPhoto(ctx context.Context, chatID int64, rd db.Round, ca
 		}
 	}
 	return msg, nil
+}
+
+// sendResult sends the result: the map card when it can be drawn, else the
+// place's photo. A renderer that is slow, down or wrong costs the card and
+// nothing else. Telegram refusing the picture itself (a 400 that is not about
+// the chat) also falls back, since nothing was delivered; any other failure
+// of the send is returned, because the card may have gone out.
+func (s *Scheduler) sendResult(ctx context.Context, c db.Chat, rd db.Round, caption string, markup telegram.Markup) (tg.Message, error) {
+	if s.Cards != nil {
+		png, err := s.Cards.Result(ctx, c.ID, rd.Date)
+		if err == nil {
+			var msg tg.Message
+			if msg, err = s.TG.SendPhoto(ctx, c.ID, telegram.Photo{PNG: png}, caption, markup); err == nil || !refusedPicture(err) {
+				return msg, err
+			}
+		}
+		s.Log.Warn("result card not sent, sending the photo", "chat", c.ID, "date", rd.Date, "error", err)
+	}
+	return s.sendPhoto(ctx, c.ID, rd, caption, markup)
+}
+
+func refusedPicture(err error) bool {
+	var apiErr *tg.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && !apiErr.IsUnreachableDestination()
 }
 
 // pin pins the post without a sound. Without the right to pin the game goes

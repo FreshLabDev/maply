@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -25,6 +26,14 @@ type Config struct {
 	// AppURL is the public https address of the Mini App, which Telegram opens
 	// from the Play button. Empty leaves the button out.
 	AppURL string
+	// CardRendererURL is the DevTools address of the headless Chromium that
+	// draws the result card, e.g. http://card-renderer:9222, on the internal
+	// network only. Empty sends the place's photo instead and leaves sharing
+	// on t.me/share.
+	CardRendererURL string
+	// CardPageURL is where that browser reaches this service for the card
+	// page, e.g. http://maply-bot:8080. Required with CardRendererURL.
+	CardPageURL string
 	// Schedule sends the day's post, intrigue and result. A second instance
 	// against the same database can leave it off; the job queue would keep
 	// it from sending twice anyway.
@@ -40,6 +49,8 @@ func Load() (Config, error) {
 		LogLevel:         valueOrDefault("LOG_LEVEL", "info"),
 		ImagesDir:        strings.TrimSpace(os.Getenv("IMAGES_DIR")),
 		AppURL:           strings.TrimSpace(os.Getenv("APP_URL")),
+		CardRendererURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("CARD_RENDERER_URL")), "/"),
+		CardPageURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("CARD_PAGE_URL")), "/"),
 	}
 	var err error
 	if cfg.AutoMigrate, err = strconv.ParseBool(valueOrDefault("AUTO_MIGRATE", "true")); err != nil {
@@ -55,6 +66,14 @@ func Load() (Config, error) {
 	if cfg.AppURL != "" && !strings.HasPrefix(cfg.AppURL, "https://") {
 		return Config{}, fmt.Errorf("APP_URL must be an https URL")
 	}
+	if cfg.CardRendererURL != "" {
+		if !isHTTPURL(cfg.CardRendererURL) {
+			return Config{}, fmt.Errorf("CARD_RENDERER_URL must be an http or https URL")
+		}
+		if !isHTTPURL(cfg.CardPageURL) {
+			return Config{}, fmt.Errorf("CARD_PAGE_URL must be an http or https URL when CARD_RENDERER_URL is set")
+		}
+	}
 	if cfg.TelegramBotToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
 	}
@@ -62,6 +81,11 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
 	}
 	return cfg, nil
+}
+
+func isHTTPURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 func valueOrDefault(key, fallback string) string {

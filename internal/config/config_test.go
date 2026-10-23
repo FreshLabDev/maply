@@ -12,6 +12,8 @@ func setRequired(t *testing.T) {
 	t.Setenv("AUTO_MIGRATE", "")
 	t.Setenv("TELEGRAM_API_BASE", "")
 	t.Setenv("APP_URL", "")
+	t.Setenv("CARD_RENDERER_URL", "")
+	t.Setenv("CARD_PAGE_URL", "")
 }
 
 func TestLoadDefaults(t *testing.T) {
@@ -63,5 +65,35 @@ func TestLoadRejectsAppURLWithoutHTTPS(t *testing.T) {
 	cfg, err := Load()
 	if err != nil || cfg.AppURL != "https://maply.example/" {
 		t.Fatalf("cfg = %+v, err = %v", cfg, err)
+	}
+}
+
+func TestCardsAreOffUnlessARendererIsNamed(t *testing.T) {
+	setRequired(t)
+	cfg, err := Load()
+	if err != nil || cfg.CardRendererURL != "" {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+	t.Setenv("CARD_RENDERER_URL", "http://card-renderer:9222/")
+	t.Setenv("CARD_PAGE_URL", "http://maply-bot:8080/")
+	cfg, err = Load()
+	if err != nil || cfg.CardRendererURL != "http://card-renderer:9222" || cfg.CardPageURL != "http://maply-bot:8080" {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+}
+
+func TestCardRendererNeedsAPageURLAndSchemes(t *testing.T) {
+	for name, env := range map[string][2]string{
+		"no page url":        {"http://card-renderer:9222", ""},
+		"renderer no scheme": {"card-renderer:9222", "http://maply-bot:8080"},
+		"page no scheme":     {"http://card-renderer:9222", "maply-bot:8080"},
+		"ftp renderer":       {"ftp://card-renderer:9222", "http://maply-bot:8080"},
+	} {
+		setRequired(t)
+		t.Setenv("CARD_RENDERER_URL", env[0])
+		t.Setenv("CARD_PAGE_URL", env[1])
+		if _, err := Load(); err == nil {
+			t.Errorf("%s: Load accepted %q and %q", name, env[0], env[1])
+		}
 	}
 }

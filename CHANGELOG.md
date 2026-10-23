@@ -11,6 +11,29 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Added
+
+- The 20:00 result is a map. A card shows the true point, every player's pin
+  with their initial, a dashed line from each pin to the point, `maply #N`,
+  the place and the top three, in the chat's language and the Mini App's
+  colours and fonts. The service serves the card as the page
+  `/card/result/<chat>/<date>`; a headless Chromium in its own container
+  (`chromedp/headless-shell`, pinned by digest) opens it over the DevTools
+  protocol and takes a 1280x1280 screenshot. The page opens only with a link
+  signed for that chat and date, and only after the chat's reveal. When the
+  renderer is down, slow or wrong, or Telegram refuses the picture, the result
+  goes out with the place's photo as before. Alone in a DM the person gets
+  their own pin; in a group, everyone's.
+- "Forward to a chat" sends that card through `shareMessage`: the server
+  prepares it with `savePreparedInlineMessage` (`POST /api/share`, five a
+  minute per person), serves it as a JPEG under a random key at
+  `/card/img/`, and the Mini App opens Telegram's chat picker. Telegram
+  clients older than 8.0, and any failure to prepare the card, keep the
+  `t.me/share` line.
+- `CARD_RENDERER_URL` and `CARD_PAGE_URL`. The WS04 stack runs the renderer
+  next to the bot on a private `cards` network and sets both; an empty
+  `CARD_RENDERER_URL` in `.env` turns cards and card sharing off.
+
 ### Fixed
 
 - A panorama no longer gives its place away straight down. A 360 camera sees

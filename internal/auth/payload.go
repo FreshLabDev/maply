@@ -23,9 +23,12 @@ import (
 //	mac     16 bytes  HMAC-SHA256 of the above, truncated
 //
 // Posts already in chats carry this form. A new form gets a new version byte,
-// and this one keeps verifying.
+// and this one keeps verifying. Version 2 has the same layout and signs a
+// result card's link: the startapp payload in a group post is visible to
+// everyone who can read the post, so it must not open a card page.
 const (
 	payloadVersion = 1
+	cardVersion    = 2
 	payloadBody    = 1 + 2 + 8
 	payloadMAC     = 16
 )
@@ -49,22 +52,32 @@ func NewSigner(botToken string) *Signer {
 	return &Signer{key: mac([]byte("maply-startapp-v1"), []byte(botToken))}
 }
 
-func (s *Signer) Sign(p Payload) (string, error) {
+// Sign makes the startapp payload of a group post.
+func (s *Signer) Sign(p Payload) (string, error) { return s.sign(payloadVersion, p) }
+
+// SignCard makes the token of a result card's link.
+func (s *Signer) SignCard(p Payload) (string, error) { return s.sign(cardVersion, p) }
+
+func (s *Signer) sign(version byte, p Payload) (string, error) {
 	days := p.Date.DaysSince(payloadEpoch)
 	if days < 0 || days > 0xFFFF {
 		return "", ErrBadPayload
 	}
 	buf := make([]byte, payloadBody, payloadBody+payloadMAC)
-	buf[0] = payloadVersion
+	buf[0] = version
 	binary.BigEndian.PutUint16(buf[1:3], uint16(days))
 	binary.BigEndian.PutUint64(buf[3:11], uint64(p.ChatID))
 	buf = append(buf, mac(s.key, buf)[:payloadMAC]...)
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-func (s *Signer) Verify(raw string) (Payload, error) {
+func (s *Signer) Verify(raw string) (Payload, error) { return s.verify(payloadVersion, raw) }
+
+func (s *Signer) VerifyCard(raw string) (Payload, error) { return s.verify(cardVersion, raw) }
+
+func (s *Signer) verify(version byte, raw string) (Payload, error) {
 	buf, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil || len(buf) != payloadBody+payloadMAC || buf[0] != payloadVersion {
+	if err != nil || len(buf) != payloadBody+payloadMAC || buf[0] != version {
 		return Payload{}, ErrBadPayload
 	}
 	if !hmac.Equal(buf[payloadBody:], mac(s.key, buf[:payloadBody])[:payloadMAC]) {

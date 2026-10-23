@@ -28,10 +28,18 @@ piece lands in the right place. The product rules are in
   nothing.
 - The Mini App and the site are one frontend, embedded in the binary. Nothing in
   it comes from a CDN except `telegram-web-app.js` and the map tiles.
-- The 20:00 result is a picture of the map. The service serves an internal card
-  page in the Mini App's style, and a headless Chromium container next to it
-  takes the screenshot over CDP. Nothing outside the service can reach that
-  container. If it does not answer, the bot sends a text fallback.
+- The 20:00 result is a picture of the map. The service serves a card page in
+  the Mini App's style, and a headless Chromium container next to it takes the
+  screenshot over CDP. The two share a private `cards` network; the container
+  is not on `core_net` or `management` and publishes nothing, but it reaches the
+  internet for the map tiles. The page opens only with a link signed for the
+  chat and date (version 2 of the startapp payload layout, so a group post's
+  payload does not open it) and only after the chat's reveal. If the renderer
+  does not answer, the result goes out with the place's photo.
+- Sharing from the Mini App goes through `shareMessage`. `POST /api/share`
+  renders the same card, keeps it in memory as a JPEG under a random key for
+  two hours, and saves a prepared message pointing at
+  `APP_URL/card/img/<key>.jpg`; the app passes the returned id to Telegram.
 - Place images are files on a volume, named by a random key and stripped of
   EXIF. The database stores the key, never a path a client could guess.
 
@@ -52,9 +60,10 @@ maply/
 │   ├── geo/              Natural Earth admin-0 (embedded), point in polygon
 │   ├── schedule/         job queue: morning post, pin edits, intrigue, result
 │   ├── intrigue/         the five intrigue types and their rotation
-│   ├── card/             the result card page and the Chromium screenshot client
+│   ├── card/             the card page and its assets, the Chromium client, the
+│   │                     shared images, the prepared message for shareMessage
 │   ├── auth/             initData verification, signed startapp payload
-│   ├── api/              /api/today, /api/guess, /api/result, /img/
+│   ├── api/              /api/today, /api/guess, /api/result, /api/share, /img/
 │   ├── images/           rehosting store, EXIF stripping, random keys
 │   ├── places/           queue, import of curated batches, low-queue warning
 │   ├── i18n/             translations.json: the family's sixteen languages
@@ -63,7 +72,8 @@ maply/
 ├── web/                  package web: embeds app/ and serves it with a CSP, and
 │                         /texts/<lang>.json from internal/i18n
 │   ├── app/              the Mini App served by the binary: index.html, app.css,
-│   │                     tg.js, map.js, app.js, vendor/
+│   │                     fonts.css, tg.js, mapstyle.js (the map's palette and
+│   │                     style, shared with the card), map.js, app.js, vendor/
 │   └── prototype/        the single-file prototype, kept as the reference
 ├── scripts/
 │   ├── curation/         harvest.py, regions.py: candidates from Mapillary
@@ -130,7 +140,8 @@ A day, from the service's point of view:
    country, fact and the group's top ten in the caption. A DM gets the whole
    result when the person plays alone, and only their own line when a group
    already shows them the place. `/api/result` starts answering for that chat.
-   The rendered map card (#65) is not built yet; the photo stands in for it.
+   Where the renderer is configured the picture is the map card; otherwise, or
+   when it fails, it is the photo.
 
 ## Packages And Dependencies
 

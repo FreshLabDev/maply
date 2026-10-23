@@ -23,6 +23,7 @@ import (
 	"github.com/FreshLabDev/tg"
 
 	"github.com/FreshLabDev/maply/internal/auth"
+	"github.com/FreshLabDev/maply/internal/card"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/i18n"
@@ -50,6 +51,12 @@ type MemberChecker interface {
 	IsMember(ctx context.Context, d round.Date, chatID, userID int64) (bool, error)
 }
 
+// Sharer prepares the result card for shareMessage.
+type Sharer interface {
+	CanShare() bool
+	Prepare(ctx context.Context, sh card.Share) (string, error)
+}
+
 type Server struct {
 	Store     Store
 	InitData  *auth.Verifier
@@ -57,14 +64,18 @@ type Server struct {
 	Members   MemberChecker
 	Zones     round.Zones
 	Countries *geo.Countries
+	// Shares draws the card and saves it with Telegram; nil, or one that
+	// cannot share, leaves the Mini App on t.me/share.
+	Shares    Sharer
 	ImagesDir string
 	// BotUsername is where the site sends a visitor to play in Telegram.
 	BotUsername string
 	Log         *slog.Logger
 	Now         func() time.Time
 
-	ipLimit   *limiter
-	userLimit *limiter
+	ipLimit    *limiter
+	userLimit  *limiter
+	shareLimit *limiter
 }
 
 func (s *Server) Handler() http.Handler {
@@ -73,10 +84,13 @@ func (s *Server) Handler() http.Handler {
 	}
 	s.ipLimit = newLimiter(60, time.Minute)
 	s.userLimit = newLimiter(30, time.Minute)
+	// A share draws a picture, which is the most expensive thing here.
+	s.shareLimit = newLimiter(5, time.Minute)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/today", s.today)
 	mux.HandleFunc("POST /api/guess", s.guess)
 	mux.HandleFunc("GET /api/result", s.result)
+	mux.HandleFunc("POST /api/share", s.share)
 	mux.HandleFunc("GET /api/site/today", s.siteToday)
 	mux.HandleFunc("GET /api/site/result", s.siteResult)
 	mux.HandleFunc("GET /img/{key}", s.image)
@@ -112,6 +126,7 @@ var (
 	errClosed       = apiError{http.StatusConflict, "closed"}
 	errAnswered     = apiError{http.StatusConflict, "already_answered"}
 	errNotRevealed  = apiError{http.StatusForbidden, "not_revealed"}
+	errUnavailable  = apiError{http.StatusServiceUnavailable, "unavailable"}
 )
 
 // resolve verifies initData from "Authorization: tma <initData>" and works
@@ -416,10 +431,7 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	place := scoring.Place{Point: answer.Point, Country: answer.CountryISO, Continent: answer.Continent, City: answer.CityShape}
-	if _, err := s.Store.ScoreDue(ctx, p.date, now, func(pt geo.Point) scoring.Score {
-		return scoring.Judge(pt, place, s.Countries)
-	}); err != nil {
+	if err := s.scoreDay(ctx, p.date, answer, now); err != nil {
 		s.fail(w, r, err)
 		return
 	}
@@ -454,6 +466,83 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		resp.Table = append(resp.Table, l)
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// scoreDay scores every answer for d whose deadline has passed.
+func (s *Server) scoreDay(ctx context.Context, d round.Date, answer db.Answer, now time.Time) error {
+	place := scoring.Place{Point: answer.Point, Country: answer.CountryISO, Continent: answer.Continent, City: answer.CityShape}
+	_, err := s.Store.ScoreDue(ctx, d, now, func(pt geo.Point) scoring.Score {
+		return scoring.Judge(pt, place, s.Countries)
+	})
+	return err
+}
+
+// shareWait is how long a share may take, the renderer's own limit and
+// Telegram's call included. It is longer than the server's usual write
+// deadline.
+const shareWait = 40 * time.Second
+
+// share prepares the result card as a message the Mini App hands to
+// Telegram's shareMessage, and answers with its id. Like /api/result it says
+// nothing before the context's reveal. The card is drawn for the chat the
+// app was opened from: the group's table, or the person's own line from a DM.
+func (s *Server) share(w http.ResponseWriter, r *http.Request) {
+	p, err := s.resolve(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if s.Shares == nil || !s.Shares.CanShare() {
+		s.fail(w, r, errUnavailable)
+		return
+	}
+	if !s.shareLimit.allow(p.user.ID) {
+		s.fail(w, r, errRateLimited)
+		return
+	}
+	// The card can take longer than the server's usual write deadline.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(shareWait))
+	ctx := r.Context()
+	opens, err := s.opensAt(ctx, p)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	now := s.Now()
+	if now.Before(opens) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": errNotRevealed.code, "opens_at": opens.UTC()})
+		return
+	}
+	rd, ok, err := s.Store.RoundOn(ctx, p.date)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !ok {
+		s.fail(w, r, errNoRound)
+		return
+	}
+	answer, err := s.Store.Answer(ctx, rd.PlaceID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.scoreDay(ctx, p.date, answer, now); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	chat := p.chatID
+	if p.kind == "dm" {
+		chat = p.user.ID
+	}
+	id, err := s.Shares.Prepare(ctx, card.Share{UserID: p.user.ID, ChatID: chat, Date: p.date})
+	if err != nil {
+		// The card is a courtesy: the app falls back to t.me/share.
+		s.Log.Warn("share card not prepared", "chat", chat, "date", p.date, "error", err)
+		s.fail(w, r, errUnavailable)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"id": id})
 }
 
 // localized is a curated text in lang, else in English. A language the

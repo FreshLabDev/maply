@@ -142,3 +142,15 @@ func TestPickerMatchesSupportedSet(t *testing.T) {
 		t.Fatal("the picker and the supported set disagree")
 	}
 }
+
+func TestFormatKmAndNumber(t *testing.T) {
+	if got := FormatKm("en", 4.25); got != "4.2" && got != "4.3" {
+		t.Fatalf("FormatKm(4.25) = %q", got)
+	}
+	if got := FormatKm("en", 12345.4); got != "12,345" {
+		t.Fatalf("FormatKm(12345.4) = %q", got)
+	}
+	if got := FormatNumber("de", 3500); got != "3.500" {
+		t.Fatalf("FormatNumber(de) = %q", got)
+	}
+}

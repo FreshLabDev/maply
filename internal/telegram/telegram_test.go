@@ -115,6 +115,17 @@ func TestUploadThenButtons(t *testing.T) {
 	}
 }
 
+func TestPNGBytesUploadAsAPhoto(t *testing.T) {
+	c, fake := client(t)
+	markup := Markup{{{Text: "Open", URL: "https://t.me/maplyin_bot/play?startapp=x"}}}
+	if _, err := c.SendPhoto(context.Background(), -100, Photo{PNG: []byte("png")}, "caption", markup); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.requests) != 2 || fake.requests[0].upload["photo"] != "file:maply.png" {
+		t.Fatalf("requests = %+v", fake.requests)
+	}
+}
+
 func TestMarkupNeedsExactlyOneAction(t *testing.T) {
 	for _, m := range []Markup{
 		{{{Text: "none"}}},
