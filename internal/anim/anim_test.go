@@ -133,6 +133,11 @@ func TestLoopSeam(t *testing.T) {
 	for name, s := range map[string]Scene{
 		"results": sampleResults(),
 		"morning": NewMorning(1, synthPano(), "20:00", "ru"),
+		"world": NewWorld(1, Place{Lat: -6.16, Lon: 39.19, Name: "Занзибар", Country: "Танзания"},
+			[]Guess{{Lat: -6.1, Lon: 39.27, Km: 12, At: 0.1, Medal: 1}, {Lat: 2, Lon: 25, Km: 1900, At: 0.6}},
+			[3]*Winner{{Name: "Lucía", Km: 12, Points: 5200}}, "км", "ru"),
+		"intrigue":        NewIntrigue(1, 3, 40, "22 °C", 16.5, "20:00", "ru"),
+		"intrigue by day": NewIntrigue(1, 13, 5, "", 17, "20:00", "ru"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			n := Frames(s)

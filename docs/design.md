@@ -103,7 +103,12 @@ A line for forwarding without spoilers: `maply #142 · 312 km · 4,057 · 🔥7`
 
 ### Animated posts
 
-The morning post and the group's result are short seamless loops, sent as MP4 without sound, which Telegram plays as a GIF. In the morning the logo's pin lands on its globe, the day's panorama opens around it as a little planet, unrolls into the street, pans, and rolls back into the globe. In the evening the camera flies to the group's pins, the place comes out with a ripple, dashed lines run to every pin along the great circle, and the three closest stand on a podium.
+The posts are short seamless loops, sent as MP4 without sound, which Telegram plays as a GIF:
+
+- morning: the logo's pin lands on its globe, the day's panorama opens around it as a little planet, unrolls into the street, pans, and rolls back into the globe;
+- intrigue: the time there on a dial of the day, dark or light as it is there, with the weather and the dots left until the answer;
+- the group's result: the camera flies to the group's pins, the place comes out with a ripple, dashed lines run to every pin along the great circle, and the three closest stand on a podium;
+- the world: everyone's pins rain onto one globe and take the colour of how close they came, and the world's first three stand on a podium. It is the same picture in every chat; a person's own place goes in the caption.
 
 They were designed in a browser canvas; `internal/anim` draws the same frames in Go on the CPU, with no browser or GPU:
 
@@ -116,10 +121,12 @@ The frame at the loop's length equals the first one, and a test holds it to that
 
 | Loop | Frames | Time | CPU per frame | File |
 |:--|--:|--:|--:|--:|
-| Result, 12 s, 10 pins | 360 | 1.9 s | 22 ms | 5.2 MB |
-| Morning, 14 s | 420 | 4.8 s | 94 ms | 2.4 MB |
+| Morning, 14 s | 420 | 4.9 s | 100 ms | 2.4 MB |
+| Intrigue, 12 s, 720×720 | 360 | 0.6 s | 3 ms | 0.3 MB |
+| Result, 12 s, 10 pins | 360 | 1.6 s | 19 ms | 5.2 MB |
+| World, 12 s, 348 pins | 360 | 1.8 s | 26 ms | 2.8 MB |
 
-Not done yet: the world and intrigue loops, and sending the loops from the scheduler (`sendAnimation`, reusing the `file_id`, the photo as a fallback).
+Not done yet: sending the loops from the scheduler (`sendAnimation`, reusing the `file_id`, the photo as a fallback).
 
 ## Intrigue 16–18
 

@@ -5,11 +5,12 @@
 //
 //	go run ./cmd/maply-anim -pano pano.jpg -o out
 //
-// It writes results.mp4 and morning.mp4 to the output folder, and with -still
-// a PNG of one moment of each instead.
+// It writes results.mp4, morning.mp4, world.mp4 and intrigue.mp4 to the output
+// folder, and with -still a PNG of one moment of each instead.
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -17,8 +18,10 @@ import (
 	"image/png"
 	"log"
 	"math"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/FreshLabDev/maply/internal/anim"
@@ -27,7 +30,7 @@ import (
 func main() {
 	pano := flag.String("pano", "", "the day's equirectangular panorama, JPEG (needed for the morning post)")
 	out := flag.String("o", ".", "output folder")
-	scenes := flag.String("scenes", "results,morning", "which posts, comma-separated")
+	scenes := flag.String("scenes", "results,morning,world,intrigue", "which posts, comma-separated")
 	still := flag.Float64("still", -1, "write a PNG of the frame at this second instead of the video")
 	workers := flag.Int("workers", 0, "frames drawn at once; 0 is one per CPU")
 	flag.Parse()
@@ -60,11 +63,19 @@ func main() {
 	}
 }
 
-// The sample is day #1, Zanzibar, with ten made-up players.
+// The sample is day #1, Zanzibar: ten made-up players in a group and 348
+// made-up guesses in the world.
+var zanzibar = anim.Place{Lat: -6.16, Lon: 39.19, Name: "Занзибар", Country: "Танзания"}
+
 func scene(name, pano string) (anim.Scene, error) {
 	switch name {
+	case "world":
+		guesses, top := worldSample(zanzibar, 348)
+		return anim.NewWorld(1, zanzibar, guesses, top, "км", "ru"), nil
+	case "intrigue":
+		return anim.NewIntrigue(1, 3, 40, "22 °C", 16+40.0/60, "20:00", "ru"), nil
 	case "results":
-		place := anim.Place{Lat: -6.16, Lon: 39.19, Name: "Занзибар", Country: "Танзания"}
+		place := zanzibar
 		players := []anim.Player{
 			{Name: "Дима", Lat: 30.04, Lon: 31.24},
 			{Name: "Макс", Lat: -4.04, Lon: 39.67, Streak: 6},
@@ -113,4 +124,68 @@ func rank(place anim.Place, players []anim.Player) {
 			}
 		}
 	}
+}
+
+// worldSample scatters n guesses the way people guess: most near the coast
+// of East Africa, the rest wherever it might also look like this. The three
+// best are named.
+func worldSample(place anim.Place, n int) ([]anim.Guess, [3]*anim.Winner) {
+	r := rand.New(rand.NewPCG(11, 0))
+	gauss := func() float64 {
+		u := 0.0
+		for range 6 {
+			u += r.Float64()
+		}
+		return (u - 3) / math.Sqrt(0.5)
+	}
+	blobs := [][4]float64{{-6, 39, 4, 0.3}, {2, 25, 12, 0.2}, {20, 78, 6, 0.12}, {5, 105, 8, 0.1}, {-10, -45, 10, 0.1}, {38, 15, 6, 0.08}, {-25, 135, 10, 0.05}, {15, -80, 8, 0.05}}
+	type scored struct {
+		g      anim.Guess
+		points float64
+		name   string
+	}
+	var all []scored
+	add := func(name string, lat, lon, at, speed float64) {
+		km := anim.Km(lat, lon, place.Lat, place.Lon)
+		ladder := 0.0
+		switch {
+		case km < 25:
+			ladder = 1500
+		case km < 400:
+			ladder = 800
+		case km < 4000:
+			ladder = 300
+		}
+		all = append(all, scored{anim.Guess{Lat: lat, Lon: lon, Km: km, At: at}, math.Round(3500*math.Exp(-km/1492.7)) + ladder + speed, name})
+	}
+	for range n - 3 {
+		k, b := r.Float64(), blobs[0]
+		for _, x := range blobs {
+			if k < x[3] {
+				b = x
+				break
+			}
+			k -= x[3]
+		}
+		lat := min(70, max(-60, b[0]+gauss()*b[2]))
+		add("", lat, b[1]+gauss()*b[2]/math.Cos(lat*math.Pi/180), r.Float64(), math.Round(r.Float64()*25)*10)
+	}
+	add("Lucía", -6.1, 39.27, 0.05, 250)
+	add("Kenji", -6.3, 39.05, 0.2, 240)
+	add("Аня", -6.55, 39.4, 0.1, 250)
+	order := make([]int, len(all))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortFunc(order, func(a, b int) int { return cmp.Compare(all[b].points, all[a].points) })
+	var top [3]*anim.Winner
+	for m, i := range order[:3] {
+		all[i].g.Medal = m + 1
+		top[m] = &anim.Winner{Name: all[i].name, Km: all[i].g.Km, Points: all[i].points}
+	}
+	guesses := make([]anim.Guess, len(all))
+	for i, s := range all {
+		guesses[i] = s.g
+	}
+	return guesses, top
 }
