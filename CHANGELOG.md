@@ -11,7 +11,7 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
-## v0.0.1-alpha.6 - 2026-10-24
+## v0.0.1-alpha.6 - 2026-10-23
 
 The statistics panel turns into a picture: the Earth turns slowly under the
 person's pins of every day, beside their numbers and places in the world.
