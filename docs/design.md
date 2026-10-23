@@ -101,6 +101,26 @@ Ties go to the earlier answer, then the closer pin.
 
 A line for forwarding without spoilers: `maply #142 · 312 km · 4,057 · 🔥7`.
 
+### Animated posts
+
+The morning post and the group's result are short seamless loops, sent as MP4 without sound, which Telegram plays as a GIF. In the morning the logo's pin lands on its globe, the day's panorama opens around it as a little planet, unrolls into the street, pans, and rolls back into the globe. In the evening the camera flies to the group's pins, the place comes out with a ripple, dashed lines run to every pin along the great circle, and the three closest stand on a podium.
+
+They were designed in a browser canvas; `internal/anim` draws the same frames in Go on the CPU, with no browser or GPU:
+
+- the halftone dots of the globes are anti-aliased ellipses computed per pixel, 4° dots for the logo's globe and 1° dots for the map, both from the countries of `internal/geo`;
+- text is shaped by HarfBuzz rules (go-text) in Sofia Sans with the chat's language set, since the font draws Bulgarian Cyrillic unless told otherwise; the streak's 🔥 is drawn as a flame, because the brand's faces have no emoji;
+- the panorama is projected per pixel with trilinear mip sampling at twice the size and averaged down;
+- frames are drawn in parallel, one per core, and piped in order to ffmpeg: libx264, CRF 22, yuv420p, BT.709, `+faststart`.
+
+The frame at the loop's length equals the first one, and a test holds it to that. Measured on an M1 Pro with 10 cores, encoding included (`go run ./cmd/maply-anim -pano pano.jpg`):
+
+| Loop | Frames | Time | CPU per frame | File |
+|:--|--:|--:|--:|--:|
+| Result, 12 s, 10 pins | 360 | 1.9 s | 22 ms | 5.2 MB |
+| Morning, 14 s | 420 | 4.8 s | 94 ms | 2.4 MB |
+
+Not done yet: the world and intrigue loops, and sending the loops from the scheduler (`sendAnimation`, reusing the `file_id`, the photo as a fallback).
+
 ## Intrigue 16–18
 
 One message at a random moment of the window. Rules:
