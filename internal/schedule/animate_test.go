@@ -109,6 +109,9 @@ func TestMorningAnimationOnceADay(t *testing.T) {
 	if err != nil {
 		t.Skip("no ffmpeg")
 	}
+	if raceEnabled {
+		t.Skip("encoding under the race detector takes minutes")
+	}
 	dir := t.TempDir()
 	img := image.NewRGBA(image.Rect(0, 0, 128, 64))
 	for y := range 64 {
@@ -125,11 +128,13 @@ func TestMorningAnimationOnceADay(t *testing.T) {
 	}
 	f.Close()
 
+	// One animator for the day, as in the service: it draws once.
+	animator := &Animator{FFmpeg: ffmpeg}
+	rd := db.Round{Date: round.NewDate(2026, 11, 2), DayNo: 4, PlaceID: 1}
 	send := func(kind string, refuse bool, chats ...int64) *animTG {
 		tgc := &animTG{refuse: refuse}
 		s, _ := resultSender(nil, panoStore{kind: kind})
-		s.TG, s.ImagesDir, s.Anim = tgc, dir, &Animator{FFmpeg: ffmpeg}
-		rd := db.Round{Date: round.NewDate(2026, 11, 2), DayNo: 4, PlaceID: 1}
+		s.TG, s.ImagesDir, s.Anim = tgc, dir, animator
 		for _, c := range chats {
 			if _, err := s.sendPost(context.Background(), c, rd, "caption", nil); err != nil {
 				t.Fatal(err)
@@ -141,10 +146,14 @@ func TestMorningAnimationOnceADay(t *testing.T) {
 	if len(tgc.animations) != 2 || len(tgc.animations[0].MP4) == 0 || tgc.animations[1].FileID != "A1" || len(tgc.photos) != 0 {
 		t.Fatalf("animations %d, photos %d", len(tgc.animations), len(tgc.photos))
 	}
+	// Telegram refusing the file sends the photo, and the other chats go
+	// straight to the photo.
+	if tgc := send("panorama", true, 3, 4); len(tgc.photos) != 2 {
+		t.Fatalf("refused: photos %d", len(tgc.photos))
+	}
+	// A photo place never tries.
+	rd.Date = rd.Date.AddDays(1)
 	if tgc := send("photo", false, 1); len(tgc.animations) != 0 || len(tgc.photos) != 1 {
 		t.Fatalf("photo place: animations %d, photos %d", len(tgc.animations), len(tgc.photos))
-	}
-	if tgc := send("panorama", true, 1, 2); len(tgc.photos) != 2 {
-		t.Fatalf("refused: photos %d", len(tgc.photos))
 	}
 }

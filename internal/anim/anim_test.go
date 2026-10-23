@@ -2,6 +2,8 @@
 package anim
 
 import (
+	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"math"
@@ -211,5 +213,33 @@ func BenchmarkMorningFrame(b *testing.B) {
 	s, c := NewMorning(1, synthPano(), "20:00", "ru"), NewCanvas(720, 900)
 	for i := 0; b.Loop(); i++ {
 		s.Draw(c, 3+float64(i%240)/FPS)
+	}
+}
+
+// counter paints frame i in grey level i, so the raw stream shows the order.
+type counter struct{}
+
+func (counter) Size() (int, int)  { return 8, 4 }
+func (counter) Duration() float64 { return 2 }
+func (counter) Draw(c *Canvas, t float64) {
+	v := float32(math.Round(t*FPS)) / 255
+	c.Fill(RGB{v, v, v})
+}
+
+// Frames drawn at once are written in order, every one of them.
+func TestFramesComeInOrder(t *testing.T) {
+	var out bytes.Buffer
+	st, err := frames(context.Background(), counter{}, 7, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const size = 3 * 8 * 4
+	if st.Frames != 60 || out.Len() != 60*size {
+		t.Fatalf("%d frames, %d bytes", st.Frames, out.Len())
+	}
+	for i := range 60 {
+		if got := out.Bytes()[i*size]; int(got) != i {
+			t.Fatalf("frame %d holds frame %d", i, got)
+		}
 	}
 }
