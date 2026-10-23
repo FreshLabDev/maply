@@ -57,6 +57,12 @@ func Quoted(lang string, dayNo int, a db.Answer) string {
 	return head
 }
 
+// City is the place's city in lang, or in the default language.
+func City(lang string, a db.Answer) string { return localized(a.City, lang) }
+
+// Country is the place's country in lang.
+func Country(lang string, a db.Answer) string { return countryName(a.CountryISO, lang) }
+
 func localized(m map[string]string, lang string) string {
 	if v := m[lang]; v != "" {
 		return v

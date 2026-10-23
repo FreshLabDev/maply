@@ -67,6 +67,10 @@ func (f *fakeTG) SendPhoto(_ context.Context, chatID int64, p telegram.Photo, ca
 	return f.add(sent{kind: "photo", chatID: chatID, text: caption, fileID: p.FileID, upload: p.Path != "", buttons: m})
 }
 
+func (f *fakeTG) SendAnimation(_ context.Context, chatID int64, a telegram.Animation, caption string, m telegram.Markup) (tg.Message, error) {
+	return f.add(sent{kind: "animation", chatID: chatID, text: caption, fileID: a.FileID, upload: a.MP4 != nil, buttons: m})
+}
+
 func (f *fakeTG) EditCaption(_ context.Context, chatID, _ int64, caption string, m telegram.Markup) error {
 	_, err := f.add(sent{kind: "edit", chatID: chatID, text: caption, buttons: m})
 	return err

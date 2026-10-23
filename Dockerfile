@@ -18,7 +18,8 @@ RUN CGO_ENABLED=0 go build -trimpath \
 
 FROM alpine:3.24
 
-RUN apk add --no-cache ca-certificates tzdata \
+# ffmpeg encodes the animated posts; without it they go out as photos.
+RUN apk add --no-cache ca-certificates tzdata ffmpeg \
     && adduser -D -H -u 10001 maply
 
 WORKDIR /app

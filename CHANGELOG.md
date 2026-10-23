@@ -35,11 +35,24 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   are no streaks or personal stats on the site, and no speed bonus, since
   the browser names its own time zone. Migration `007_world.sql` adds
   `site_player`, `site_guess` and the `day_score` view.
+- Animated posts. The morning post opens the day's panorama as a little
+  planet around the logo's pin and unrolls it into the street; the intrigue
+  that tells the time there shows it on a dial of the day, dark or light as
+  it is there; the result flies to the group's pins and puts the three
+  closest on a podium. Each is a seamless loop that Telegram plays as a GIF.
+  They are drawn in Go and encoded by ffmpeg in a few seconds, with no
+  browser. The morning post is drawn once a day and reused in every chat. A
+  photo place, a failed drawing or Telegram refusing the file sends the
+  photo, the map card or the text as before. Names and places in scripts
+  the brand's fonts lack are written in English or left out of the picture;
+  the caption keeps them.
 
 ### Changed
 
 - The group's 20:00 result says how many of the group answered, and the
   place and its fact are set apart in a quote, as in a forwarded card.
+- The image now carries ffmpeg. `ANIMATIONS=false` in
+  `.env` sends photos and text as before; `FFMPEG` names another binary.
 
 ## v0.0.1-alpha.3 - 2026-10-23
 

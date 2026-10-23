@@ -34,6 +34,12 @@ type Config struct {
 	// CardPageURL is where that browser reaches this service for the card
 	// page, e.g. http://maply-bot:8080. Required with CardRendererURL.
 	CardPageURL string
+	// Animations sends the morning post, the intrigue of the time there and
+	// the result as looping animations drawn with ffmpeg. Off, or without
+	// ffmpeg, they go out as photos and text as before.
+	Animations bool
+	// FFmpeg is the ffmpeg binary, looked up on PATH unless it is a path.
+	FFmpeg string
 	// Schedule sends the day's post, intrigue and result. A second instance
 	// against the same database can leave it off; the job queue would keep
 	// it from sending twice anyway.
@@ -51,10 +57,14 @@ func Load() (Config, error) {
 		AppURL:           strings.TrimSpace(os.Getenv("APP_URL")),
 		CardRendererURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("CARD_RENDERER_URL")), "/"),
 		CardPageURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("CARD_PAGE_URL")), "/"),
+		FFmpeg:           valueOrDefault("FFMPEG", "ffmpeg"),
 	}
 	var err error
 	if cfg.AutoMigrate, err = strconv.ParseBool(valueOrDefault("AUTO_MIGRATE", "true")); err != nil {
 		return Config{}, fmt.Errorf("AUTO_MIGRATE must be a boolean: %w", err)
+	}
+	if cfg.Animations, err = strconv.ParseBool(valueOrDefault("ANIMATIONS", "true")); err != nil {
+		return Config{}, fmt.Errorf("ANIMATIONS must be a boolean: %w", err)
 	}
 	if cfg.Schedule, err = strconv.ParseBool(valueOrDefault("SCHEDULE", "true")); err != nil {
 		return Config{}, fmt.Errorf("SCHEDULE must be a boolean: %w", err)

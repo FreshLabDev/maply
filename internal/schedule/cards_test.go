@@ -61,7 +61,7 @@ func TestResultGoesOutAsTheCard(t *testing.T) {
 	cards := &fakeCards{png: []byte("png")}
 	s, tgc := resultSender(cards, photoStore{})
 	chat := db.Chat{ID: -100, Kind: "group"}
-	if _, err := s.sendResult(context.Background(), chat, db.Round{Date: round.NewDate(2026, 11, 2)}, "caption", nil); err != nil {
+	if _, err := s.sendResult(context.Background(), chat, db.Round{Date: round.NewDate(2026, 11, 2)}, nil, "caption", nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(tgc.photos) != 1 || string(tgc.photos[0].PNG) != "png" || tgc.photos[0].Path != "" || tgc.photos[0].FileID != "" {
@@ -78,7 +78,7 @@ func TestResultFallsBackToThePhotoWhenTheCardFails(t *testing.T) {
 		"no renderer":    nil,
 	} {
 		s, tgc := resultSender(cards, photoStore{})
-		if _, err := s.sendResult(context.Background(), db.Chat{ID: -100, Kind: "group"}, db.Round{Date: round.NewDate(2026, 11, 2)}, "caption", nil); err != nil {
+		if _, err := s.sendResult(context.Background(), db.Chat{ID: -100, Kind: "group"}, db.Round{Date: round.NewDate(2026, 11, 2)}, nil, "caption", nil); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if len(tgc.photos) != 1 || tgc.photos[0].PNG != nil || tgc.photos[0].Path != "/images/Zk3qT9xWm2LpV7aN" {
@@ -105,7 +105,7 @@ func TestResultFallsBackWhenTelegramRefusesThePicture(t *testing.T) {
 	} {
 		s, tgc := resultSender(&fakeCards{png: []byte("png")}, photoStore{})
 		s.TG = &refusingTG{photoTG: tgc, err: c.err, once: true}
-		_, err := s.sendResult(context.Background(), db.Chat{ID: -100}, round1, "caption", nil)
+		_, err := s.sendResult(context.Background(), db.Chat{ID: -100}, round1, nil, "caption", nil)
 		if (err != nil) != c.wantErr || len(tgc.photos) != c.wantSent {
 			t.Errorf("%s: err = %v, %d sends; want error %v, %d sends", name, err, len(tgc.photos), c.wantErr, c.wantSent)
 		}

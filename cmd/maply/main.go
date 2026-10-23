@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -180,6 +181,14 @@ func run(log *slog.Logger) error {
 		}
 		if cards != nil {
 			sched.Cards = cards
+		}
+		if cfg.Animations {
+			if path, err := exec.LookPath(cfg.FFmpeg); err != nil {
+				log.Warn("ffmpeg not found, posts go out as photos and text", "ffmpeg", cfg.FFmpeg, "error", err)
+			} else {
+				sched.Anim = &schedule.Animator{FFmpeg: path}
+				log.Info("animated posts on", "ffmpeg", path)
+			}
 		}
 		go func() {
 			log.Info("scheduler starting")

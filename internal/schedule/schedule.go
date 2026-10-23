@@ -20,6 +20,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/maply/internal/anim"
 	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
@@ -64,6 +65,7 @@ type Store interface {
 
 type Telegram interface {
 	SendPhoto(ctx context.Context, chatID int64, photo telegram.Photo, caption string, markup telegram.Markup) (tg.Message, error)
+	SendAnimation(ctx context.Context, chatID int64, a telegram.Animation, caption string, markup telegram.Markup) (tg.Message, error)
 	EditCaption(ctx context.Context, chatID, messageID int64, caption string, markup telegram.Markup) error
 	SendText(ctx context.Context, chatID int64, text string, markup telegram.Markup) (tg.Message, error)
 	Pin(ctx context.Context, chatID, messageID int64) error
@@ -87,7 +89,9 @@ type Scheduler struct {
 	TG      Telegram
 	Weather Weather
 	// Cards draws the result's map card; nil sends the photo.
-	Cards     Cards
+	Cards Cards
+	// Anim draws the posts as animations; nil sends photos and text.
+	Anim      *Animator
 	Payloads  *auth.Signer
 	Zones     round.Zones
 	Countries *geo.Countries
@@ -308,7 +312,7 @@ func (s *Scheduler) post(ctx context.Context, j db.Job) error {
 	if err != nil {
 		return err
 	}
-	msg, err := s.sendPhoto(ctx, c.ID, rd, postCaption(lang, rd.DayNo, yesterday, line, c.Kind == "group"), markup)
+	msg, err := s.sendPost(ctx, c.ID, rd, postCaption(lang, rd.DayNo, yesterday, line, c.Kind == "group"), markup)
 	if err != nil {
 		return err
 	}
@@ -348,12 +352,16 @@ func (s *Scheduler) sendPhoto(ctx context.Context, chatID int64, rd db.Round, ca
 	return msg, nil
 }
 
-// sendResult sends the result: the map card when it can be drawn, else the
-// place's photo. A renderer that is slow, down or wrong costs the card and
-// nothing else. Telegram refusing the picture itself (a 400 that is not about
-// the chat) also falls back, since nothing was delivered; any other failure
-// of the send is returned, because the card may have gone out.
-func (s *Scheduler) sendResult(ctx context.Context, c db.Chat, rd db.Round, caption string, markup telegram.Markup) (tg.Message, error) {
+// sendResult sends the result: the animation when it can be drawn, else the
+// map card, else the place's photo. A renderer that is slow, down or wrong
+// costs its picture and nothing else. Telegram refusing the picture itself
+// (a 400 that is not about the chat) also falls back, since nothing was
+// delivered; any other failure of the send is returned, because the picture
+// may have gone out.
+func (s *Scheduler) sendResult(ctx context.Context, c db.Chat, rd db.Round, scene anim.Scene, caption string, markup telegram.Markup) (tg.Message, error) {
+	if msg, sent, err := s.sendScene(ctx, c.ID, scene, caption, markup); sent {
+		return msg, err
+	}
 	if s.Cards != nil {
 		png, err := s.Cards.Result(ctx, c.ID, rd.Date)
 		if err == nil {

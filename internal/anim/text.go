@@ -247,3 +247,28 @@ func segPoints(op ot.SegmentOp) int {
 	}
 	return 1
 }
+
+// Covers tells whether the brand's faces have a glyph for every letter of s.
+// They cover Latin and Cyrillic; a name or a place in another script is
+// written some other way before it goes on a post.
+func Covers(s string) bool {
+	for _, r := range s {
+		if !Covered(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// Covered tells whether the brand's faces have a glyph for r.
+func Covered(r rune) bool {
+	for _, f := range []*Font{Display, Body} {
+		f.mu.Lock()
+		_, ok := f.face.NominalGlyph(r)
+		f.mu.Unlock()
+		if !ok {
+			return false
+		}
+	}
+	return true
+}

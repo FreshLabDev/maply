@@ -70,6 +70,8 @@ func client(t *testing.T) (*Client, *fakeBotAPI) {
 		"editMessageReplyMarkup":    `{"message_id":7,"chat":{"id":-100,"type":"supergroup"},"date":1}`,
 		"savePreparedInlineMessage": `{"id":"prep-1","expiration_date":1900000000}`,
 		"sendMessage":               `{"message_id":9,"chat":{"id":42,"type":"private"},"date":1,"text":"maply"}`,
+		"sendDocument":              `{"message_id":8,"chat":{"id":-100,"type":"supergroup"},"date":1,"animation":{"file_id":"A1","file_unique_id":"U2"},"document":{"file_id":"A1","file_unique_id":"U2","mime_type":"video/mp4"}}`,
+		"sendAnimation":             `{"message_id":10,"chat":{"id":42,"type":"private"},"date":1,"animation":{"file_id":"A1","file_unique_id":"U2"},"document":{"file_id":"A1","file_unique_id":"U2"}}`,
 	}}
 	srv := httptest.NewServer(fake)
 	t.Cleanup(srv.Close)
@@ -123,6 +125,32 @@ func TestPNGBytesUploadAsAPhoto(t *testing.T) {
 	}
 	if len(fake.requests) != 2 || fake.requests[0].upload["photo"] != "file:maply.png" {
 		t.Fatalf("requests = %+v", fake.requests)
+	}
+}
+
+// An animation is uploaded as a document, which Telegram makes an animation
+// of, and then goes to the other chats by file_id with its Mini App button.
+func TestAnimationUploadThenByFileID(t *testing.T) {
+	c, fake := client(t)
+	markup := Markup{{{Text: "Guess", URL: "https://t.me/maplyin_bot/play?startapp=x"}}}
+	msg, err := c.SendAnimation(context.Background(), -100, Animation{MP4: []byte("mp4"), Width: 720, Height: 900, Duration: 14}, "caption", markup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Document == nil || msg.Document.FileID != "A1" {
+		t.Fatalf("message = %+v", msg)
+	}
+	if len(fake.requests) != 2 || fake.requests[0].method != "sendDocument" || fake.requests[0].upload["document"] != "file:maply.mp4" ||
+		fake.requests[1].method != "editMessageReplyMarkup" {
+		t.Fatalf("requests = %+v", fake.requests)
+	}
+	if _, err := c.SendAnimation(context.Background(), 42, Animation{FileID: "A1", Width: 720, Height: 900, Duration: 14}, "caption",
+		Markup{{{Text: "Guess", WebApp: "https://maply.ws04.cc/"}}}); err != nil {
+		t.Fatal(err)
+	}
+	req := fake.requests[2]
+	if req.method != "sendAnimation" || req.body["animation"] != "A1" || req.body["width"] != float64(720) || req.body["reply_markup"] == nil {
+		t.Fatalf("request = %+v", req)
 	}
 }
 

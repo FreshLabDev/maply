@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/FreshLabDev/maply/internal/anim"
 	"github.com/FreshLabDev/maply/internal/card"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
@@ -63,24 +64,39 @@ func (s *Scheduler) intrigue(ctx context.Context, j db.Job) error {
 		return err
 	}
 	lang := i18n.Resolve(c.Lang)
-	var kind, text string
+	var (
+		kind, text string
+		there      *localNow
+	)
 	if c.Kind == "dm" {
 		if _, answered, err := s.Store.GuessOf(ctx, j.Date, c.ID); err != nil || answered {
 			return orSkip(err)
 		}
 		kind, text = "dm", i18n.T(lang, "intrigue.dm", "time", revealText())
-		if now, ok := s.nowThere(ctx, answer.Point, lang); ok {
-			text = now + "\n" + text
+		if now, at, ok := s.nowThere(ctx, answer.Point, lang); ok {
+			text, there = now+"\n"+text, &at
 		}
-	} else if kind, text, err = s.groupIntrigue(ctx, c, j.Date, answer, lang); err != nil {
+	} else if kind, text, there, err = s.groupIntrigue(ctx, c, j.Date, answer, lang); err != nil {
 		return err
 	}
 	markup, err := s.playMarkup(c, j.Date, lang, "btn.guess")
 	if err != nil {
 		return err
 	}
-	if _, err := s.TG.SendText(ctx, c.ID, text, markup); err != nil {
+	// The tease of the time there is also drawn: the hour on a dial of the
+	// day there, and how much of the chat's day is left.
+	var scene anim.Scene
+	if there != nil {
+		here := s.now().In(s.location(c))
+		scene = anim.NewIntrigue(rd.DayNo, there.hour, there.minute, there.weather,
+			float64(here.Hour())+float64(here.Minute())/60, revealText(), lang)
+	}
+	if _, sent, err := s.sendScene(ctx, c.ID, scene, text, markup); err != nil {
 		return err
+	} else if !sent {
+		if _, err := s.TG.SendText(ctx, c.ID, text, markup); err != nil {
+			return err
+		}
 	}
 	return s.Store.SetIntrigueSent(ctx, c.ID, j.Date, kind, s.now())
 }
@@ -95,22 +111,22 @@ func orSkip(err error) error {
 // groupIntrigue picks one tease for the group. When everybody has answered
 // it says so; otherwise it is one of the kinds that has something to say
 // today, never yesterday's, and the plain count of answers when none has.
-func (s *Scheduler) groupIntrigue(ctx context.Context, c db.Chat, d round.Date, answer db.Answer, lang string) (string, string, error) {
+func (s *Scheduler) groupIntrigue(ctx context.Context, c db.Chat, d round.Date, answer db.Answer, lang string) (string, string, *localNow, error) {
 	guesses, err := s.Store.ChatGuesses(ctx, d, c.ID)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	silent, err := s.Store.Silent(ctx, c.ID, d)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	spread := spreadOf(guesses)
 	if len(silent) == 0 && len(guesses) > 0 {
-		return "all", i18n.T(lang, "intrigue.all", "km", i18n.FormatKm(lang, spread), "time", revealText()), nil
+		return "all", i18n.T(lang, "intrigue.all", "km", i18n.FormatKm(lang, spread), "time", revealText()), nil, nil
 	}
 	last, err := s.Store.LastIntrigue(ctx, c.ID, d)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	type option struct{ kind, text string }
 	var options []option
@@ -119,50 +135,63 @@ func (s *Scheduler) groupIntrigue(ctx context.Context, c db.Chat, d round.Date, 
 			options = append(options, option{kind, text})
 		}
 	}
-	if now, ok := s.nowThere(ctx, answer.Point, lang); ok {
+	var there *localNow
+	if now, at, ok := s.nowThere(ctx, answer.Point, lang); ok {
 		add("now", now)
+		there = &at
 	}
 	if len(guesses) >= 2 && spread >= spreadKm {
 		add("spread", i18n.T(lang, "intrigue.spread", "km", i18n.FormatKm(lang, spread)))
 	}
 	if text, err := s.worldLine(ctx, d, lang); err != nil {
-		return "", "", err
+		return "", "", nil, err
 	} else {
 		add("world", text)
 	}
 	if c.Mentions {
 		text, err := s.streakLine(ctx, silent, d, lang)
 		if err != nil {
-			return "", "", err
+			return "", "", nil, err
 		}
 		add("streak", text)
 	}
 	if len(options) == 0 {
-		return "waiting", i18n.T(lang, "intrigue.waiting", "n", strconv.Itoa(len(guesses)), "time", revealText()), nil
+		return "waiting", i18n.T(lang, "intrigue.waiting", "n", strconv.Itoa(len(guesses)), "time", revealText()), nil, nil
 	}
 	h := fnv.New32a()
 	fmt.Fprintf(h, "intrigue:%d:%s", c.ID, d)
 	pick := options[h.Sum32()%uint32(len(options))]
-	return pick.kind, pick.text, nil
+	if pick.kind != "now" {
+		there = nil
+	}
+	return pick.kind, pick.text, there, nil
+}
+
+// localNow is the time and the weather at the place.
+type localNow struct {
+	hour, minute int
+	weather      string
 }
 
 // nowThere is "it is 03:12 there and 4 °C". Without the weather service the
 // tease is skipped rather than guessed.
-func (s *Scheduler) nowThere(ctx context.Context, p geo.Point, lang string) (string, bool) {
+func (s *Scheduler) nowThere(ctx context.Context, p geo.Point, lang string) (string, localNow, bool) {
 	if s.Weather == nil {
-		return "", false
+		return "", localNow{}, false
 	}
 	offset, temp, err := s.Weather.Now(ctx, p)
 	if err != nil {
 		s.Log.Warn("weather unavailable", "error", err)
-		return "", false
+		return "", localNow{}, false
 	}
-	at := s.now().UTC().Add(offset).Format("15:04")
+	there := s.now().UTC().Add(offset)
+	now := localNow{hour: there.Hour(), minute: there.Minute()}
+	at := there.Format("15:04")
 	if temp == nil {
-		return i18n.T(lang, "intrigue.now_time", "time", at), true
+		return i18n.T(lang, "intrigue.now_time", "time", at), now, true
 	}
-	t := int(math.Round(*temp))
-	return i18n.T(lang, "intrigue.now", "time", at, "temp", strconv.Itoa(t)+" °C"), true
+	now.weather = strconv.Itoa(int(math.Round(*temp))) + " °C"
+	return i18n.T(lang, "intrigue.now", "time", at, "temp", now.weather), now, true
 }
 
 // worldLine is the continent most of today's players chose, worldwide.
@@ -290,7 +319,8 @@ func (s *Scheduler) groupResult(ctx context.Context, c db.Chat, rd db.Round, cr 
 	if back != "" {
 		lines = append(lines, "", back)
 	}
-	msg, err := s.sendResult(ctx, c, rd, fitCaption(card.Quoted(lang, rd.DayNo, answer), lines), markup)
+	scene := resultScene(lang, rd.DayNo, answer, guesses, streaks)
+	msg, err := s.sendResult(ctx, c, rd, scene, fitCaption(card.Quoted(lang, rd.DayNo, answer), lines), markup)
 	if err != nil {
 		return err
 	}
@@ -329,7 +359,11 @@ func (s *Scheduler) dmResult(ctx context.Context, c db.Chat, rd db.Round, cr db.
 		}
 		return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID)
 	}
-	msg, err := s.sendResult(ctx, c, rd, fitCaption(card.Quoted(lang, rd.DayNo, answer), []string{own}), markup)
+	var scene anim.Scene
+	if answered {
+		scene = resultScene(lang, rd.DayNo, answer, []db.Guess{g}, nil)
+	}
+	msg, err := s.sendResult(ctx, c, rd, scene, fitCaption(card.Quoted(lang, rd.DayNo, answer), []string{own}), markup)
 	if err != nil {
 		return err
 	}

@@ -135,6 +135,41 @@ func (c *Client) SendPhoto(ctx context.Context, chatID int64, photo Photo, capti
 	return msg, nil
 }
 
+// Animation is a silent MP4 that Telegram plays as a GIF: a file it already
+// has, or bytes to upload.
+type Animation struct {
+	FileID                  string
+	MP4                     []byte
+	Width, Height, Duration int
+}
+
+// SendAnimation posts an animation with an HTML caption and buttons. tg has
+// no sendAnimation yet, so an upload goes as a document, which Telegram turns
+// into an animation by itself since the MP4 has no sound; the buttons follow
+// in an edit, as for a photo. The returned message's Document holds the
+// file_id to send to every other chat with sendAnimation.
+func (c *Client) SendAnimation(ctx context.Context, chatID int64, a Animation, caption string, markup Markup) (tg.Message, error) {
+	if a.FileID != "" {
+		req := map[string]any{"chat_id": chatID, "animation": a.FileID, "caption": caption, "parse_mode": "HTML"}
+		if a.Width > 0 {
+			req["width"], req["height"], req["duration"] = a.Width, a.Height, a.Duration
+		}
+		if markup != nil {
+			req["reply_markup"] = markup
+		}
+		return call[tg.Message](ctx, c, "sendAnimation", req)
+	}
+	msg, err := c.Client.SendDocument(ctx, chatID, tg.InputFileUpload{Filename: "maply.mp4", Data: bytes.NewReader(a.MP4)},
+		tg.DocumentOptions{CaptionOptions: tg.CaptionOptions{Caption: caption}})
+	if err != nil || markup == nil {
+		return msg, err
+	}
+	if err := c.EditMarkup(ctx, chatID, msg.MessageID, markup); err != nil {
+		return msg, fmt.Errorf("animation sent without buttons: %w", err)
+	}
+	return msg, nil
+}
+
 // SendText posts an HTML message without a link preview. It exists beside
 // tg's SendMessage because tg's keyboard has no web_app button.
 func (c *Client) SendText(ctx context.Context, chatID int64, text string, markup Markup) (tg.Message, error) {
