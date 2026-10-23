@@ -31,7 +31,7 @@ func serve(t *testing.T, target string, header http.Header) *httptest.ResponseRe
 
 func TestIndex(t *testing.T) {
 	rec := serve(t, "/", nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<script defer src="app.js">`) {
+	if rec.Code != http.StatusOK || !regexp.MustCompile(`<script defer src="app\.js\?v=[0-9a-f]{24}">`).MatchString(rec.Body.String()) {
 		t.Fatalf("GET / = %d", rec.Code)
 	}
 	h := rec.Header()

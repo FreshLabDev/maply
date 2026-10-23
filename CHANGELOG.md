@@ -11,6 +11,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.3 - 2026-10-23
+
+Fixes the Mini App stopping on the loading screen after alpha.2.
+
+### Fixed
+
+- The Mini App no longer mixes scripts from two versions. Cloudflare caches
+  `.js` and `.css` and tells browsers to keep them for four hours whatever
+  the service says, so after alpha.2 a browser that had opened maply before
+  ran the new `mapstyle.js` next to its old `map.js` and stopped on the
+  loading screen. `index.html`, which Cloudflare does not cache, now names
+  each of the app's own scripts and stylesheets with its hash.
+
 ## v0.0.1-alpha.2 - 2026-10-23
 
 The result at 20:00 becomes a map with everyone's pins, and it can be

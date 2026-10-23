@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 
@@ -99,8 +100,26 @@ func Handler() (http.Handler, error) {
 		}
 		h.add("/texts/"+lang+".json", data, false)
 	}
+	// Cloudflare caches .js and .css and tells browsers to keep them for
+	// hours, whatever Cache-Control says; index.html it does not cache. So
+	// index.html names each of the app's own files with its hash: a deploy is
+	// never a new page on an old script.
+	if idx, ok := h.files["/index.html"]; ok {
+		data := localRef.ReplaceAllFunc(idx.data, func(m []byte) []byte {
+			sm := localRef.FindSubmatch(m)
+			f, ok := h.files["/"+string(sm[2])]
+			if !ok || f.immutable {
+				return m
+			}
+			return []byte(string(sm[1]) + `="` + string(sm[2]) + "?v=" + strings.Trim(f.etag, `"`) + `"`)
+		})
+		h.add("/index.html", data, false)
+	}
 	return h, nil
 }
+
+// localRef is a script or stylesheet index.html loads from the service.
+var localRef = regexp.MustCompile(`(src|href)="([^":?#]+\.(?:js|css))"`)
 
 func (h *handler) add(name string, data []byte, immutable bool) {
 	sum := sha256.Sum256(data)
