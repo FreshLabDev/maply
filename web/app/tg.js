@@ -16,6 +16,11 @@ if (inTg) {
   if (tgAt("7.7")) tg.disableVerticalSwipes();
   // Cutouts, fullscreen buttons or window height changed: recompute the camera, tape and panorama.
   ["viewportChanged", "safeAreaChanged", "contentSafeAreaChanged"].forEach((e) => tg.onEvent(e, () => dispatchEvent(new Event("resize"))));
+  // Outside fullscreen Telegram draws its own title bar with the app's name right above the page: the header then
+  // drops the wordmark and keeps the day and the timer. Clients older than 8.0 have no fullscreen at all.
+  const framed = () => document.documentElement.classList.toggle("framed", !tg.isFullscreen);
+  framed();
+  tg.onEvent("fullscreenChanged", () => { framed(); dispatchEvent(new Event("resize")); });
 }
 // Feedback: in Telegram, its haptics (works on iPhone too, where navigator.vibrate is absent); in a browser, vibrate.
 const VIBRATE = { light: 8, soft: 6, medium: 14, select: 10, success: [10, 40, 10] };

@@ -51,6 +51,10 @@ button { font: inherit; color: inherit; border: 0; border-radius: 0; background:
 .logo { display: flex; align-items: baseline; gap: 8px; }
 .logo b { font: 700 32px/1 var(--display); }
 .logo span { color: var(--ink-muted); }
+/* Inside a Telegram window with a title bar that already says "maply": a lower header, the day in the timer's type. */
+html.framed { --top: 44px; }
+.framed .logo b { display: none; }
+.framed .logo span { font: 700 26px/1 var(--display); letter-spacing: .02em; color: var(--ink-muted); }
 .timer { display: flex; align-items: baseline; gap: 8px; }
 .timer span { color: var(--ink-muted); }
 .timer b { font: 700 26px/1 var(--display); letter-spacing: .02em; }

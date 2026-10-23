@@ -11,6 +11,22 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Fixed
+
+- A panorama no longer gives its place away straight down. A 360 camera sees
+  its own mount there, and capture projects stick their logo over it: the
+  first day's frame read "Revolutionary Government of Zanzibar".
+  `maply-places` now paints everything below -45° over with the colours
+  around it and gives the frame a new key, since `/img/` is served
+  immutable. One Oslo frame, whose city sticker reaches higher, was taken
+  out of the queue.
+
+### Changed
+
+- In a Telegram window with its own title bar, which already says "maply",
+  the header drops the wordmark and is lower: the day on the left, the
+  timer on the right. Fullscreen keeps the full header.
+
 ## v0.0.1-alpha.1 - 2026-10-23
 
 The first cut that plays a whole day on its own. @maplyin_bot posts the

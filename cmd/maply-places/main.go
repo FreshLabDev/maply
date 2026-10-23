@@ -3,7 +3,8 @@
 // Command maply-places prepares the places a curator kept for the queue.
 //
 // For every candidate a batch's reviews.json keeps, it re-encodes the frame
-// (which drops EXIF, GPS included) under a random key, asks Nominatim for the
+// (which drops EXIF, GPS included) under a random key, paints over the nadir
+// of a panorama, asks Nominatim for the
 // city around the point with its outline and names, asks Mapillary for the
 // direction the frame faces, and finds the country and continent in the same
 // Natural Earth borders scoring uses. The result is a directory of images and
@@ -190,7 +191,9 @@ func (p *preparer) prepare(batchDir, ref string, c candidate) (*place, error) {
 	pl := &place{c: c, country: country}
 
 	var err error
-	if pl.key, err = p.image(filepath.Join(batchDir, "full", fmt.Sprintf("%03d.jpg", c.N)), cacheBase+".key"); err != nil {
+	// The key file is versioned: /img/ is served immutable, so a frame whose
+	// pixels change (v2 masks the nadir) needs a new key, not the old one.
+	if pl.key, err = p.image(filepath.Join(batchDir, "full", fmt.Sprintf("%03d.jpg", c.N)), c.IsPano, cacheBase+".v2.key"); err != nil {
 		return nil, err
 	}
 	// The curator named the city; the area around the point at city zoom is
@@ -211,9 +214,10 @@ func (p *preparer) prepare(batchDir, ref string, c candidate) (*place, error) {
 	return pl, nil
 }
 
-// image re-encodes the frame under a random key. The key is remembered, so a
-// rerun reuses the file instead of minting a second one.
-func (p *preparer) image(src, keyFile string) (string, error) {
+// image re-encodes the frame under a random key, with the nadir of a panorama
+// painted over. The key is remembered, so a rerun reuses the file instead of
+// minting a second one.
+func (p *preparer) image(src string, pano bool, keyFile string) (string, error) {
 	if key, err := os.ReadFile(keyFile); err == nil {
 		if _, err := os.Stat(filepath.Join(p.out, "images", string(key))); err == nil {
 			return string(key), nil
@@ -227,6 +231,9 @@ func (p *preparer) image(src, keyFile string) (string, error) {
 	img, _, err := image.Decode(f)
 	if err != nil {
 		return "", fmt.Errorf("decode %s: %w", src, err)
+	}
+	if pano {
+		img = maskNadir(img)
 	}
 	key, err := randomKey(20)
 	if err != nil {
