@@ -11,6 +11,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.4 - 2026-10-23
+
+The day's posts move: the morning post opens the day's panorama as a little
+planet and unrolls it into the street, the intrigue shows the time there on
+a dial of the day, and the result flies to the group's pins and ends on a
+podium. Players are ranked against the whole world, once a day has closed
+everywhere, and a days page shows every closed day's full ranking, site
+players included. An early answer earns a small speed bonus.
+
+Operators: migrations `006_speed.sql` and `007_world.sql` run on start with
+`AUTO_MIGRATE=true`, as on WS04. The image now carries ffmpeg; nothing is
+needed in `.env`, and `ANIMATIONS=false` sends photos and text as before.
+
 ### Added
 
 - A speed bonus: the earlier the answer, the more it adds. +250 when the
