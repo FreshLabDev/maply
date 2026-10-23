@@ -102,9 +102,10 @@ html.framed { --top: 44px; }
 /* Loading */
 .loader { position: fixed; inset: 0; z-index: 50; background: var(--field); display: grid; place-items: center; transition: opacity .35s, visibility .35s; }
 .loader.gone { opacity: 0; visibility: hidden; }
-.loader div { display: grid; justify-items: center; gap: 22px; padding: 0 32px; max-width: 360px; text-align: center; line-height: 1.4; }
-.loader svg { width: 54px; height: 66px; animation: hop .9s var(--ease) infinite; }
-@keyframes hop { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(-22px); } }
+.loader div { display: grid; justify-items: center; gap: 10px; padding: 0 32px; max-width: 360px; text-align: center; line-height: 1.4; }
+.loader canvas { width: min(68vw, 280px); aspect-ratio: 1; }
+.loader .mark { font: 700 44px/1 var(--display); margin-top: -6px; }
+.loader .up { min-height: 1.4em; color: var(--ink-muted); }
 
 /* Map: a transparent canvas over the panorama. The globe has no background: in photo mode it is small in the corner,
    on tap it flies to the centre and grows. The canvas never resizes; only the camera moves. */
@@ -193,4 +194,4 @@ body:not(.is-map) .friend, body:not(.is-map) .target { visibility: hidden; }
 .chips .no { color: var(--ink-muted); }
 .demo { padding: 8px 10px; background: var(--field-deep); color: var(--ink-muted); text-decoration: underline; font: 500 12px/1 var(--text); }
 .hidden { display: none !important; }
-@media (prefers-reduced-motion: reduce) { .compass, .ov-top, .ov-bot, .call, .call em, .act, .toast, .pin, .loader svg, .prog, .lb .bar i { transition: none !important; animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .compass, .ov-top, .ov-bot, .call, .call em, .act, .toast, .pin, .prog, .lb .bar i { transition: none !important; animation: none !important; } }

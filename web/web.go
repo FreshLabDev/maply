@@ -26,6 +26,8 @@ import (
 	"github.com/FreshLabDev/maply/internal/round"
 )
 
+//go:generate go run gen_land.go -step 4 -o app/land.js
+
 //go:embed app
 var embedded embed.FS
 

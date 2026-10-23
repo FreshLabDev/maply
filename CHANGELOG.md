@@ -46,6 +46,11 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ### Changed
 
+- The loading screen is maply's new mark: a globe of white halftone dots
+  turning on its tilted axis, the pin hopping on it and the dots rippling
+  where it lands. It is drawn on a canvas from `land.js`, 700 bytes saying
+  which dots are land, and starts before MapLibre and Pannellum, which are
+  now deferred.
 - In a Telegram window with its own title bar, which already says "maply",
   the header drops the wordmark and is lower: the day on the left, the
   timer on the right. Fullscreen keeps the full header.

@@ -31,7 +31,7 @@ func serve(t *testing.T, target string, header http.Header) *httptest.ResponseRe
 
 func TestIndex(t *testing.T) {
 	rec := serve(t, "/", nil)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<script src="app.js">`) {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<script defer src="app.js">`) {
 		t.Fatalf("GET / = %d", rec.Code)
 	}
 	h := rec.Header()
@@ -81,7 +81,7 @@ func TestNoThirdPartyHosts(t *testing.T) {
 	allowed := map[string]bool{"https://telegram.org": true, TileHost: true}
 	// Links people tap (attribution, the share sheet) open in Telegram, not from the page.
 	links := map[string]bool{"https://t.me": true, "https://www.mapillary.com": true, "https://panoramax.fr": true, "https://www.openstreetmap.org": true, "https://openfreemap.org": true}
-	for _, name := range []string{"index.html", "app.css", "app.js", "tg.js", "map.js"} {
+	for _, name := range []string{"index.html", "app.css", "app.js", "tg.js", "map.js", "loader.js"} {
 		data, err := fs.ReadFile(embedded, "app/"+name)
 		if err != nil {
 			t.Fatal(err)
