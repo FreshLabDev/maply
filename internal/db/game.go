@@ -128,13 +128,23 @@ type Guess struct {
 	Km         *float64
 	PtsKm      *int
 	PtsBonus   *int
+	// PtsSpeed is nil for answers scored before the speed bonus existed.
+	PtsSpeed *int
 }
 
 func (g Guess) Total() int {
 	if g.PtsKm == nil || g.PtsBonus == nil {
 		return 0
 	}
-	return *g.PtsKm + *g.PtsBonus
+	return *g.PtsKm + *g.PtsBonus + g.Speed()
+}
+
+// Speed is the bonus for answering early, 0 when there is none.
+func (g Guess) Speed() int {
+	if g.PtsSpeed == nil {
+		return 0
+	}
+	return *g.PtsSpeed
 }
 
 func (s *Store) GuessOf(ctx context.Context, d round.Date, userID int64) (Guess, bool, error) {
@@ -157,7 +167,7 @@ func (s *Store) ChatGuesses(ctx context.Context, d round.Date, chatID int64) ([]
 		 WHERE g.date = $1
 		   AND EXISTS (SELECT 1 FROM core.maply_presence p
 		                WHERE p.telegram_user_id = g.user_id AND p.chat_id = $2)
-		 ORDER BY COALESCE(g.pts_km + g.pts_bonus, -1) DESC, g.answered_at`, d.Time(), chatID)
+		 ORDER BY COALESCE(g.pts_km + g.pts_bonus + COALESCE(g.pts_speed, 0), -1) DESC, g.answered_at`, d.Time(), chatID)
 	if err != nil {
 		return nil, fmt.Errorf("chat guesses %d: %w", chatID, err)
 	}
@@ -165,32 +175,34 @@ func (s *Store) ChatGuesses(ctx context.Context, d round.Date, chatID int64) ([]
 }
 
 const guessSelect = `
-	SELECT g.user_id, COALESCE(pe.first_name, ''), g.lat, g.lon, g.answered_at, g.km, g.pts_km, g.pts_bonus
+	SELECT g.user_id, COALESCE(pe.first_name, ''), g.lat, g.lon, g.answered_at, g.km, g.pts_km, g.pts_bonus, g.pts_speed
 	  FROM guess g
 	  LEFT JOIN core.person pe ON pe.telegram_user_id = g.user_id`
 
 func scanGuess(row pgx.CollectableRow) (Guess, error) {
 	var g Guess
-	err := row.Scan(&g.UserID, &g.FirstName, &g.Pin.Lat, &g.Pin.Lon, &g.AnsweredAt, &g.Km, &g.PtsKm, &g.PtsBonus)
+	err := row.Scan(&g.UserID, &g.FirstName, &g.Pin.Lat, &g.Pin.Lon, &g.AnsweredAt, &g.Km, &g.PtsKm, &g.PtsBonus, &g.PtsSpeed)
 	return g, err
 }
 
 // ScoreDue scores every answer for d whose deadline has passed and that has no
-// score yet. A distance exists only once the person can no longer answer.
+// score yet, the site's included. A distance exists only once the person can no longer answer.
+// judge scores the pin; the speed bonus comes from the answer's own times.
 func (s *Store) ScoreDue(ctx context.Context, d round.Date, now time.Time, judge func(geo.Point) scoring.Score) (int, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT user_id, lat, lon FROM guess
+		SELECT user_id, lat, lon, answered_at, deadline_at FROM guess
 		 WHERE date = $1 AND km IS NULL AND deadline_at <= $2`, d.Time(), now)
 	if err != nil {
 		return 0, fmt.Errorf("due guesses: %w", err)
 	}
 	type due struct {
-		user int64
-		pin  geo.Point
+		user               int64
+		pin                geo.Point
+		answered, deadline time.Time
 	}
 	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (due, error) {
 		var x due
-		err := row.Scan(&x.user, &x.pin.Lat, &x.pin.Lon)
+		err := row.Scan(&x.user, &x.pin.Lat, &x.pin.Lon, &x.answered, &x.deadline)
 		return x, err
 	})
 	if err != nil {
@@ -198,14 +210,16 @@ func (s *Store) ScoreDue(ctx context.Context, d round.Date, now time.Time, judge
 	}
 	for _, x := range list {
 		sc := judge(x.pin)
+		speed := scoring.SpeedBonus(x.answered, x.deadline)
 		if _, err := s.pool.Exec(ctx, `
-			UPDATE guess SET km = $3, pts_km = $4, pts_bonus = $5
+			UPDATE guess SET km = $3, pts_km = $4, pts_bonus = $5, pts_speed = $6
 			 WHERE date = $1 AND user_id = $2 AND km IS NULL`,
-			d.Time(), x.user, sc.Km, sc.Distance, sc.Bonus); err != nil {
+			d.Time(), x.user, sc.Km, sc.Distance, sc.Bonus, speed); err != nil {
 			return 0, fmt.Errorf("score guess of %d: %w", x.user, err)
 		}
 	}
-	return len(list), nil
+	site, err := s.scoreSite(ctx, d, now, judge)
+	return len(list) + site, err
 }
 
 // UserLang is what core resolves for the person, empty when it has nothing.

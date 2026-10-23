@@ -275,8 +275,22 @@ func (s *Scheduler) groupResult(ctx context.Context, c db.Chat, rd db.Round, cr 
 	if err != nil {
 		return err
 	}
-	head := card.Head(lang, rd.DayNo, answer)
-	msg, err := s.sendResult(ctx, c, rd, fitCaption(head, table(lang, guesses, streaks)), markup)
+	silent, err := s.Store.Silent(ctx, c.ID, rd.Date)
+	if err != nil {
+		return err
+	}
+	lines := table(lang, guesses, streaks)
+	if len(guesses) > 0 {
+		lines = append(lines, "", i18n.T(lang, "result.answered_of", "n", strconv.Itoa(len(guesses)), "total", strconv.Itoa(len(guesses)+len(silent))))
+	}
+	back, err := s.lateLookBack(ctx, lang, rd.Date, c, cr)
+	if err != nil {
+		return err
+	}
+	if back != "" {
+		lines = append(lines, "", back)
+	}
+	msg, err := s.sendResult(ctx, c, rd, fitCaption(card.Quoted(lang, rd.DayNo, answer), lines), markup)
 	if err != nil {
 		return err
 	}
@@ -297,6 +311,13 @@ func (s *Scheduler) dmResult(ctx context.Context, c db.Chat, rd db.Round, cr db.
 	if answered && g.Km != nil {
 		own = i18n.T(lang, "result.your", "km", i18n.FormatKm(lang, *g.Km), "points", i18n.FormatNumber(lang, g.Total()))
 	}
+	back, err := s.lateLookBack(ctx, lang, rd.Date, c, cr)
+	if err != nil {
+		return err
+	}
+	if back != "" {
+		own += "\n\n" + back
+	}
 	inGroups, err := s.Store.InGroups(ctx, c.ID)
 	if err != nil {
 		return err
@@ -308,7 +329,7 @@ func (s *Scheduler) dmResult(ctx context.Context, c db.Chat, rd db.Round, cr db.
 		}
 		return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID)
 	}
-	msg, err := s.sendResult(ctx, c, rd, fitCaption(card.Head(lang, rd.DayNo, answer), []string{own}), markup)
+	msg, err := s.sendResult(ctx, c, rd, fitCaption(card.Quoted(lang, rd.DayNo, answer), []string{own}), markup)
 	if err != nil {
 		return err
 	}
@@ -373,8 +394,13 @@ func visibleLen(s string) int {
 	return n
 }
 
-func postCaption(lang string, dayNo int, line string, group bool) string {
+// postCaption is the morning post: the day, the question, the look back at
+// yesterday when it is final, and in a group the who-answered line.
+func postCaption(lang string, dayNo int, yesterday, line string, group bool) string {
 	text := fmt.Sprintf("<b>maply #%d</b>\n%s", dayNo, i18n.T(lang, "post.hint", "time", revealText()))
+	if yesterday != "" {
+		text += "\n\n" + yesterday
+	}
 	if group {
 		text += "\n\n" + line
 	}

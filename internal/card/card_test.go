@@ -301,7 +301,7 @@ func TestPrepareSavesAJPEGMessageTelegramCanFetch(t *testing.T) {
 	if want := "https://maply.example/card/img/" + p.ID; p.PhotoURL != want+".jpg" || p.ThumbURL != want+".t.jpg" {
 		t.Fatalf("urls = %q, %q", p.PhotoURL, p.ThumbURL)
 	}
-	for _, want := range []string{"<b>maply #12</b> · Лиссабон, Португалия", "Твой итог: 100 км · 3\u00a0400"} {
+	for _, want := range []string{"<b>maply #12</b>\n<blockquote>Лиссабон, Португалия", "</blockquote>\nТвой итог: 100 км · 3\u00a0400"} {
 		if !strings.Contains(p.Caption, want) {
 			t.Errorf("caption lacks %q: %q", want, p.Caption)
 		}

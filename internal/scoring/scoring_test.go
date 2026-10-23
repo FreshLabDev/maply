@@ -4,6 +4,7 @@ package scoring
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/maply/internal/geo"
 )
@@ -145,5 +146,35 @@ func TestJudgeSameCountryOnAnotherContinent(t *testing.T) {
 	// Another country on the pin's continent still earns nothing.
 	if s := Judge(geo.Point{Lat: 45, Lon: 5}, place, c); s.Bonus != 0 {
 		t.Fatalf("score = %+v", s)
+	}
+}
+
+func TestSpeedBonusFallsThroughTheDay(t *testing.T) {
+	deadline := time.Date(2026, 10, 23, 20, 0, 0, 0, time.UTC)
+	at := func(h, m int) time.Time { return time.Date(2026, 10, 23, h, m, 0, 0, time.UTC) }
+	for _, tc := range []struct {
+		name     string
+		answered time.Time
+		want     int
+	}{
+		{"before the post", at(5, 0), 250},
+		{"with the post", at(7, 0), 250},
+		{"at noon", at(12, 0), 170},
+		{"just before the hints", at(15, 59), 100},
+		{"when the hints begin", at(16, 0), 50},
+		{"just after", at(16, 1), 50},
+		{"an hour before the result", at(19, 0), 10},
+		{"in the last minutes", at(19, 55), 0},
+		{"at the deadline", deadline, 0},
+	} {
+		if got := SpeedBonus(tc.answered, deadline); got != tc.want {
+			t.Errorf("%s: SpeedBonus = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestSpeedIsInTheTotal(t *testing.T) {
+	if s := (Score{Distance: 3000, Bonus: 800, Speed: 150}); s.Total() != 3950 {
+		t.Fatalf("Total = %d, want 3950", s.Total())
 	}
 }

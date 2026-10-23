@@ -2,11 +2,13 @@
 
 // Package scoring turns a pin into points: up to 3,500 for distance on the
 // GeoGuessr world-map curve, plus a ladder of bonuses for the continent, the
-// country and the city. It makes no outside calls.
+// country and the city, plus a small bonus for answering early. It makes no
+// outside calls.
 package scoring
 
 import (
 	"math"
+	"time"
 
 	"github.com/FreshLabDev/maply/internal/geo"
 )
@@ -20,6 +22,19 @@ const (
 	ContinentBonus = 300
 	CountryBonus   = 500
 	CityBonus      = 700
+
+	// The speed bonus: SpeedEarly for an answer when the morning post goes
+	// out, falling to SpeedAtHint when the afternoon hints begin, then from
+	// SpeedAfterHint to nothing at the deadline. It is a nudge, not a race:
+	// at most 250 against 5,000 for the pin.
+	SpeedEarly     = 250
+	SpeedAtHint    = 100
+	SpeedAfterHint = 50
+	// The post goes out at 07:00, the hints from 16:00, the result at 20:00,
+	// each in the chat's own time; measured back from the deadline, that is
+	// 13 and 4 hours.
+	postBefore = 13 * time.Hour
+	hintBefore = 4 * time.Hour
 
 	// earthRadiusKm is the IUGG mean radius.
 	earthRadiusKm = 6371.0088
@@ -73,15 +88,36 @@ type Place struct {
 	City geo.Shape
 }
 
+// SpeedBonus is for how early the answer came, counted back from the
+// person's deadline: the reveal of the earliest zone among their chats.
+// Rounded to tens, so the table shows round numbers.
+func SpeedBonus(answered, deadline time.Time) int {
+	left := deadline.Sub(answered)
+	var p float64
+	switch {
+	case left <= 0:
+		return 0
+	case left > hintBefore:
+		f := math.Min(1, float64(left-hintBefore)/float64(postBefore-hintBefore))
+		p = SpeedAtHint + (SpeedEarly-SpeedAtHint)*f
+	default:
+		p = SpeedAfterHint * float64(left) / float64(hintBefore)
+	}
+	return int(math.Round(p/10) * 10)
+}
+
 type Score struct {
 	Km       float64
 	Distance int
 	Bonus    int
 	Match    Match
+	// Speed is the bonus for answering early. Judge leaves it at zero: it
+	// depends on when the answer came, not on the pin.
+	Speed int
 }
 
 func (s Score) Total() int {
-	return s.Distance + s.Bonus
+	return s.Distance + s.Bonus + s.Speed
 }
 
 // Judge scores a pin against the place. countries locates the pin; a pin over

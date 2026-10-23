@@ -40,7 +40,7 @@ type Store interface {
 	RetryJob(ctx context.Context, id int64, at time.Time, lastErr string) error
 	ChatRound(ctx context.Context, chatID int64, d round.Date) (db.ChatRound, error)
 	LastIntrigue(ctx context.Context, chatID int64, d round.Date) (string, error)
-	SetPost(ctx context.Context, chatID int64, d round.Date, msgID int64, line string, at time.Time) error
+	SetPost(ctx context.Context, chatID int64, d round.Date, msgID int64, line, yesterday string, at time.Time) error
 	SetPinned(ctx context.Context, chatID int64, d round.Date, pinned bool) error
 	SetIntrigueSent(ctx context.Context, chatID int64, d round.Date, kind string, at time.Time) error
 	SetResult(ctx context.Context, chatID int64, d round.Date, msgID int64) error
@@ -54,6 +54,7 @@ type Store interface {
 	DayPins(ctx context.Context, d round.Date) ([][2]float64, error)
 	InGroups(ctx context.Context, userID int64) (bool, error)
 	ChatGuesses(ctx context.Context, d round.Date, chatID int64) ([]db.Guess, error)
+	World(ctx context.Context, d round.Date) (db.World, error)
 	GuessOf(ctx context.Context, d round.Date, userID int64) (db.Guess, bool, error)
 	Puzzle(ctx context.Context, placeID int64) (db.Puzzle, error)
 	Answer(ctx context.Context, placeID int64) (db.Answer, error)
@@ -299,15 +300,19 @@ func (s *Scheduler) post(ctx context.Context, j db.Job) error {
 			return err
 		}
 	}
+	yesterday, err := s.yesterday(ctx, lang, j.Date, c)
+	if err != nil {
+		return err
+	}
 	markup, err := s.playMarkup(c, j.Date, lang, "btn.guess")
 	if err != nil {
 		return err
 	}
-	msg, err := s.sendPhoto(ctx, c.ID, rd, postCaption(lang, rd.DayNo, line, c.Kind == "group"), markup)
+	msg, err := s.sendPhoto(ctx, c.ID, rd, postCaption(lang, rd.DayNo, yesterday, line, c.Kind == "group"), markup)
 	if err != nil {
 		return err
 	}
-	if err := s.Store.SetPost(ctx, c.ID, j.Date, msg.MessageID, line, s.now()); err != nil {
+	if err := s.Store.SetPost(ctx, c.ID, j.Date, msg.MessageID, line, yesterday, s.now()); err != nil {
 		return err
 	}
 	if c.Kind == "group" {
@@ -451,7 +456,7 @@ func (s *Scheduler) redraw(ctx context.Context) error {
 		if err != nil {
 			continue
 		}
-		err = s.TG.EditCaption(ctx, c.ID, p.PostMsgID, postCaption(lang, rd.DayNo, line, true), markup)
+		err = s.TG.EditCaption(ctx, c.ID, p.PostMsgID, postCaption(lang, rd.DayNo, p.Yesterday, line, true), markup)
 		if err != nil && !tg.IsMessageNotModified(err) {
 			s.Log.Warn("post redraw failed", "chat", c.ID, "error", err)
 			continue

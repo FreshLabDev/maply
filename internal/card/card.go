@@ -139,11 +139,11 @@ func (s *Service) Prepare(ctx context.Context, sh Share) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	caption := Head(lang, rd.DayNo, answer)
+	caption := Quoted(lang, rd.DayNo, answer)
 	if g, answered, err := s.Store.GuessOf(ctx, sh.Date, sh.UserID); err != nil {
 		return "", err
 	} else if answered && g.Km != nil {
-		caption += "\n\n" + i18n.T(lang, "result.your", "km", i18n.FormatKm(lang, *g.Km), "points", i18n.FormatNumber(lang, g.Total()))
+		caption += "\n" + i18n.T(lang, "result.your", "km", i18n.FormatKm(lang, *g.Km), "points", i18n.FormatNumber(lang, g.Total()))
 	}
 	base := strings.TrimRight(s.PublicURL, "/") + "/card/img/" + img.key
 	msg, err := s.TG.SavePreparedPhoto(ctx, sh.UserID, telegram.PreparedPhoto{

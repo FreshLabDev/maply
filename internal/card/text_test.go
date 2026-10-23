@@ -25,6 +25,13 @@ func TestHeadNamesTheDayThePlaceAndTheFact(t *testing.T) {
 	if got != want {
 		t.Fatalf("Head = %q, want %q", got, want)
 	}
+	quoted := "<b>maply #12</b>\n<blockquote>Лиссабон, Португалия\n<i>Trams &lt;and&gt; hills</i></blockquote>"
+	if got := Quoted("ru", 12, a); got != quoted {
+		t.Fatalf("Quoted = %q, want %q", got, quoted)
+	}
+	if got := Quoted("ru", 12, db.Answer{}); got != "<b>maply #12</b>" {
+		t.Fatalf("Quoted without a place = %q", got)
+	}
 	if got := Place("en", db.Answer{}); got != "" {
 		t.Fatalf("a place with nothing is %q", got)
 	}

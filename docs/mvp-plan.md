@@ -14,7 +14,7 @@ The MVP is done when, in one Russian, one Ukrainian and one Belarusian group, a 
 | Scoring: distance plus bonuses for continent, country and city | "Continent" and "second angle" hints |
 | Anti-cheat, items 1–5 from design.md | "Voice of the place" (TTS) |
 | Intrigue: "Right now there", "Detail", "Chat spread", "World vs you", "Streak" | Archive on the site, OG image |
-| Result in the group and in the DM, cross-chat ranking | Telegram Login on the site |
+| Result in the group and in the DM, world ranking of players, days page | Sign-in on the site: Google and Telegram, see docs/design.md |
 | Site in the browser: anonymous play without a ranking | Curated city names and facts beyond ru, uk, be and en |
 | Place curation: harvest, LLM scoring, operator service chat | |
 
@@ -56,7 +56,9 @@ Done when: the link `t.me/maplyin_bot/play` opens a static placeholder on `maply
 |:--|:--|
 | `place` | `city_poly` (geojson), `country_iso`, `continent`, `fact`, `detail_crop`, `difficulty`, `status`, `reviewed_by` |
 | `round` | `day_no`, `place_id`, `date` (unique) |
-| `guess` | `context` (dm, group, site), `chat_id`, `answered_at`, `deadline_at`, `km`, `pts_km`, `pts_bonus`, `clean`. Unique on `(date, user_id)` |
+| `guess` | `context` (dm, group, site), `chat_id`, `answered_at`, `deadline_at`, `km`, `pts_km`, `pts_bonus`, `pts_speed`, `clean`. Unique on `(date, user_id)` |
+| `site_player`, `site_guess` | A site player's random id from the cookie, an optional name, and one answer a day scored like a Telegram one without the speed bonus |
+| `day_score` (view) | Every scored answer of both kinds with its total: the world ranking reads it |
 | `chat_settings` | `kind` (dm, group), `lang`, `post_time`, `intrigue`, `mentions`, `active`. DMs live here too, so the scheduler treats every chat alike |
 | `chat_round` | `post_msg_id`, `pinned`, `intrigue_at`, `intrigue_sent`, `result_msg_id`. The scheduler uses this table to know what has already been done |
 | `job` | queue of scheduled sends with an idempotency key, so that nothing goes out twice after a restart |

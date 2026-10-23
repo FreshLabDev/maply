@@ -45,6 +45,15 @@ type Store interface {
 	ChatLang(context.Context, int64) (string, error)
 	UserLang(context.Context, int64) (string, error)
 	ChatZone(context.Context, int64) (string, error)
+	World(context.Context, round.Date) (db.World, error)
+	Days(context.Context, round.Date, int) ([]db.Day, error)
+	ChatDays(context.Context, int64, []db.Day) (map[round.Date]db.ChatDay, error)
+	MyDays(context.Context, int64, []db.Day) (map[round.Date]db.Mine, error)
+	SiteDays(context.Context, string, []db.Day) (map[round.Date]db.Mine, error)
+	SitePlayer(ctx context.Context, id string, name *string) error
+	SiteName(ctx context.Context, id string) (string, error)
+	InsertSiteGuess(context.Context, db.NewSiteGuess) error
+	SiteGuessOf(context.Context, round.Date, string) (db.SiteGuess, bool, error)
 }
 
 type MemberChecker interface {
@@ -93,6 +102,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/share", s.share)
 	mux.HandleFunc("GET /api/site/today", s.siteToday)
 	mux.HandleFunc("GET /api/site/result", s.siteResult)
+	mux.HandleFunc("POST /api/site/guess", s.siteGuess)
+	mux.HandleFunc("POST /api/site/name", s.siteName)
+	mux.HandleFunc("GET /api/days", s.days)
+	mux.HandleFunc("GET /api/day", s.day)
 	mux.HandleFunc("GET /img/{key}", s.image)
 	return mux
 }
@@ -275,6 +288,8 @@ type todayResponse struct {
 	Answer   *pin      `json:"answer"`
 	// Bot is set on the site only: the Telegram bot to play in.
 	Bot string `json:"bot,omitempty"`
+	// Name is the site player's own name for the ranking, empty for "Guest".
+	Name string `json:"name,omitempty"`
 }
 
 func (s *Server) today(w http.ResponseWriter, r *http.Request) {
@@ -390,7 +405,9 @@ type line struct {
 	Km     *float64 `json:"km"`
 	Points *int     `json:"points"`
 	Bonus  *int     `json:"bonus"`
-	Me     bool     `json:"me,omitempty"`
+	// Speed is the bonus for answering early; the site's anonymous check has none.
+	Speed int  `json:"speed,omitempty"`
+	Me    bool `json:"me,omitempty"`
 }
 
 type resultResponse struct {
@@ -458,7 +475,7 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		Table: make([]line, 0, len(guesses)),
 	}
 	for _, g := range guesses {
-		l := line{Name: g.FirstName, Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Bonus: g.PtsBonus, Me: g.UserID == p.user.ID}
+		l := line{Name: g.FirstName, Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Bonus: g.PtsBonus, Speed: g.Speed(), Me: g.UserID == p.user.ID}
 		if g.PtsKm != nil && g.PtsBonus != nil {
 			total := g.Total()
 			l.Points = &total

@@ -145,6 +145,9 @@ type ChatRound struct {
 	ResultMsgID  int64
 	Answered     string
 	AnsweredAt   time.Time
+	// Yesterday is the look back at the day before that the post carried,
+	// empty when the post had none.
+	Yesterday string
 }
 
 // ChatRound returns the chat's state for d, creating the row the first time.
@@ -159,9 +162,10 @@ func (s *Store) ChatRound(ctx context.Context, chatID int64, d round.Date) (Chat
 	var answeredAt *time.Time
 	var kind *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT post_msg_id, pinned, intrigue_sent, intrigue_kind, result_msg_id, answered, answered_at
+		SELECT post_msg_id, pinned, intrigue_sent, intrigue_kind, result_msg_id, answered, answered_at,
+		       COALESCE(yesterday, '')
 		  FROM chat_round WHERE chat_id = $1 AND date = $2`, chatID, d.Time()).
-		Scan(&post, &cr.Pinned, &cr.IntrigueSent, &kind, &result, &answered, &answeredAt)
+		Scan(&post, &cr.Pinned, &cr.IntrigueSent, &kind, &result, &answered, &answeredAt, &cr.Yesterday)
 	if err != nil {
 		return ChatRound{}, fmt.Errorf("chat round %d %s: %w", chatID, d, err)
 	}
@@ -207,8 +211,10 @@ func (s *Store) updateChatRound(ctx context.Context, chatID int64, d round.Date,
 	return nil
 }
 
-func (s *Store) SetPost(ctx context.Context, chatID int64, d round.Date, msgID int64, line string, at time.Time) error {
-	return s.updateChatRound(ctx, chatID, d, `post_msg_id = $3, answered = $4, answered_at = $5`, msgID, line, at)
+// SetPost records the morning post with its who-answered line and the
+// yesterday line it carried, empty when none.
+func (s *Store) SetPost(ctx context.Context, chatID int64, d round.Date, msgID int64, line, yesterday string, at time.Time) error {
+	return s.updateChatRound(ctx, chatID, d, `post_msg_id = $3, answered = $4, answered_at = $5, yesterday = NULLIF($6, '')`, msgID, line, at, yesterday)
 }
 
 func (s *Store) SetPinned(ctx context.Context, chatID int64, d round.Date, pinned bool) error {
@@ -234,13 +240,15 @@ type OpenPost struct {
 	PostMsgID  int64
 	Answered   string
 	AnsweredAt time.Time
+	// Yesterday is the world line the post carries, empty when none.
+	Yesterday string
 }
 
 // OpenPosts lists the groups' posts of the last two dates that have no result
 // yet: the ones whose who-answered line may need redrawing.
 func (s *Store) OpenPosts(ctx context.Context, since round.Date) ([]OpenPost, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT cr.chat_id, cr.date, cr.post_msg_id, COALESCE(cr.answered, ''), COALESCE(cr.answered_at, 'epoch')
+		SELECT cr.chat_id, cr.date, cr.post_msg_id, COALESCE(cr.answered, ''), COALESCE(cr.answered_at, 'epoch'), COALESCE(cr.yesterday, '')
 		  FROM chat_round cr
 		  JOIN chat_settings cs ON cs.chat_id = cr.chat_id
 		 WHERE cs.kind = 'group' AND cs.active AND cr.date >= $1
@@ -251,7 +259,7 @@ func (s *Store) OpenPosts(ctx context.Context, since round.Date) ([]OpenPost, er
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (OpenPost, error) {
 		var p OpenPost
 		var d time.Time
-		err := row.Scan(&p.ChatID, &d, &p.PostMsgID, &p.Answered, &p.AnsweredAt)
+		err := row.Scan(&p.ChatID, &d, &p.PostMsgID, &p.Answered, &p.AnsweredAt, &p.Yesterday)
 		p.Date = round.DateIn(d, time.UTC)
 		return p, err
 	})

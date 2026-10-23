@@ -36,8 +36,9 @@ async function loadTexts(lang) {
 
 /* ---------- Server ---------- */
 // In Telegram every request carries initData; the server checks its signature and works out the chat from
-// start_param. In a plain browser it is the site: nobody is signed in, the answer stays in localStorage, and the
-// place opens only after the latest reveal among maply's zones.
+// start_param. In a plain browser it is the site: nobody signs in, a cookie holds a random player id, the one answer
+// a day goes into the world ranking under the name the player gave or "Guest", and the place opens only after the
+// latest reveal among maply's zones. localStorage keeps a copy of the pin and the name.
 const SITE = !inTg;
 async function api(path, body) {
   if (SITE) return site(path, body);
@@ -59,17 +60,22 @@ function keep(date, pin) {
   Object.keys(all).sort().slice(0, -14).forEach((d) => delete all[d]);
   try { localStorage.setItem(KEPT, JSON.stringify(all)); } catch { throw new Error("network"); }
 }
+const NAME = "maply.name";
+const siteName = () => { try { return localStorage.getItem(NAME) || ""; } catch { return ""; } };
+let tz = ""; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch {}
 async function site(path, body) {
   if (path === "/api/guess") {
-    if (kept()[TODAY.date]) throw new Error("already_answered");
     if (!secondsTo(TODAY.deadline)) throw new Error("closed");
+    const res = await reply(await fetch("/api/site/guess?" + new URLSearchParams({ tz }), {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lat: body.lat, lon: body.lon, name: siteName() }),
+    }));
     keep(TODAY.date, body);
-    return { status: "accepted" };
+    return res;
   }
   if (path === "/api/today") {
-    let tz = ""; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch {}
     const today = await reply(await fetch("/api/site/today?" + new URLSearchParams({ tz, lang: LANG0 })));
-    today.answer = kept()[today.date] || null;
+    today.answer = today.answer || kept()[today.date] || null;
+    if (today.name) try { localStorage.setItem(NAME, today.name); } catch {}
     return today;
   }
   const q = { date: TODAY.date, lang: LANG }, mine = kept()[TODAY.date];
@@ -85,8 +91,7 @@ function toast(text) { const t = $("toast"); t.textContent = text; t.classList.a
 let li = 0;
 const loadTimer = setInterval(() => { if (TX.loading) { const l = lines("loading"); $("loadtext").textContent = l[++li % l.length]; } }, 900);
 function stopLoading(text) { clearInterval(loadTimer); $("loadtext").textContent = text; }
-let logoTaps = 0;
-$("logo").addEventListener("click", () => { if (++logoTaps % 3 === 0) toast(pick(lines("logo"))); });
+$("logo").addEventListener("click", () => openDays());
 
 /* ---------- Countdown ---------- */
 // Before the answer the timer runs to the deadline: the earliest reveal among the person's chats. After it, to the reveal
@@ -282,7 +287,7 @@ function glideToMini(ms) {
 const easeOut = (t) => 1 - (1 - t) ** 3;
 $("globeHit").addEventListener("click", toMap);
 $("look").addEventListener("click", toPhoto);
-if (tgAt("6.1")) tg.BackButton.onClick(toPhoto);
+if (tgAt("6.1")) tg.BackButton.onClick(() => document.body.classList.contains("is-sheet") ? $("shBack").click() : toPhoto());
 // Splits the bottom strip into two buttons or merges it back into one.
 // The left button label depends on the stage: before the answer it invites a closer look, after the answer simply to enjoy.
 const LOOK = { guess: ["look_more", "look"], wait: ["admire", "admire"], reveal: ["walk", "walk"] };
@@ -323,8 +328,9 @@ map.on("click", (e) => {
 });
 
 /* ---------- Waiting and result ---------- */
-// Score: up to 3,500 for distance plus bonuses for guessing the continent, country and city. The maximum is the same: 5,000.
-const BONUS = [300, 500, 700];
+// Score: up to 3,500 for distance plus bonuses for guessing the continent, country and city, 5,000 at most for the pin;
+// on top, up to 250 for answering early (scoring.SpeedBonus). The bars are drawn on that whole scale.
+const BONUS = [300, 500, 700], SPEED_MAX = 250;
 const base = (d) => 3500 * Math.exp(-d / 1492.7);
 const bonusOf = (lvl) => BONUS.slice(0, lvl).reduce((a, b) => a + b, 0);
 const score = (d, lvl) => base(d) + bonusOf(lvl);
@@ -412,22 +418,26 @@ map.on("resize", layoutMarks);
 // Result table under the header. Delays are shared by bars and counters: first the kilometres, then the bonuses one by one,
 // then the dashed missed part.
 const T_KM = .25, T_B = (k) => .75 + k * .3, ROWS = 4;
-const pct = (x) => (x / 50).toFixed(2) + "%";
-// rows: { who, d (km), pts, lvl, me } from /api/result. The grey part of a bar is the points for the distance.
+const pct = (x) => (x * 100 / (5000 + SPEED_MAX)).toFixed(2) + "%";
+// rows: { who, d (km), pts, lvl, sp, me } from /api/result. The grey part of a bar is the points for the distance, the
+// gold one after the bonuses is for speed.
 function paintBoard(rows) {
   // Collapsed, the first rows and yours are visible; if you are lower, there is one fewer row so the height does not change.
   const meAt = rows.findIndex((r) => r.me), top = meAt >= ROWS ? ROWS - 1 : ROWS, IF = [T("what_continent"), T("what_country"), T("what_city")];
   // Segment tooltips sit in data-tip, not data-t: data-t marks the static lines loadTexts fills.
   $("lb").innerHTML = rows.map((r, i) => {
-    const b0 = r.pts - bonusOf(r.lvl), segs = ['<i class="km" data-tip="' + esc(T("km_points", { points: fmt(b0), km: fmt(r.d) })) + '" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
+    const b0 = r.pts - bonusOf(r.lvl) - r.sp, segs = ['<i class="km" data-tip="' + esc(T("km_points", { points: fmt(b0), km: fmt(r.d) })) + '" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
     BONUS.forEach((x, k) => {
       if (k < r.lvl) segs.push('<i data-tip="' + esc(T("bonus", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + T_B(k) + 's"></i>');
-      else if (r.me) segs.push('<i class="if" data-tip="' + esc(T("bonus_missed", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
+    });
+    if (r.sp) segs.push('<i class="sp" data-tip="' + esc(T("speed_bonus", { points: r.sp })) + '" style="width:' + pct(r.sp) + ';--d:' + T_B(r.lvl) + 's"></i>');
+    if (r.me) BONUS.forEach((x, k) => {
+      if (k >= r.lvl) segs.push('<i class="if" data-tip="' + esc(T("bonus_missed", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
     });
     const x = i >= top && !r.me ? " x" : "";
     return '<div class="r' + (r.me ? " me" : "") + x + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me) + '<span>' + esc(r.who) + '</span>' +
-      '<span class="hit" data-rest="' + esc(T("short_of", { points: fmt(5000 - r.pts) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
-      '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '">0</b><span class="k">' + fmt(r.d) + ' ' + esc(T("km")) + '</span></div>';
+      '<span class="hit" data-rest="' + esc(T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
+      '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '" data-sp="' + r.sp + '">0</b><span class="k">' + fmt(r.d) + ' ' + esc(T("km")) + '</span></div>';
   }).join("");
   const hidden = rows.length - Math.min(rows.length, top + (meAt >= top ? 1 : 0));
   $("lb").classList.remove("open");
@@ -435,12 +445,13 @@ function paintBoard(rows) {
   $("more").dataset.n = hidden;
   $("more").textContent = T("more", { n: hidden }) + " ↓";
   // Legend and "what if" at the same distance: one line, wraps in whole chunks.
-  const t = (h) => '<span>' + h + '</span>', me = rows[meAt], legend = t('<i class="km"></i>' + esc(T("legend_km"))) + ' ' + t('<i></i>' + esc(T("legend_bonus")));
+  const t = (h) => '<span>' + h + '</span>', me = rows[meAt], legend = t('<i class="km"></i>' + esc(T("legend_km"))) + ' ' + t('<i></i>' + esc(T("legend_bonus"))) +
+    (rows.some((r) => r.sp) ? ' ' + t('<i class="sp"></i>' + esc(T("legend_speed"))) : "");
   if (!me) { $("ifs").innerHTML = rows.length ? legend : t(esc(T("no_answer"))); return; }
   const d = me.d, lvl = me.lvl, b = (n) => '<b>' + fmt(n) + '</b>';
   $("ifs").innerHTML = legend + ' · ' + (lvl >= 3 ? t(esc(T("all_bonuses"))) :
-    t('<i class="if"></i>' + T("if_first", { what: esc(IF[lvl]), score: b(score(d, lvl + 1)) })) +
-    IF.slice(lvl + 1).map((n, j) => ', ' + t(T("if_next", { what: esc(n), score: b(score(d, lvl + j + 2)) }))).join(""));
+    t('<i class="if"></i>' + T("if_first", { what: esc(IF[lvl]), score: b(score(d, lvl + 1) + me.sp) })) +
+    IF.slice(lvl + 1).map((n, j) => ', ' + t(T("if_next", { what: esc(n), score: b(score(d, lvl + j + 2) + me.sp) }))).join(""));
 }
 // Full leaderboard: a tap on the table or on "N more" expands and collapses it.
 function toggleBoard() {
@@ -480,6 +491,7 @@ function countUp() {
     els.forEach((e) => {
       let v = +e.dataset.b * ease((t - T_KM) / .45);
       BONUS.slice(0, +e.dataset.l).forEach((x, k) => { v += x * ease((t - T_B(k)) / .45); });
+      v += +e.dataset.sp * ease((t - T_B(+e.dataset.l)) / .45);
       e.textContent = fmt(v);
     });
     if (t < 2.4) requestAnimationFrame(tick);
@@ -504,7 +516,7 @@ function toReveal(res) {
   state = "reveal";
   const P = res.place, truth = new maplibregl.LngLat(P.lon, P.lat);
   credits(P);
-  const rows = res.table.map((r) => ({ who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), me: !!r.me }))
+  const rows = res.table.map((r) => ({ who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0, me: !!r.me }))
     .sort((a, b) => b.pts - a.pts);
   mine = rows.find((r) => r.me) || null;
   // A pin that never reached the server is not an answer: it leaves the map rather than draw a line to the place.
@@ -586,6 +598,77 @@ async function share() {
   } finally { sharing = false; $("go").classList.remove("busy"); }
   shareLink();
 }
+/* ---------- Days ---------- */
+// The home page, the same in Telegram and on the site: every day newest first with the world's numbers, and for a
+// closed day its whole ranking. A day closes after the last zone's reveal; until then it shows only how many answered.
+// Each avatar carries where the player came from: Telegram or the site.
+const SRC_TG = '<svg class="src" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#2AABEE"/><path fill="#fff" d="M5.4 11.7l10.9-4.2c.5-.2 1 .1.8.9l-1.9 8.8c-.1.6-.5.8-1 .5l-2.8-2.1-1.4 1.3c-.2.2-.3.3-.6.3l.2-2.9 5.3-4.8c.2-.2 0-.3-.3-.1l-6.5 4.1-2.8-.9c-.6-.2-.6-.6.1-.9z"/></svg>';
+const SRC_SITE = '<svg class="src" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#FFFFFF"/><g fill="none" stroke="#245A3C" stroke-width="1.6"><circle cx="12" cy="12" r="6.5"/><path d="M5.5 12h13M12 5.5c-2.4 2.4-2.4 10.6 0 13M12 5.5c2.4 2.4 2.4 10.6 0 13"/></g></svg>';
+const kmT = (km) => fmt(km) + " " + T("km");
+const dayDate = (iso) => { try { return new Intl.DateTimeFormat(LANG, { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(iso + "T00:00:00Z")); } catch { return iso; } };
+const clock = (iso) => { try { return new Intl.DateTimeFormat(LANG, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso)); } catch { return ""; } };
+const nameOf = (r) => r.name || (r.site ? T("guest") : "?");
+// Sofia Sans draws Cyrillic in its Bulgarian forms unless told the language. A name can be in any script; in an interface
+// that is not Cyrillic, Russian forms are the likelier right ones for a Cyrillic name.
+const nameLang = () => ["ru", "uk", "be"].includes(LANG) ? LANG : "ru";
+async function getJSON(path) {
+  if (SITE) return reply(await fetch(path + (path.includes("?") ? "&" : "?") + "lang=" + encodeURIComponent(LANG)));
+  return reply(await fetch(path, { headers: { Authorization: "tma " + tg.initData } }));
+}
+function sheet(title, html, back) {
+  const sh = $("sheet");
+  sh.innerHTML = '<div class="sh-top"><button class="sh-b" id="shBack" aria-label="' + esc(T("aria_collapse")) + '">' + (back ? "←" : "×") + '</button><b>' + title + '</b></div><div class="sh-body">' + html + '</div>';
+  sh.classList.add("on"); document.body.classList.add("is-sheet"); syncBack();
+  $("shBack").onclick = back || closeDays;
+}
+function closeDays() { $("sheet").classList.remove("on"); document.body.classList.remove("is-sheet"); syncBack(); }
+async function openDays() {
+  haptic("light");
+  sheet(esc(T("days")), '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>');
+  let data;
+  try { data = await getJSON("/api/days"); } catch (e) { sheet(esc(T("days")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>'); return; }
+  const days = data.days || [];
+  let html = "";
+  if (SITE) html += '<label class="sh-name"><span class="up">' + esc(T("your_name")) + '</span><input id="shName" lang="' + nameLang() + '" maxlength="24" autocomplete="nickname" placeholder="' + esc(T("guest")) + '" value="' + esc(siteName()) + '"></label>';
+  if (!days.length) html += '<p class="sh-wait">' + esc(T("no_days")) + '</p>';
+  for (const d of days) {
+    const head = '<span class="up">#' + d.day + ' · ' + esc(dayDate(d.date)) + '</span>';
+    if (!d.final) {
+      html += '<div class="dd open">' + head + '<p>' + esc(T("day_open", { time: clock(d.opens_at) })) + ' · ' + esc(T("day_answered", { n: fmt(d.pending) })) + '</p></div>';
+      continue;
+    }
+    const where = [d.city, d.country && regionName(d.country)].filter(Boolean).join(", ");
+    let rows = '<p>' + esc(T("day_world", { n: fmt(d.players), km: d.median_km != null ? kmT(d.median_km) : "—", pct: d.country_pct })) + '</p>';
+    if (d.group) rows += '<p>' + esc(T("day_group", { n: d.group.answered, total: d.group.members })) + (d.group.best_name ? ' · <span lang="' + nameLang() + '">' + esc(d.group.best_name) + "</span>, " + kmT(d.group.best_km) : "") + '</p>';
+    if (d.me) rows += '<p class="me">' + esc(T("day_me", { rank: d.me.rank, points: fmt(d.me.points) })) + '</p>';
+    html += '<button class="dd" data-date="' + esc(d.date) + '">' + head + '<b>' + esc(where) + '</b>' + rows + '<em>→</em></button>';
+  }
+  sheet(esc(T("days")), html);
+  $("sheet").querySelectorAll(".dd[data-date]").forEach((b) => { b.onclick = () => openDay(b.dataset.date); });
+  const name = $("shName");
+  if (name) name.onchange = async () => {
+    try {
+      localStorage.setItem(NAME, name.value.trim());
+      await reply(await fetch("/api/site/name", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.value }) }));
+      toast(T("name_saved"));
+    } catch (e) { toast(errorText(e)); }
+  };
+}
+async function openDay(date) {
+  haptic("select");
+  let d;
+  try { d = await getJSON("/api/day?date=" + encodeURIComponent(date)); } catch (e) { toast(errorText(e)); return; }
+  const P = d.place, where = [P.city, regionName(P.country)].filter(Boolean).join(", ");
+  let html = '<p class="sh-sub">' + esc(T("day_world", { n: fmt(d.players), km: d.median_km != null ? kmT(d.median_km) : "—", pct: d.country_pct })) + '</p><ol class="rk">';
+  for (const r of d.ranking) {
+    const name = nameOf(r);
+    html += '<li class="' + (r.me ? "me" : "") + '"><span class="n">' + r.rank + '</span><span class="a">' + av(name) + (r.site ? SRC_SITE : SRC_TG) +
+      '</span><span class="w" lang="' + nameLang() + '">' + esc(name) + (r.me ? ' <em>· ' + esc(T("you")) + '</em>' : '') + '</span><span class="k">' + kmT(r.km) + '</span><b>' + fmt(r.points) + '</b></li>';
+  }
+  html += '</ol><p class="sh-legend">' + SRC_TG + esc(T("from_tg")) + SRC_SITE + esc(T("from_site")) + '</p>';
+  sheet("#" + d.day + " · " + esc(where), html, openDays);
+}
+
 /* ---------- Start ---------- */
 // Opened inside Telegram without initData (a plain link in the in-app browser) there is nothing to play as.
 async function boot() {

@@ -5,6 +5,7 @@ package card
 import (
 	"fmt"
 	"html"
+	"strings"
 
 	"golang.org/x/text/language"
 	"golang.org/x/text/language/display"
@@ -34,6 +35,24 @@ func Head(lang string, dayNo int, a db.Answer) string {
 	}
 	if fact := localized(a.Fact, lang); fact != "" {
 		head += "\n<i>" + html.EscapeString(fact) + "</i>"
+	}
+	return head
+}
+
+// Quoted is the share's head: "maply #12" with the place and its fact set
+// apart in a quote, so a forwarded card reads as the day's answer and then
+// the sender's line.
+func Quoted(lang string, dayNo int, a db.Answer) string {
+	head := fmt.Sprintf("<b>maply #%d</b>", dayNo)
+	var quote []string
+	if place := Place(lang, a); place != "" {
+		quote = append(quote, html.EscapeString(place))
+	}
+	if fact := localized(a.Fact, lang); fact != "" {
+		quote = append(quote, "<i>"+html.EscapeString(fact)+"</i>")
+	}
+	if len(quote) > 0 {
+		head += "\n<blockquote>" + strings.Join(quote, "\n") + "</blockquote>"
 	}
 	return head
 }

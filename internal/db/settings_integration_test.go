@@ -109,9 +109,10 @@ func TestStatsCountScoredDays(t *testing.T) {
 	                (2, 'used', 'mapillary', 'm2', 'CC-BY-SA-4.0', 'photo', 1, 1, 'k2', 'UA', 'europe', 2, now()),
 	                (3, 'used', 'mapillary', 'm3', 'CC-BY-SA-4.0', 'photo', 1, 1, 'k3', 'UA', 'europe', 2, now())`)
 	exec(t, store, `INSERT INTO maply.round (date, day_no, place_id) VALUES ('2026-11-02', 2, 2), ('2026-11-03', 3, 3)`)
-	exec(t, store, `INSERT INTO maply.guess (date, user_id, context, lat, lon, answered_at, deadline_at, km, pts_km, pts_bonus) VALUES
-		('2026-11-01', 7, 'dm', 50, 30, '2026-11-01 10:00+03', '2026-11-01 20:00+03', 100, 3000, 800),
-		('2026-11-02', 7, 'dm', 50, 30, '2026-11-02 10:00+03', '2026-11-02 20:00+03', 300, 2500, 0)`)
+	// The first day was scored before the speed bonus existed; the second has one.
+	exec(t, store, `INSERT INTO maply.guess (date, user_id, context, lat, lon, answered_at, deadline_at, km, pts_km, pts_bonus, pts_speed) VALUES
+		('2026-11-01', 7, 'dm', 50, 30, '2026-11-01 10:00+03', '2026-11-01 20:00+03', 100, 3000, 800, NULL),
+		('2026-11-02', 7, 'dm', 50, 30, '2026-11-02 10:00+03', '2026-11-02 20:00+03', 300, 2500, 0, 200)`)
 	// Today's answer has no distance yet.
 	exec(t, store, `INSERT INTO maply.guess (date, user_id, context, lat, lon, answered_at, deadline_at) VALUES
 		('2026-11-03', 7, 'dm', 50, 30, '2026-11-03 10:00+03', '2026-11-03 20:00+03')`)
@@ -119,7 +120,7 @@ func TestStatsCountScoredDays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Days != 2 || st.Points != 6300 || st.Best != 3800 || st.MedianKm == nil || *st.MedianKm != 200 {
+	if st.Days != 2 || st.Points != 6500 || st.Best != 3800 || st.MedianKm == nil || *st.MedianKm != 200 {
 		t.Fatalf("stats = %+v (median %v)", st, st.MedianKm)
 	}
 }

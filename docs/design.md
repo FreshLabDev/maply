@@ -49,12 +49,14 @@ An answer cannot be changed after "Done".
 
 ### Scoring
 
-The score has two parts, 5,000 at most:
+The score for the pin has two parts, 5,000 at most:
 
 - **distance:** `3500 · e^(−d / 1492.7)`, where `d` is the distance in kilometers. The curve is the same as GeoGuessr's for the world map: 500 km gives about 2,500, 2,000 km about 900;
 - **bonuses** for the pin landing on the same continent (+300), in the same country (+500) and in the same city (+700). Bonuses form a ladder: the country counts only together with the continent, the city only together with the country.
 
 Bonuses make a correctly guessed country visible: a pin right at a border but on the wrong side gets 800 points less. The server determines country and continent from Natural Earth polygons, and the city from the OSM administrative boundary. On the result screen the strip under the header shows these parts separately, and the total builds up together with it.
+
+On top of that comes a **speed bonus** for answering early, counted back from the person's deadline (20:00 of the earliest zone among their chats): +250 at the 07:00 post, falling evenly to +100 at 16:00, when the afternoon intrigue starts; after that from +50 down to nothing at the deadline. Rounded to tens. It is a nudge, not a race: 250 is the difference between a pin about 110 km and one about 230 km away, and nothing next to the country bonus. The result screen shows it as a gold part of the bar after the bonuses. Answers scored before the bonus existed have none.
 
 On equal scores, whoever answered earlier ranks higher.
 
@@ -82,10 +84,20 @@ At 20:00 the group gets one message:
 
 - a map with the true point and the pins of everyone who answered; the picture is rendered by the service from its own result card page (see docs/mvp-plan.md, decision 1);
 - the place: city and country (reverse geocoding through Nominatim) and one short fact, checked during curation;
-- a table: distance, score, streak;
-- the chat's rank among all chats of the day.
+- a table: distance, score, streak, and how many of the group answered.
 
-The cross-chat ranking uses the median of the chat's players, if at least three answered, so large chats get no advantage. It is published only after the last reveal across all time zones. Until then the result says "chat rank will be at 21:00".
+### World ranking
+
+Everyone who answered a day stands in one list, whether they played in a group, in a DM or on the site. Groups are not ranked against each other: the owner decided on 23 October that groups will compare by forwarding their results, and that the day's statistics matter more.
+
+A day is final only after the last zone's reveal, 20:00 in Los Angeles, which is 06:00 in Kyiv. A chat hears about the world once, the day after, never as "so far":
+
+- the morning post carries yesterday's line: how many played, first place with the distance, the median distance and the share who found the country;
+- in a DM it adds the person's place: "Your place: 12 of 348, ahead of 97% of players";
+- in a group it adds each member's place in the world;
+- a chat whose morning comes before the day has closed everywhere (Dubai and east) gets the same lines with that evening's result instead.
+
+Ties go to the earlier answer, then the closer pin.
 
 A line for forwarding without spoilers: `maply #142 · 312 km · 4,057 · 🔥7`.
 
@@ -127,17 +139,28 @@ A participant sends the bot their own photo in a DM and puts a point on the map.
 One frontend for two modes:
 
 - **Mini App.** The user comes from `initData`, and the backend verifies the signature.
-- **Website in a browser.** One can play anonymously or sign in through Telegram Login to keep a streak. Anonymous answers do not go into rankings.
+- **Website in a browser.** Nobody signs in. The browser keeps a random player id in a cookie; the day's one answer is stored and goes into the world ranking under the name the player gave, or "Guest". There are no streaks or personal stats on the site, and no speed bonus: the browser names its own zone, and the bonus is counted from the zone's deadline.
 
 Site sections:
 
 - **Today.** Anyone can play. After answering, instead of the place there is "answer at 20:00, get it in Telegram" and a button to the bot.
+- **Days.** The same page in the Mini App and on the site, opened from the logo. Every day, newest first, with the world's numbers and the viewer's place; a closed day opens its full ranking. An icon on each avatar says where the player came from: Telegram or the site. A day still open somewhere shows only how many have answered and when it closes.
 - **Archive.** Past days with the answer shown immediately.
 - **Result picture** for forwarding (OG image).
 
 The site is a single game page. An ecosystem landing page is not part of it.
 
 Temporary domain: `maply.ws04.cc`.
+
+### Later: accounts on the site
+
+Planned by the owner on 23 October, not part of the MVP. A site player can sign in with Google or with Telegram, and link the two:
+
+- signing in keeps the site player's id, so past answers and the name stay;
+- a Google account linked to Telegram makes the site and the bot one player: one answer a day across both, one place in the ranking, and the streak and stats the site has none of today;
+- the cookie id stays the way to play without an account.
+
+Open: whether Telegram on the site is the Login Widget or the OAuth flow, and what happens when a Google account and a Telegram account have both answered the same day before they are linked.
 
 ## Where places come from
 

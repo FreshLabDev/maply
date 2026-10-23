@@ -148,7 +148,7 @@ func testDB(t *testing.T) (*db.Store, *pgxpool.Pool) {
 	}
 	reset := func() {
 		for _, stmt := range []string{
-			`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.chat_settings, maply.round, maply.place`,
+			`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.site_guess, maply.site_player, maply.chat_settings, maply.round, maply.place`,
 			`TRUNCATE core.person, core.chat CASCADE`,
 		} {
 			if _, err := pool.Exec(ctx, stmt); err != nil {

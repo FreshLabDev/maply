@@ -2,7 +2,7 @@
 :root {
   --field: #245A3C; --field-deep: #1A412B; --field-tint: #59826B;
   --ink: #FFFFFF; --ink-soft: #D8E1DC; --ink-muted: #B5C7BD;
-  --panel: #FFFFFF; --on-panel: #245A3C;
+  --panel: #FFFFFF; --on-panel: #245A3C; --speed: #F2C14E;
   /* Insets for the notch and Telegram buttons. In a fullscreen Mini App, "Close" and "⋯" sit on top of the page:
      their height comes from Telegram in --tg-content-safe-area-inset-top. Outside Telegram these variables are absent, so env() remains. */
   --safe-top: max(env(safe-area-inset-top), calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)));
@@ -33,7 +33,7 @@ html.framed { --top: 44px; }
 .timer span { color: var(--ink-muted); }
 .timer b { font: 700 26px/1 var(--display); letter-spacing: .02em; }
 /* Result: below the header is the day's table. One row per player: rank, avatar, name, a score bar on a 0–5,000 scale,
-   points and kilometres. The bar is split into parts: grey for kilometres, white for bonuses; in your own row
+   points and kilometres. The bar is split into parts: grey for kilometres, white for bonuses, gold for speed; in your own row
    dashed outlines also show the bonuses you missed. Below that, one "what if" line. */
 .prog { position: absolute; left: 0; right: 0; top: 100%; padding: 4px 12px 8px; background: var(--field-deep);
         transform: scaleY(0); transform-origin: 50% 0; transition: transform .3s var(--ease); }
@@ -56,6 +56,7 @@ html.framed { --top: 44px; }
 .tip.on { opacity: 1; }
 .lb .bar i { flex: none; background: var(--ink); transform: scaleX(0); transform-origin: 0 50%; transition: transform .45s var(--ease) var(--d); }
 .lb .bar i.km { background: var(--ink-muted); }
+.lb .bar i.sp { background: var(--speed); }
 .lb .bar i.if { background: none; outline: 1px dashed var(--ink-muted); outline-offset: -1px; transform: none; opacity: 0; transition: opacity .3s var(--d); }
 .is-reveal .lb .bar i { transform: none; }
 .is-reveal .lb .bar i.if { opacity: 1; }
@@ -66,6 +67,7 @@ html.framed { --top: 44px; }
 .prog .ifs b { color: var(--ink-soft); }
 .prog .ifs i { display: inline-block; width: 8px; height: 8px; margin-right: 4px; background: var(--ink); }
 .prog .ifs i.km { background: var(--ink-muted); }
+.prog .ifs i.sp { background: var(--speed); }
 .prog .ifs i.if { background: none; outline: 1px dashed var(--ink-muted); outline-offset: -1px; }
 .sub { color: var(--ink-soft); }
 /* Avatar: a square with a letter until there is a Telegram photo. A field-coloured ring separates neighbours in a stack. */
@@ -195,3 +197,39 @@ body:not(.is-map) .friend, body:not(.is-map) .target { visibility: hidden; }
 .demo { padding: 8px 10px; background: var(--field-deep); color: var(--ink-muted); text-decoration: underline; font: 500 12px/1 var(--text); }
 .hidden { display: none !important; }
 @media (prefers-reduced-motion: reduce) { .compass, .ov-top, .ov-bot, .call, .call em, .act, .toast, .pin, .prog, .lb .bar i { transition: none !important; animation: none !important; } }
+
+/* Days: the home page over everything but the toast. A list of days, newest first; a closed day opens its ranking.
+   Avatars carry a small badge for where the player came from: Telegram or the site. */
+.sheet { position: fixed; z-index: 38; inset: 0; display: flex; flex-direction: column; background: var(--field);
+         transform: translateY(100%); visibility: hidden; transition: transform .3s var(--ease), visibility .3s; }
+.sheet.on { transform: none; visibility: visible; }
+.sh-top { flex: none; display: flex; align-items: center; gap: 12px; height: calc(var(--top) + var(--safe-top)); padding: var(--safe-top) 16px 0; }
+.sh-top b { font: 700 26px/1 var(--display); letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-b { width: 32px; height: 32px; font: 400 22px/1 var(--text); color: var(--ink-soft); }
+.sh-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 16px calc(24px + var(--safe-bottom)); user-select: text; -webkit-user-select: text; }
+.sh-wait, .sh-sub { color: var(--ink-soft); margin: 8px 0 12px; }
+.sh-name { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 16px; color: var(--ink-muted); }
+.sh-name input { font: 400 17px/1.2 var(--text); padding: 10px 12px; border: 0; background: var(--panel); color: var(--on-panel); }
+.dd { display: block; position: relative; width: 100%; text-align: left; margin: 0 0 8px; padding: 12px 36px 12px 12px; background: var(--field-deep); }
+.dd .up { color: var(--ink-muted); }
+.dd b { display: block; margin: 6px 0 2px; font: 700 22px/1.1 var(--display); letter-spacing: .02em; }
+.dd p { margin: 4px 0 0; color: var(--ink-soft); }
+.dd p.me { color: var(--ink); font-weight: 700; }
+.dd em { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-style: normal; color: var(--ink-muted); }
+.dd.open { padding-right: 12px; }
+.rk { list-style: none; margin: 0; padding: 0; }
+.rk li { display: grid; grid-template-columns: 34px 30px 1fr auto 56px; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--field-tint); }
+.rk li.me { background: var(--ink); color: var(--field-deep); }
+.rk .n { font: 700 18px/1 var(--display); text-align: right; }
+.rk .a { position: relative; width: 26px; height: 26px; }
+.rk .a .av { width: 26px; height: 26px; font: 700 15px/1 var(--display); outline: 0; }
+.rk li.me .av { background: var(--field); }
+.rk .w { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk .w em { font-style: normal; color: var(--field-tint); }
+.rk .k { color: var(--ink-muted); font-size: 14px; }
+.rk li.me .k { color: var(--field-tint); }
+.rk b { text-align: right; font: 700 18px/1 var(--display); }
+.src { width: 12px; height: 12px; vertical-align: -2px; }
+.rk .src { position: absolute; right: -4px; bottom: -4px; }
+.sh-legend { display: flex; align-items: center; gap: 6px; margin: 14px 0 0; color: var(--ink-muted); font-size: 14px; }
+.sh-legend .src + * { margin-right: 8px; }

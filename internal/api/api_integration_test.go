@@ -93,7 +93,7 @@ func setup(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	for _, stmt := range []string{
-		`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.chat_settings, maply.round, maply.place`,
+		`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.site_guess, maply.site_player, maply.chat_settings, maply.round, maply.place`,
 		`TRUNCATE core.person, core.chat CASCADE`,
 		`TRUNCATE core.language_observation`,
 	} {
@@ -390,5 +390,75 @@ func TestSiteWaitsForTheLatestReveal(t *testing.T) {
 	body = hs.expect("GET", "/api/site/result?date=2026-12-10", "", "", http.StatusOK)
 	if err := json.Unmarshal([]byte(body), &res); err != nil || len(res.Table) != 0 {
 		t.Fatalf("site result without a pin = %s", body)
+	}
+}
+
+// A site player's answer is stored under the cookie's id, ranked with the
+// Telegram players once the day closes everywhere, and the days page says
+// nothing scored about a day before then.
+func TestSitePlayerIsRanked(t *testing.T) {
+	hs := setup(t)
+	hs.now = time.Date(2026, time.December, 10, 11, 0, 0, 0, time.UTC)
+	send := func(method, path, cookie, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: playerCookie, Value: cookie})
+		}
+		rr := httptest.NewRecorder()
+		hs.h.ServeHTTP(rr, req)
+		return rr
+	}
+	rr := send("POST", "/api/site/guess?tz=Europe/Kyiv", "", `{"lat":49.9,"lon":24.1,"name":"  Lucía "}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("site guess = %d %s", rr.Code, rr.Body)
+	}
+	var player string
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == playerCookie && c.HttpOnly && c.Secure {
+			player = c.Value
+		}
+	}
+	if !uuidPattern.MatchString(player) {
+		t.Fatalf("no player cookie: %v", rr.Result().Cookies())
+	}
+	if rr := send("POST", "/api/site/guess?tz=Europe/Kyiv", player, `{"lat":0,"lon":0}`); rr.Code != http.StatusConflict {
+		t.Fatalf("second answer = %d", rr.Code)
+	}
+	if rr := send("POST", "/api/site/guess", "", `{"lat":99,"lon":0}`); rr.Code != http.StatusBadRequest {
+		t.Fatalf("bad pin = %d", rr.Code)
+	}
+	var today todayResponse
+	if err := json.Unmarshal(send("GET", "/api/site/today?tz=Europe/Kyiv", player, "").Body.Bytes(), &today); err != nil || today.Answer == nil || today.Name != "Lucía" {
+		t.Fatalf("site today = %+v, %v", today, err)
+	}
+
+	days := send("GET", "/api/days", player, "").Body.String()
+	if leaks(days) || !strings.Contains(days, `"final":false`) || strings.Contains(days, "Lucía") {
+		t.Fatalf("days before the close: %s", days)
+	}
+	if rr := send("GET", "/api/day?date=2026-12-10", player, ""); rr.Code != http.StatusForbidden || leaks(rr.Body.String()) {
+		t.Fatalf("day before the close = %d %s", rr.Code, rr.Body)
+	}
+
+	hs.now = time.Date(2026, time.December, 11, 4, 0, 0, 0, time.UTC)
+	rr = send("GET", "/api/day?date=2026-12-10&lang=uk", player, "")
+	var day struct {
+		Players int        `json:"players"`
+		Place   placeView  `json:"place"`
+		Ranking []rankLine `json:"ranking"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &day); err != nil || rr.Code != http.StatusOK {
+		t.Fatalf("day = %d %s", rr.Code, rr.Body)
+	}
+	if day.Players != 1 || day.Place.City != "Львів" || !day.Ranking[0].Me || !day.Ranking[0].Site || day.Ranking[0].Name != "Lucía" {
+		t.Fatalf("day = %+v", day)
+	}
+	days = send("GET", "/api/days?lang=uk", player, "").Body.String()
+	if !strings.Contains(days, `"final":true`) || !strings.Contains(days, `"rank":1`) || !strings.Contains(days, "Львів") {
+		t.Fatalf("days after the close: %s", days)
+	}
+	var res resultResponse
+	if err := json.Unmarshal(send("GET", "/api/site/result?date=2026-12-10", player, "").Body.Bytes(), &res); err != nil || len(res.Table) != 1 || res.Table[0].Km == nil || *res.Table[0].Km > 20 {
+		t.Fatalf("site result from the stored answer = %+v, %v", res, err)
 	}
 }

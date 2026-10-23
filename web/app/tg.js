@@ -31,7 +31,8 @@ function haptic(kind) {
   } else if (navigator.vibrate) navigator.vibrate(VIBRATE[kind]);
 }
 // Telegram's system Back button is shown while the globe is open and returns to the photo.
-function syncBack() { if (tgAt("6.1")) view === "map" ? tg.BackButton.show() : tg.BackButton.hide(); }
+// Telegram's Back closes the days page first, then goes from the map to the photo.
+function syncBack() { if (tgAt("6.1")) view === "map" || document.body.classList.contains("is-sheet") ? tg.BackButton.show() : tg.BackButton.hide(); }
 // External links open in Telegram's browser, otherwise the page leaves the Mini App.
 document.addEventListener("click", (e) => {
   const a = e.target.closest("a[href^='http']");

@@ -11,6 +11,36 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Added
+
+- A speed bonus: the earlier the answer, the more it adds. +250 when the
+  morning post goes out, +100 by 16:00, and at most +50 once the afternoon
+  intrigue has started. It is small next to the 5,000 for the pin, so it
+  breaks near-ties rather than deciding the day. The result screen shows it
+  as a gold part of the bar, and the Help panel of the menu explains it. Migration
+  `006_speed.sql` adds the column; answers already scored keep their points.
+- A world ranking: everyone who answered a day, from a group, a DM or the
+  site, ranked one by one. Groups are not ranked against each other. A day
+  is final only after the last zone's reveal (06:00 Kyiv), so a chat hears
+  about it once, the day after: the morning post says how many played, who
+  came first and how close the day came, with your own place in a DM and the
+  members' places in a group. Chats far east, whose morning comes before the
+  day closes, get the same lines with that evening's result.
+- A days page in the Mini App and on the site, opened from the logo: every
+  day with its world numbers and your place, and each closed day's full
+  ranking. An icon on each avatar says whether the player came from
+  Telegram or the site.
+- Site players are ranked. The browser keeps a random id in a cookie, the
+  answer is stored, and the player can give a name or stay "Guest". There
+  are no streaks or personal stats on the site, and no speed bonus, since
+  the browser names its own time zone. Migration `007_world.sql` adds
+  `site_player`, `site_guess` and the `day_score` view.
+
+### Changed
+
+- The group's 20:00 result says how many of the group answered, and the
+  place and its fact are set apart in a quote, as in a forwarded card.
+
 ## v0.0.1-alpha.3 - 2026-10-23
 
 Fixes the Mini App stopping on the loading screen after alpha.2.
