@@ -11,6 +11,20 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.2 - 2026-10-23
+
+The result at 20:00 becomes a map with everyone's pins, and it can be
+forwarded into another chat as a card. Panoramas stop giving the place away
+from below, and the Mini App opens on maply's new halftone globe.
+
+Operators: the stack gains a second container, `card-renderer`
+(`chromedp/headless-shell`, pinned by digest), on a new private network
+`maply_cards`. `docker compose` creates both on deploy; nothing is needed in
+`.env`. Set `CARD_RENDERER_URL=` (empty) there to turn the cards off and send
+the photo as before. The place images were re-encoded with the nadir masked
+and moved to new keys: load the new `images/` and update `place.image_key`
+before this version serves them.
+
 ### Added
 
 - The 20:00 result is a map. A card shows the true point, every player's pin
@@ -54,6 +68,20 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 - In a Telegram window with its own title bar, which already says "maply",
   the header drops the wordmark and is lower: the day on the left, the
   timer on the right. Fullscreen keeps the full header.
+
+### Known Limitations
+
+- The card is drawn under software WebGL on ws04; one card takes a few
+  seconds, and the scheduler draws them one at a time. Many chats revealing
+  in the same minute get their results late, not lost.
+- A forwarded card shows the place. Sent into a chat whose 20:00 has not
+  come yet, it gives the answer away there; the old `t.me/share` line named
+  no place.
+- Prepared share cards live in memory: a restart between preparing and
+  sending one makes Telegram show it without a picture.
+- There is no operator chat yet (#50), no warm-up for a group that adds
+  maply late in the day (#57), and real Telegram clients are not yet
+  checked (#69).
 
 ## v0.0.1-alpha.1 - 2026-10-23
 
