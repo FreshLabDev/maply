@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/FreshLabDev/tg"
@@ -45,6 +46,9 @@ type Store interface {
 	SetPinned(ctx context.Context, chatID int64, d round.Date, pinned bool) error
 	SetIntrigueSent(ctx context.Context, chatID int64, d round.Date, kind string, at time.Time) error
 	SetResult(ctx context.Context, chatID int64, d round.Date, msgID int64, fileID string) error
+	SetWorldResult(ctx context.Context, chatID int64, d round.Date, msgID int64, fileID, version string) error
+	WorldVersion(ctx context.Context, chatID int64, d round.Date) (string, error)
+	DMResults(ctx context.Context, d round.Date) ([]db.DMResult, error)
 	SetAnswered(ctx context.Context, chatID int64, d round.Date, line string, at time.Time) error
 	OpenPosts(ctx context.Context, since round.Date) ([]db.OpenPost, error)
 	PhotoFileID(ctx context.Context, d round.Date) (string, error)
@@ -69,6 +73,7 @@ type Telegram interface {
 	SendPhoto(ctx context.Context, chatID int64, photo telegram.Photo, caption string, markup telegram.Markup) (tg.Message, error)
 	SendAnimation(ctx context.Context, chatID int64, a telegram.Animation, caption string, markup telegram.Markup) (tg.Message, error)
 	EditCaption(ctx context.Context, chatID, messageID int64, caption string, markup telegram.Markup) error
+	EditAnimation(ctx context.Context, chatID, messageID int64, a telegram.Animation, caption string, markup telegram.Markup) (tg.Message, error)
 	SendText(ctx context.Context, chatID int64, text string, markup telegram.Markup) (tg.Message, error)
 	Pin(ctx context.Context, chatID, messageID int64) error
 	Unpin(ctx context.Context, chatID, messageID int64) error
@@ -101,7 +106,10 @@ type Scheduler struct {
 	// Anim draws the posts as animations; nil sends photos and text.
 	Anim *Animator
 	// Avatars gives the players' photos for the pins; nil draws letters.
-	Avatars   Avatars
+	Avatars Avatars
+	// World draws the world animation a DM's result goes out as; nil sends
+	// the person's own result.
+	World     WorldCards
 	Payloads  *auth.Signer
 	Zones     round.Zones
 	Countries *geo.Countries
@@ -118,14 +126,20 @@ type Scheduler struct {
 	planned map[int64]string
 	// planned is what was last planned per chat: the date and the settings
 	// the times came from.
-	// chats is the last ActiveChats, read once per step.
-	chats map[int64]db.Chat
+	// chats is the last ActiveChats, read once per step. The bot's Refresh
+	// reads it too, so it is under chatsMu.
+	chatsMu sync.RWMutex
+	chats   map[int64]db.Chat
+	// worldPlanned is the dates whose final world job is queued.
+	worldPlanned map[round.Date]bool
+	refreshing   inflight
 }
 
 const (
 	jobPost     = "post"
 	jobIntrigue = "intrigue"
 	jobResult   = "result"
+	jobWorld    = "world"
 
 	lease       = 2 * time.Minute
 	maxAttempts = 5
@@ -192,11 +206,17 @@ func (s *Scheduler) plan(ctx context.Context) error {
 	if s.planned == nil {
 		s.planned = map[int64]string{}
 	}
-	s.chats = make(map[int64]db.Chat, len(chats))
+	byID := make(map[int64]db.Chat, len(chats))
 	for _, c := range chats {
-		s.chats[c.ID] = c
+		byID[c.ID] = c
 	}
+	s.chatsMu.Lock()
+	s.chats = byID
+	s.chatsMu.Unlock()
 	now := s.now()
+	if err := s.planWorld(ctx, chats, now); err != nil {
+		return err
+	}
 	for _, c := range chats {
 		loc := s.location(c)
 		d := round.DateIn(now, loc)
@@ -248,6 +268,8 @@ func (s *Scheduler) runJob(ctx context.Context, j db.Job) {
 		err = s.intrigue(ctx, j)
 	case jobResult:
 		err = s.result(ctx, j)
+	case jobWorld:
+		err = s.worldFinal(ctx, j)
 	default:
 		err = errSkip
 	}
@@ -279,6 +301,8 @@ func (s *Scheduler) runJob(ctx context.Context, j db.Job) {
 // chatOf is the job's chat as the planner last saw it, with its zone and
 // language. A chat that is gone since is not sent to.
 func (s *Scheduler) chatOf(_ context.Context, id int64) (db.Chat, bool, error) {
+	s.chatsMu.RLock()
+	defer s.chatsMu.RUnlock()
 	c, ok := s.chats[id]
 	return c, ok, nil
 }

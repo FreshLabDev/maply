@@ -27,6 +27,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/schedule"
 	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/FreshLabDev/maply/internal/world"
 	"github.com/FreshLabDev/maply/migrations"
 	"github.com/FreshLabDev/maply/web"
 )
@@ -108,7 +109,6 @@ func run(log *slog.Logger) error {
 		opts.Profiles = profiles
 		go profiles.Run(ctx, 10*time.Minute)
 	}
-	b := bot.New(store, tgc, log, opts)
 	// The players' photos for the pins and tables of the results.
 	avatars := &avatar.Service{Store: store, TG: tgc, Log: log}
 
@@ -131,6 +131,33 @@ func run(log *slog.Logger) error {
 		}
 		log.Info("result cards on", "renderer", cfg.CardRendererURL, "sharing", cards.CanShare())
 	}
+
+	var sched *schedule.Scheduler
+	if cfg.Schedule {
+		sched = &schedule.Scheduler{
+			Store:     store,
+			TG:        tgc,
+			Weather:   schedule.OpenMeteo{},
+			Payloads:  signer,
+			Zones:     zones,
+			Countries: countries,
+			ImagesDir: cfg.ImagesDir,
+			Username:  me.Username,
+			AppURL:    cfg.AppURL,
+			Avatars:   avatars,
+			Log:       log,
+		}
+		if cards != nil {
+			sched.Cards = cards
+		}
+		if ffmpeg != "" {
+			sched.Anim = &schedule.Animator{FFmpeg: ffmpeg}
+			// A DM's result is the whole world's day on one globe.
+			sched.World = &world.Service{Store: store, Zones: zones, FFmpeg: ffmpeg, Avatars: avatars, Log: log}
+			opts.World = sched
+		}
+	}
+	b := bot.New(store, tgc, log, opts)
 
 	gameAPI := &api.Server{
 		Store:       store,
@@ -190,26 +217,7 @@ func run(log *slog.Logger) error {
 		}
 	}()
 
-	if cfg.Schedule {
-		sched := &schedule.Scheduler{
-			Store:     store,
-			TG:        tgc,
-			Weather:   schedule.OpenMeteo{},
-			Payloads:  signer,
-			Zones:     zones,
-			Countries: countries,
-			ImagesDir: cfg.ImagesDir,
-			Username:  me.Username,
-			AppURL:    cfg.AppURL,
-			Avatars:   avatars,
-			Log:       log,
-		}
-		if cards != nil {
-			sched.Cards = cards
-		}
-		if ffmpeg != "" {
-			sched.Anim = &schedule.Animator{FFmpeg: ffmpeg}
-		}
+	if sched != nil {
 		go func() {
 			log.Info("scheduler starting")
 			if err := sched.Run(ctx); err != nil {

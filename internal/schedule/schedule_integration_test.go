@@ -60,6 +60,9 @@ func (f *fakeTG) add(s sent) (tg.Message, error) {
 	if s.kind == "photo" {
 		msg.Photo = []tg.Photo{{FileID: "small"}, {FileID: "file-1"}}
 	}
+	if s.kind == "animation" {
+		msg.Document = &tg.Document{FileID: fmt.Sprintf("anim-%d", f.next)}
+	}
 	return msg, nil
 }
 
@@ -74,6 +77,15 @@ func (f *fakeTG) SendAnimation(_ context.Context, chatID int64, a telegram.Anima
 func (f *fakeTG) EditCaption(_ context.Context, chatID, _ int64, caption string, m telegram.Markup) error {
 	_, err := f.add(sent{kind: "edit", chatID: chatID, text: caption, buttons: m})
 	return err
+}
+
+func (f *fakeTG) EditAnimation(_ context.Context, chatID, msgID int64, a telegram.Animation, caption string, m telegram.Markup) (tg.Message, error) {
+	msg, err := f.add(sent{kind: "edit_animation", chatID: chatID, text: caption, fileID: a.FileID, upload: a.MP4 != nil, buttons: m})
+	if err == nil {
+		msg.Document = &tg.Document{FileID: fmt.Sprintf("edited-%d", msg.MessageID)}
+		msg.MessageID = msgID
+	}
+	return msg, err
 }
 
 func (f *fakeTG) SendText(_ context.Context, chatID int64, text string, m telegram.Markup) (tg.Message, error) {
@@ -152,7 +164,7 @@ func testDB(t *testing.T) (*db.Store, *pgxpool.Pool) {
 	}
 	reset := func() {
 		for _, stmt := range []string{
-			`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.site_guess, maply.site_player, maply.chat_settings, maply.round, maply.place, maply.avatar`,
+			`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.site_guess, maply.site_player, maply.chat_settings, maply.round, maply.place, maply.avatar, maply.world_card`,
 			`TRUNCATE core.person, core.chat CASCADE`,
 		} {
 			if _, err := pool.Exec(ctx, stmt); err != nil {

@@ -161,6 +161,7 @@ type fakeTelegram struct {
 	deleted      []int64
 	alerts       []string
 	answers      int
+	toasts       []string
 	members      map[int64]string
 	anims        []sent
 	animated     chan struct{} // told after each animation, when set
@@ -214,8 +215,9 @@ func (f *fakeTelegram) DeleteMessage(_ context.Context, _, messageID int64) erro
 	return nil
 }
 
-func (f *fakeTelegram) AnswerCallbackQuery(context.Context, string, string) error {
+func (f *fakeTelegram) AnswerCallbackQuery(_ context.Context, _, text string) error {
 	f.answers++
+	f.toasts = append(f.toasts, text)
 	return nil
 }
 

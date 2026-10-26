@@ -265,10 +265,7 @@ func (s *Scheduler) result(ctx context.Context, j db.Job) error {
 	if err != nil {
 		return err
 	}
-	place := scoring.Place{Point: answer.Point, Country: answer.CountryISO, Continent: answer.Continent, City: answer.CityShape}
-	if _, err := s.Store.ScoreDue(ctx, j.Date, s.now(), func(p geo.Point) scoring.Score {
-		return scoring.Judge(p, place, s.Countries)
-	}); err != nil {
+	if err := s.scoreDue(ctx, j.Date, answer); err != nil {
 		return err
 	}
 	lang := i18n.Resolve(c.Lang)
@@ -336,6 +333,11 @@ func (s *Scheduler) dmResult(ctx context.Context, c db.Chat, rd db.Round, cr db.
 	}
 	if cr.PostMsgID == 0 && !answered {
 		return errSkip
+	}
+	if s.World != nil {
+		if sent, err := s.dmWorld(ctx, c, rd, cr, answer, lang); sent || err != nil {
+			return err
+		}
 	}
 	own := []string{i18n.T(lang, "result.missed")}
 	if answered && g.Km != nil {

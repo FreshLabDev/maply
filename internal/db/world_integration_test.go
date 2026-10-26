@@ -73,6 +73,35 @@ func TestWorldRanksEveryoneTogether(t *testing.T) {
 	if w.MedianKm == nil {
 		t.Fatal("no median")
 	}
+	// The pins come in the ranking's order, the site's among them.
+	pins, err := store.WorldPins(ctx, d)
+	if err != nil || len(pins) != 3 {
+		t.Fatalf("pins = %+v, %v", pins, err)
+	}
+	for i, p := range pins {
+		if p.Km != w.Entries[i].Km {
+			t.Errorf("pin %d at %.1f km, entry at %.1f km", i, p.Km, w.Entries[i].Km)
+		}
+	}
+	if pins[0].Lat != 50.4 || !pins[0].AnsweredAt.Equal(early) {
+		t.Errorf("first pin = %+v", pins[0])
+	}
+
+	// The world picture is kept per language, the last version winning.
+	if _, ok, err := store.WorldCard(ctx, d, "en"); ok || err != nil {
+		t.Fatalf("a card before any: %v, %v", ok, err)
+	}
+	for _, c := range []WorldCard{{Version: "v1", FileID: "f1"}, {Version: "v2", FileID: "f2", Final: true}} {
+		if err := store.SetWorldCard(ctx, d, "en", c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c, ok, _ := store.WorldCard(ctx, d, "en"); !ok || c != (WorldCard{Version: "v2", FileID: "f2", Final: true}) {
+		t.Errorf("kept card = %+v", c)
+	}
+	if _, ok, _ := store.WorldCard(ctx, d, "ru"); ok {
+		t.Error("a card in another language")
+	}
 
 	days, err := store.Days(ctx, d, 7)
 	if err != nil || len(days) != 1 || days[0].Players != 3 || days[0].Pending != 1 || days[0].DayNo != 1 {

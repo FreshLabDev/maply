@@ -11,6 +11,7 @@ import (
 
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/FreshLabDev/maply/internal/schedule"
 	"github.com/FreshLabDev/maply/internal/telegram"
 )
 
@@ -69,6 +70,15 @@ type Options struct {
 	// Profiles draws the statistics picture; nil shows the statistics as
 	// text only.
 	Profiles Profiles
+	// World refreshes the world picture of a DM's result; nil leaves its
+	// Refresh button doing nothing.
+	World WorldRefresher
+}
+
+// WorldRefresher brings the world picture under a DM's result up to date;
+// see schedule.Scheduler.RefreshWorld.
+type WorldRefresher interface {
+	RefreshWorld(ctx context.Context, chatID, msgID int64, d round.Date) (schedule.Refresh, error)
 }
 
 type Bot struct {

@@ -11,6 +11,26 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+Operators: migration `011_world_card.sql` runs on start with
+`AUTO_MIGRATE=true`: a `world_card` table, a `world_version` column on
+`chat_round` and the job kind `world`. The world animation is drawn with
+ffmpeg; without it DM results go out as before.
+
+### Changed
+
+- The DM result is the world animation of the day: every answer scored so
+  far on one globe and the first three on the podium, with their photos.
+  The caption keeps the person's own day and adds their place in the world
+  so far. Sharing the result from the Mini App sends the same animation,
+  so the shared post shows everyone, not one pin.
+- Until the day closes in every time zone the result carries a Refresh
+  button and an italic note on when the ranking is final. Refresh redraws
+  the picture with the answers scored since, at most once every two
+  minutes per language, and says when there is nothing new.
+- Two minutes after the last zone's 20:00 the final picture replaces the
+  one in every DM result, with the final place and without the button.
+- The world animation writes distances under a kilometre in metres.
+
 ## v0.0.1-alpha.7 - 2026-10-26
 
 Results show the players' faces, the DM result is about the person's own

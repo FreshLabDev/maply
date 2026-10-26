@@ -12,6 +12,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/i18n"
 	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/FreshLabDev/maply/internal/schedule"
 	"github.com/FreshLabDev/maply/internal/telegram"
 )
 
@@ -139,6 +140,9 @@ func isPanel(m tg.Message) bool {
 }
 
 func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
+	if d, ok := schedule.WorldCallback(cq.Data); ok {
+		return b.onRefreshWorld(ctx, cq, d)
+	}
 	owner, action, ok := parseMenuCB(cq.Data)
 	if !ok {
 		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")

@@ -93,3 +93,47 @@ func TestResultKeepsItsAnimation(t *testing.T) {
 		t.Fatalf("a day without a result: %q, %v", got, err)
 	}
 }
+
+// A DM result showing the world picture keeps its version, and the day's
+// close finds it among the DM results to put the final picture in.
+func TestWorldResultKeepsItsVersion(t *testing.T) {
+	store := testStore(t)
+	seedRound(t, store)
+	ctx := context.Background()
+	d := round.NewDate(2026, 11, 1)
+	for _, id := range []int64{7, 8, -1007001} {
+		if err := store.EnsureChat(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.ChatRound(ctx, id, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.SetWorldResult(ctx, 7, d, 42, "anim-1", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	// An edit Telegram found unchanged gives no file id: the old one stays.
+	if err := store.SetWorldResult(ctx, 7, d, 42, "", "v2"); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := store.WorldVersion(ctx, 7, d); err != nil || v != "v2" {
+		t.Fatalf("version = %q, %v", v, err)
+	}
+	if id, _ := store.ResultAnimation(ctx, 7, d); id != "anim-1" {
+		t.Fatalf("file id = %q", id)
+	}
+	if v, _ := store.WorldVersion(ctx, 8, d); v != "" {
+		t.Fatalf("a result without the world picture has version %q", v)
+	}
+	// The group's result and a DM's text result are not DM animations.
+	if err := store.SetResult(ctx, -1007001, d, 50, "anim-2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetResult(ctx, 8, d, 51, ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.DMResults(ctx, d)
+	if err != nil || len(got) != 1 || got[0] != (DMResult{ChatID: 7, MsgID: 42}) {
+		t.Fatalf("dm results = %+v, %v", got, err)
+	}
+}

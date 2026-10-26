@@ -27,7 +27,10 @@ type World struct {
 	Guesses []Guess
 	Top     [3]*Winner // the first three; nil where there are fewer
 	Unit    string
-	Lang    language.Language
+	// UnitM writes a distance under a kilometre in metres; empty keeps it
+	// in kilometres.
+	UnitM string
+	Lang  language.Language
 }
 
 const worldDur = 12
@@ -100,5 +103,5 @@ func (w *World) Draw(c *Canvas, t float64) {
 		c.Pin(78, 172, 30, PinStyle{Fill: white, Hole: deep, NoEdge: true, EdgeWidth: 1}, 1, clip)
 		c.Text(Display, 40, s, 98, 173, Left, white, 1, clip)
 	}
-	c.podium(worldPodium, w.Top, w.Unit, "", t)
+	c.podium(worldPodium, w.Top, w.Unit, w.UnitM, t)
 }
