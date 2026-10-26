@@ -11,6 +11,11 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.8 - 2026-10-26
+
+The DM result shows the whole world's day, and sharing it sends everyone,
+not one pin.
+
 Operators: migration `011_world_card.sql` runs on start with
 `AUTO_MIGRATE=true`: a `world_card` table, a `world_version` column on
 `chat_round` and the job kind `world`. The world animation is drawn with
