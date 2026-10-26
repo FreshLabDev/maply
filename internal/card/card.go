@@ -75,10 +75,19 @@ type Service struct {
 	// Username is the bot's, for the Play button on a shared card.
 	Username string
 	TG       Saver
-	Log      *slog.Logger
-	Now      func() time.Time
+	// Avatars gives the players' kept photos for their marks; nil keeps the
+	// letters.
+	Avatars Avatars
+	Log     *slog.Logger
+	Now     func() time.Time
 
 	images images
+}
+
+// Avatars gives the kept profile photos of players as square JPEGs, without
+// asking Telegram, leaving out people who have none.
+type Avatars interface {
+	Kept(ctx context.Context, ids []int64) map[int64][]byte
 }
 
 func (s *Service) now() time.Time {
@@ -145,7 +154,7 @@ func (s *Service) Prepare(ctx context.Context, sh Share) (string, error) {
 	if g, answered, err := s.Store.GuessOf(ctx, sh.Date, sh.UserID); err != nil {
 		return "", err
 	} else if answered && g.Km != nil {
-		caption += "\n" + i18n.T(lang, "result.your", "km", i18n.FormatKm(lang, *g.Km), "points", i18n.FormatNumber(lang, g.Total()))
+		caption += "\n" + i18n.T(lang, "result.your", "dist", i18n.FormatDistance(lang, *g.Km), "points", i18n.FormatNumber(lang, g.Total()))
 	}
 	markup := telegram.Markup{{{Text: i18n.T(lang, "btn.play"), URL: "https://t.me/" + s.Username + "/play"}}}
 	if fileID, err := s.Store.ResultAnimation(ctx, sh.ChatID, sh.Date); err != nil {

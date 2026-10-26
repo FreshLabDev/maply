@@ -11,6 +11,27 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Added
+
+- Players' Telegram photos stand in for their letters: in the pins and on
+  the podium of the result animation, on the result card and on the Mini
+  App's map and table. A photo is asked of Telegram at most once a day per
+  person and kept as a 128 px square; someone with no photo the bot may see
+  keeps the letter. Migration `010_avatar.sql` keeps the photos.
+- The DM result tells the person about their own day: where the points came
+  from (distance, city, country and continent, speed), a new record or their
+  usual miss, the days in a row, and their place in each of their groups.
+- `maply-places -sharpen` fetches the original frames again: panoramas at
+  4096×2048 and photos at 3072 px instead of Mapillary's 2048 px thumbnails.
+
+### Changed
+
+- The look back at yesterday is shorter: the first place, then the person's
+  place or the group's places. The typical miss shows from 5 players and the
+  share of players beaten from 10, since for two players both say nothing.
+- Distances under a kilometre read in metres: "2 m", not "0.0 km".
+- No em dash anywhere a person reads maply, and tests keep it so.
+
 ## v0.0.1-alpha.6 - 2026-10-23
 
 The statistics panel turns into a picture: the Earth turns slowly under the

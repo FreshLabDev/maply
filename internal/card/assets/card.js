@@ -33,7 +33,12 @@
       data.pins.forEach((p, i) => {
         const e = document.createElement("i");
         e.className = "av" + (i < 3 ? " w" : "");
-        e.textContent = p.initial;
+        if (p.photo) {
+          const img = document.createElement("img");
+          img.src = p.photo;
+          img.alt = "";
+          e.appendChild(img);
+        } else e.textContent = p.initial;
         e.style.zIndex = String(100 - i);
         new maplibregl.Marker({ element: e }).setLngLat([p.lon, p.lat]).addTo(map);
       });

@@ -5,7 +5,11 @@ const PIN_PATH = "M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1
 // On the map, markers are dark with a white outline: visible on both light land and green water.
 const PIN = '<svg class="pin" viewBox="150 119 340 402"><path fill="#1A412B" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="miter" paint-order="stroke" fill-rule="evenodd" d="' + PIN_PATH + '"/></svg>';
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
-const av = (who, me) => '<i class="av' + (me ? ' me' : '') + '">' + (me ? esc(T("you")) : esc(who[0] || "?")) + '</i>';
+// A Telegram photo comes as a data: URL of a JPEG maply encoded; anything else keeps the letter.
+const PHOTO = /^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/;
+const av = (who, me, photo) => photo && PHOTO.test(photo)
+  ? '<i class="av ph' + (me ? ' me' : '') + '"><img src="' + photo + '" alt=""></i>'
+  : '<i class="av' + (me ? ' me' : '') + '">' + (me ? esc(T("you")) : esc(who[0] || "?")) + '</i>';
 // Names come from Telegram profiles and go into innerHTML.
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => "&#" + c.charCodeAt(0) + ";");
 const el = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.firstElementChild; };
@@ -435,7 +439,7 @@ function paintBoard(rows) {
       if (k >= r.lvl) segs.push('<i class="if" data-tip="' + esc(T("bonus_missed", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
     });
     const x = i >= top && !r.me ? " x" : "";
-    return '<div class="r' + (r.me ? " me" : "") + x + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me) + '<span>' + esc(r.who) + '</span>' +
+    return '<div class="r' + (r.me ? " me" : "") + x + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me, r.photo) + '<span>' + esc(r.who) + '</span>' +
       '<span class="hit" data-rest="' + esc(T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
       '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '" data-sp="' + r.sp + '">0</b><span class="k">' + fmt(r.d) + ' ' + esc(T("km")) + '</span></div>';
   }).join("");
@@ -516,7 +520,7 @@ function toReveal(res) {
   state = "reveal";
   const P = res.place, truth = new maplibregl.LngLat(P.lon, P.lat);
   credits(P);
-  const rows = res.table.map((r) => ({ who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0, me: !!r.me }))
+  const rows = res.table.map((r) => ({ who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0, me: !!r.me, photo: r.photo }))
     .sort((a, b) => b.pts - a.pts);
   mine = rows.find((r) => r.me) || null;
   // A pin that never reached the server is not an answer: it leaves the map rather than draw a line to the place.
@@ -530,7 +534,7 @@ function toReveal(res) {
   ovUnderBoard();
   // Layer order: friends, the target above them, your own pin on top.
   marks = { truth, friends: friends.map((f) => {
-    const e = el('<div class="friend"><span class="g"><s></s>' + av(f.who) + '<b>' + esc(f.who) + '</b></span></div>');
+    const e = el('<div class="friend"><span class="g"><s></s>' + av(f.who, false, f.photo) + '<b>' + esc(f.who) + '</b></span></div>');
     new maplibregl.Marker({ element: e }).setLngLat(f.at).addTo(map).getElement().style.zIndex = 1;
     return { at: f.at, g: e.firstChild, s: e.querySelector("s"), b: e.querySelector("b") };
   }) };
@@ -638,7 +642,7 @@ async function openDays() {
       continue;
     }
     const where = [d.city, d.country && regionName(d.country)].filter(Boolean).join(", ");
-    let rows = '<p>' + esc(T("day_world", { n: fmt(d.players), km: d.median_km != null ? kmT(d.median_km) : "—", pct: d.country_pct })) + '</p>';
+    let rows = '<p>' + esc(T("day_world", { n: fmt(d.players), km: d.median_km != null ? kmT(d.median_km) : "…", pct: d.country_pct })) + '</p>';
     if (d.group) rows += '<p>' + esc(T("day_group", { n: d.group.answered, total: d.group.members })) + (d.group.best_name ? ' · <span lang="' + nameLang() + '">' + esc(d.group.best_name) + "</span>, " + kmT(d.group.best_km) : "") + '</p>';
     if (d.me) rows += '<p class="me">' + esc(T("day_me", { rank: d.me.rank, points: fmt(d.me.points) })) + '</p>';
     html += '<button class="dd" data-date="' + esc(d.date) + '">' + head + '<b>' + esc(where) + '</b>' + rows + '<em>→</em></button>';
@@ -659,7 +663,7 @@ async function openDay(date) {
   let d;
   try { d = await getJSON("/api/day?date=" + encodeURIComponent(date)); } catch (e) { toast(errorText(e)); return; }
   const P = d.place, where = [P.city, regionName(P.country)].filter(Boolean).join(", ");
-  let html = '<p class="sh-sub">' + esc(T("day_world", { n: fmt(d.players), km: d.median_km != null ? kmT(d.median_km) : "—", pct: d.country_pct })) + '</p><ol class="rk">';
+  let html = '<p class="sh-sub">' + esc(T("day_world", { n: fmt(d.players), km: d.median_km != null ? kmT(d.median_km) : "…", pct: d.country_pct })) + '</p><ol class="rk">';
   for (const r of d.ranking) {
     const name = nameOf(r);
     html += '<li class="' + (r.me ? "me" : "") + '"><span class="n">' + r.rank + '</span><span class="a">' + av(name) + (r.site ? SRC_SITE : SRC_TG) +

@@ -21,7 +21,7 @@
 <div id="map"></div>
 <section class="top">
 {{- range .Rows}}
-  <div class="row"><em>{{.Rank}}</em><i class="av w">{{.Initial}}</i><span class="who">{{.Name}}</span><span class="km">{{.Dist}}</span><b>{{.Points}}</b></div>
+  <div class="row"><em>{{.Rank}}</em><i class="av w">{{if .Photo}}<img src="{{.Photo}}" alt="">{{else}}{{.Initial}}{{end}}</i><span class="who">{{.Name}}</span><span class="km">{{.Dist}}</span><b>{{.Points}}</b></div>
 {{- else}}
   <p class="none">{{.Nobody}}</p>
 {{- end}}

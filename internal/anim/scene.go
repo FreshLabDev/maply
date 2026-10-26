@@ -104,6 +104,15 @@ func (c *Canvas) timeline(x0, x1, y, t, period, filled float64) {
 
 // Thousands writes n rounded, its thousands apart by a no-break space, the
 // narrowest space the brand's faces have: 1 234.
+// Distance is km with its unit, in metres under a kilometre when unitM is
+// given: a pin a few steps off says "2 m", not "0 km".
+func Distance(km float64, unit, unitM string) string {
+	if km < 1 && unitM != "" {
+		return Thousands(km*1000) + " " + unitM
+	}
+	return Thousands(km) + " " + unit
+}
+
 func Thousands(n float64) string {
 	s := strconv.Itoa(int(math.Round(n)))
 	neg := strings.HasPrefix(s, "-")

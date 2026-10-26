@@ -14,8 +14,9 @@ type Player struct {
 	Name       string
 	Lat, Lon   float64
 	Km, Points float64
-	Rank       int // 1 is the closest
-	Streak     int // days in a row, shown on the podium when > 0
+	Rank       int   // 1 is the closest
+	Streak     int   // days in a row, shown on the podium when > 0
+	Face       *Face // the profile photo; nil draws the initial
 }
 
 // Results is the post of the evening in a group: the camera flies to where
@@ -26,6 +27,7 @@ type Results struct {
 	Place   Place
 	Players []Player // in the order they answered
 	Unit    string   // of the distances, "km"
+	UnitM   string   // of the distances under a kilometre, "m"
 	Lang    language.Language
 	fitLat  float64
 	fitLon  float64
@@ -37,8 +39,8 @@ var resultsPodium = podium{h: [3]float64{172, 132, 102}, rise: 6.2, step: 0.42, 
 
 // NewResults ranks nobody: the players come with their distance, points and
 // rank, as the bot scored them.
-func NewResults(day int, place Place, players []Player, unit, lang string) *Results {
-	r := &Results{Day: day, Place: place, Players: players, Unit: unit, Lang: language.NewLanguage(lang)}
+func NewResults(day int, place Place, players []Player, unit, unitM, lang string) *Results {
+	r := &Results{Day: day, Place: place, Players: players, Unit: unit, UnitM: unitM, Lang: language.NewLanguage(lang)}
 	lats, lons := []float64{place.Lat}, []float64{place.Lon}
 	for _, p := range players {
 		lats, lons = append(lats, p.Lat), append(lons, p.Lon)
@@ -144,11 +146,15 @@ func (r *Results) Draw(c *Canvas, t float64) {
 		}
 		col := paper.Mix(to, rc)
 		if a := smooth(t0, t0+0.1, t) * keep; a > 0 {
-			c.Pin(qx, qy-drop, 44, PinStyle{Fill: col, Edge: deep, Hole: deep, Label: initial(p.Name), LabelColor: col, Squash: sq}, a, clip)
+			h := 44.0
+			if p.Face != nil {
+				h = 56
+			}
+			c.Pin(qx, qy-drop, h, PinStyle{Fill: col, Edge: deep, Hole: deep, Label: initial(p.Name), LabelColor: col, Squash: sq, Face: p.Face}, a, clip)
 		}
 		// The distance, beside the pin.
 		if ka := smooth(5.3+float64(i)*0.12, 5.7+float64(i)*0.12, t) * keep; ka > 0 {
-			s := Thousands(p.Km) + " " + r.Unit
+			s := Distance(p.Km, r.Unit, r.UnitM)
 			w := c.Measure(Body, 19, s) + 16
 			bx, by := qx+18, qy-46
 			c.RoundRect(bx, by, w, 26, 13, 13, deep, ka, clip)
@@ -159,10 +165,10 @@ func (r *Results) Draw(c *Canvas, t float64) {
 	var win [3]*Winner
 	for _, p := range r.Players {
 		if p.Rank >= 1 && p.Rank <= 3 && win[p.Rank-1] == nil {
-			win[p.Rank-1] = &Winner{Name: p.Name, Km: p.Km, Points: p.Points, Streak: p.Streak}
+			win[p.Rank-1] = &Winner{Name: p.Name, Km: p.Km, Points: p.Points, Streak: p.Streak, Face: p.Face}
 		}
 	}
-	c.podium(resultsPodium, win, r.Unit, t)
+	c.podium(resultsPodium, win, r.Unit, r.UnitM, t)
 	c.confetti(t-(6.2+0.84+0.45), podiumBase-resultsPodium.h[0])
 }
 

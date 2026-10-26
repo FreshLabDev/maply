@@ -49,7 +49,7 @@ func TestTableEscapesNamesAndShowsStreaks(t *testing.T) {
 	km := 12.4
 	pts, bonus := 3000, 500
 	lines := table("en", []db.Guess{{UserID: 1, FirstName: "<i>x", Km: &km, PtsKm: &pts, PtsBonus: &bonus}}, map[int64]int{1: 4})
-	if len(lines) != 1 || lines[0] != "1. &lt;i&gt;x — 12 km · 3,500 🔥4" {
+	if len(lines) != 1 || lines[0] != "1. &lt;i&gt;x, 12 km · 3,500 🔥4" {
 		t.Fatalf("table = %q", lines)
 	}
 }

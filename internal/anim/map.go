@@ -106,7 +106,8 @@ func (c *Canvas) target(x, y, since, ring, grow, outer, inner, alpha float64, cl
 type Winner struct {
 	Name       string
 	Km, Points float64
-	Streak     int // days in a row, shown when > 0
+	Streak     int   // days in a row, shown when > 0
+	Face       *Face // the profile photo, beside the name; nil for none
 }
 
 // podium is how the steps of a post rise: their heights for first, second
@@ -125,7 +126,7 @@ const podiumBase, podiumW = 888, 196
 
 // podium puts the winners on their steps: third, second, first. A nil
 // winner leaves the step out.
-func (c *Canvas) podium(p podium, win [3]*Winner, unit string, t float64) {
+func (c *Canvas) podium(p podium, win [3]*Winner, unit, unitM string, t float64) {
 	for _, ri := range []int{2, 1, 0} {
 		w := win[ri]
 		if w == nil {
@@ -147,23 +148,33 @@ func (c *Canvas) podium(p podium, win [3]*Winner, unit string, t float64) {
 		if a <= 0 {
 			continue
 		}
-		c.streakName(w.Name, w.Streak, x+podiumW/2, top+p.nameY, a)
-		c.Text(BodyMedium, 21, Thousands(w.Km)+" "+unit+" · "+Thousands(w.Points), x+podiumW/2, top+p.lineY, Center, paper, a, nil)
+		c.streakName(w.Name, w.Streak, w.Face, x+podiumW/2, top+p.nameY, a)
+		c.Text(BodyMedium, 21, Distance(w.Km, unit, unitM)+" · "+Thousands(w.Points), x+podiumW/2, top+p.lineY, Center, paper, a, nil)
 	}
 }
 
 // streakName writes a name centred on x, and after it a flame and the
 // streak when there is one: the 🔥 of the messages, drawn, since the brand's
 // faces have no emoji.
-func (c *Canvas) streakName(name string, streak int, x, y, alpha float64) {
+func (c *Canvas) streakName(name string, streak int, face *Face, x, y, alpha float64) {
+	// The photo sits before the name, its middle on the letters' middle.
+	const faceD, faceGap = 34, 8
+	lead := 0.0
+	if face != nil {
+		lead = faceD + faceGap
+	}
 	if streak <= 0 {
-		c.Text(Body, 28, name, x, y, Center, white, alpha, nil)
+		x0 := x - (lead+c.Measure(Body, 28, name))/2
+		c.Face(face, x0+faceD/2, y-10, faceD/2, alpha, nil)
+		c.Text(Body, 28, name, x0+lead, y, Left, white, alpha, nil)
 		return
 	}
 	n := strconv.Itoa(streak)
 	const gap, flameW = 10, 15
-	total := c.Measure(Body, 28, name) + gap + flameW + 3 + c.Measure(Body, 28, n)
+	total := lead + c.Measure(Body, 28, name) + gap + flameW + 3 + c.Measure(Body, 28, n)
 	x0 := x - total/2
+	c.Face(face, x0+faceD/2, y-10, faceD/2, alpha, nil)
+	x0 += lead
 	w := c.Text(Body, 28, name, x0, y, Left, white, alpha, nil)
 	c.flame(x0+w+gap+flameW/2, y, 24, alpha)
 	c.Text(Body, 28, n, x0+w+gap+flameW+3, y, Left, white, alpha, nil)

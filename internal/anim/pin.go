@@ -10,6 +10,7 @@ const (
 	pinTip             = 501
 	pinHole            = 60
 	pinHeight          = 362
+	faceR              = 112 // a photo in the head leaves a ring of the fill
 )
 
 // pinDist is the signed distance from x, y to the pin's outline in pin
@@ -37,6 +38,7 @@ type PinStyle struct {
 	EdgeWidth        float64 // in pin units; 0 means 34
 	Label            string  // a letter in the hole
 	LabelColor       RGB
+	Face             *Face   // a photo filling the head instead of the hole and the letter
 	Squash           float64 // > 0 flattens the pin as it lands
 }
 
@@ -57,6 +59,23 @@ func (c *Canvas) Pin(tx, ty, h float64, st PinStyle, alpha float64, clip *Mask) 
 	x1, y1 := at(pinCX+pinR+e, pinTip+e)
 	x0, y0, x1, y1 = x0-1, y0-1, x1+1, y1+1
 
+	if st.Face != nil {
+		// The head is the photo inside a ring of the pin's colour.
+		if !st.NoEdge {
+			c.mask.Field(x0, y0, x1, y1, func(x, y float64) float32 {
+				u, v := unit(x, y)
+				return cover((math.Abs(pinDist(u, v)) - e) * kp)
+			})
+			c.Paint(c.mask, st.Edge, alpha, clip)
+		}
+		c.mask.Field(x0, y0, x1, y1, func(x, y float64) float32 {
+			u, v := unit(x, y)
+			return cover(pinDist(u, v) * kp)
+		})
+		c.Paint(c.mask, st.Fill, alpha, clip)
+		c.Face(st.Face, hx, hy, faceR*kp, alpha, clip)
+		return
+	}
 	c.mask.Ellipse(hx, hy, 64*kx, 64*ky, 0)
 	c.Paint(c.mask, st.Hole, alpha, clip)
 	if !st.NoEdge {

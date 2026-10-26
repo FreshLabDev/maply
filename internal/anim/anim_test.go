@@ -126,7 +126,7 @@ func sampleResults() *Results {
 		players[i].Km = Km(players[i].Lat, players[i].Lon, place.Lat, place.Lon)
 		players[i].Points = 5000 * math.Exp(-players[i].Km/3000)
 	}
-	return NewResults(1, place, players, "км", "ru")
+	return NewResults(1, place, players, "км", "м", "ru")
 }
 
 // The last frame of a loop leads into the first: the frame at the loop's

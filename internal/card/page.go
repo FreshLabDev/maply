@@ -5,6 +5,7 @@ package card
 import (
 	"context"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,6 +38,7 @@ const (
 type row struct {
 	Rank    int
 	Initial string
+	Photo   template.URL // a data: URL of the profile photo, or empty
 	Name    string
 	Dist    string
 	Points  string
@@ -57,6 +59,7 @@ type mapPin struct {
 	Lat     float64 `json:"lat"`
 	Lon     float64 `json:"lon"`
 	Initial string  `json:"initial"`
+	Photo   string  `json:"photo,omitempty"`
 }
 
 type mapData struct {
@@ -113,14 +116,15 @@ func (s *Service) view(ctx context.Context, chatID int64, d round.Date) (pageDat
 	if lang == "ar" {
 		pd.Dir = "rtl"
 	}
+	photos := s.photos(ctx, guesses)
 	for i, g := range guesses {
-		md.Pins = append(md.Pins, mapPin{Lat: g.Pin.Lat, Lon: g.Pin.Lon, Initial: initial(g.FirstName)})
+		md.Pins = append(md.Pins, mapPin{Lat: g.Pin.Lat, Lon: g.Pin.Lon, Initial: initial(g.FirstName), Photo: photos[g.UserID]})
 		if i >= topRows {
 			continue
 		}
-		r := row{Rank: i + 1, Initial: initial(g.FirstName), Name: shortName(g.FirstName), Dist: "—"}
+		r := row{Rank: i + 1, Initial: initial(g.FirstName), Photo: template.URL(photos[g.UserID]), Name: shortName(g.FirstName), Dist: "…"}
 		if g.Km != nil {
-			r.Dist = i18n.T(lang, "unit.km", "km", i18n.FormatKm(lang, *g.Km))
+			r.Dist = i18n.FormatDistance(lang, *g.Km)
 			r.Points = i18n.FormatNumber(lang, g.Total())
 		}
 		pd.Rows = append(pd.Rows, r)
@@ -135,6 +139,23 @@ func (s *Service) view(ctx context.Context, chatID int64, d round.Date) (pageDat
 	}
 	pd.Data = template.JS(raw)
 	return pd, nil
+}
+
+// photos is the kept photo of each player as a data: URL. The bytes are
+// JPEGs maply encoded itself, so the URL is safe to put in the page.
+func (s *Service) photos(ctx context.Context, guesses []db.Guess) map[int64]string {
+	out := map[int64]string{}
+	if s.Avatars == nil {
+		return out
+	}
+	ids := make([]int64, len(guesses))
+	for i, g := range guesses {
+		ids[i] = g.UserID
+	}
+	for id, b := range s.Avatars.Kept(ctx, ids) {
+		out[id] = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
+	}
+	return out
 }
 
 func density(players int) string {

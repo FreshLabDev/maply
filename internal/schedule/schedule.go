@@ -54,6 +54,8 @@ type Store interface {
 	Streaks(ctx context.Context, userIDs []int64, d round.Date) (map[int64]int, error)
 	DayPins(ctx context.Context, d round.Date) ([][2]float64, error)
 	InGroups(ctx context.Context, userID int64) (bool, error)
+	GroupsOf(ctx context.Context, userID int64) ([]db.Group, error)
+	ScoredBefore(ctx context.Context, userID int64, d round.Date) ([]db.Scored, error)
 	ChatGuesses(ctx context.Context, d round.Date, chatID int64) ([]db.Guess, error)
 	World(ctx context.Context, d round.Date) (db.World, error)
 	GuessOf(ctx context.Context, d round.Date, userID int64) (db.Guess, bool, error)
@@ -70,6 +72,12 @@ type Telegram interface {
 	SendText(ctx context.Context, chatID int64, text string, markup telegram.Markup) (tg.Message, error)
 	Pin(ctx context.Context, chatID, messageID int64) error
 	Unpin(ctx context.Context, chatID, messageID int64) error
+}
+
+// Avatars gives the profile photos of players, as square JPEGs, leaving out
+// people who have none.
+type Avatars interface {
+	Fetch(ctx context.Context, ids []int64) map[int64][]byte
 }
 
 // Cards draws a chat's result as a picture. An error is never fatal: the
@@ -91,7 +99,9 @@ type Scheduler struct {
 	// Cards draws the result's map card; nil sends the photo.
 	Cards Cards
 	// Anim draws the posts as animations; nil sends photos and text.
-	Anim      *Animator
+	Anim *Animator
+	// Avatars gives the players' photos for the pins; nil draws letters.
+	Avatars   Avatars
 	Payloads  *auth.Signer
 	Zones     round.Zones
 	Countries *geo.Countries

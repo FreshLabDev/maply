@@ -16,6 +16,7 @@ import (
 
 	"github.com/FreshLabDev/maply/internal/api"
 	"github.com/FreshLabDev/maply/internal/auth"
+	"github.com/FreshLabDev/maply/internal/avatar"
 	"github.com/FreshLabDev/maply/internal/bot"
 	"github.com/FreshLabDev/maply/internal/card"
 	"github.com/FreshLabDev/maply/internal/config"
@@ -108,6 +109,8 @@ func run(log *slog.Logger) error {
 		go profiles.Run(ctx, 10*time.Minute)
 	}
 	b := bot.New(store, tgc, log, opts)
+	// The players' photos for the pins and tables of the results.
+	avatars := &avatar.Service{Store: store, TG: tgc, Log: log}
 
 	signer := auth.NewSigner(cfg.TelegramBotToken)
 	// Without a renderer the result goes out with the place's photo and the
@@ -123,6 +126,7 @@ func run(log *slog.Logger) error {
 			PublicURL: cfg.AppURL,
 			Username:  me.Username,
 			TG:        tgc,
+			Avatars:   avatars,
 			Log:       log,
 		}
 		log.Info("result cards on", "renderer", cfg.CardRendererURL, "sharing", cards.CanShare())
@@ -137,6 +141,7 @@ func run(log *slog.Logger) error {
 		Countries:   countries,
 		ImagesDir:   cfg.ImagesDir,
 		BotUsername: me.Username,
+		Avatars:     avatars,
 		Log:         log,
 	}
 	if cards != nil {
@@ -196,6 +201,7 @@ func run(log *slog.Logger) error {
 			ImagesDir: cfg.ImagesDir,
 			Username:  me.Username,
 			AppURL:    cfg.AppURL,
+			Avatars:   avatars,
 			Log:       log,
 		}
 		if cards != nil {

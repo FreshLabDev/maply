@@ -3,11 +3,12 @@
 package schedule
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"image"
-	_ "image/jpeg"
+	"image/jpeg"
 	"math"
 	"os"
 	"path/filepath"
@@ -197,9 +198,40 @@ func animationID(msg tg.Message) string {
 	return msg.Document.FileID
 }
 
+// facesWait bounds asking Telegram for the photos of a result's players; a
+// photo that does not come in time leaves its pin a letter.
+const facesWait = 20 * time.Second
+
+// faces is the photos of the scored players, for the result's pins. Nothing
+// when the result is not animated.
+func (s *Scheduler) faces(ctx context.Context, guesses []db.Guess) map[int64]*anim.Face {
+	if s.Anim == nil || s.Avatars == nil {
+		return nil
+	}
+	var ids []int64
+	for _, g := range guesses {
+		if g.Km != nil {
+			ids = append(ids, g.UserID)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, facesWait)
+	defer cancel()
+	out := map[int64]*anim.Face{}
+	for id, b := range s.Avatars.Fetch(ctx, ids) {
+		img, err := jpeg.Decode(bytes.NewReader(b))
+		if err != nil {
+			continue
+		}
+		if f := anim.NewFace(img); f != nil {
+			out[id] = f
+		}
+	}
+	return out
+}
+
 // resultScene is the group's result as an animation: the pins of who
 // answered, the place and the podium. Nil when nobody was scored.
-func resultScene(lang string, dayNo int, answer db.Answer, guesses []db.Guess, streaks map[int64]int) anim.Scene {
+func resultScene(lang string, dayNo int, answer db.Answer, guesses []db.Guess, streaks map[int64]int, faces map[int64]*anim.Face) anim.Scene {
 	// The guesses come best first, as in the table; the pins drop in the
 	// order people answered.
 	rank := make(map[int64]int, len(guesses))
@@ -213,7 +245,7 @@ func resultScene(lang string, dayNo int, answer db.Answer, guesses []db.Guess, s
 		if g.Km == nil {
 			continue
 		}
-		p := anim.Player{Name: anim.Name(g.FirstName), Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: *g.Km, Points: float64(g.Total()), Rank: rank[g.UserID]}
+		p := anim.Player{Name: anim.Name(g.FirstName), Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: *g.Km, Points: float64(g.Total()), Rank: rank[g.UserID], Face: faces[g.UserID]}
 		if n := streaks[g.UserID]; n >= 2 {
 			p.Streak = n
 		}
@@ -222,7 +254,7 @@ func resultScene(lang string, dayNo int, answer db.Answer, guesses []db.Guess, s
 	if len(players) == 0 {
 		return nil
 	}
-	return anim.NewResults(dayNo, postPlace(lang, answer), players, postUnit(lang), lang)
+	return anim.NewResults(dayNo, postPlace(lang, answer), players, postUnit(lang), postUnitM(lang), lang)
 }
 
 // The brand's faces write Latin and Cyrillic. A place in another script goes
@@ -237,6 +269,15 @@ func postPlace(lang string, a db.Answer) anim.Place {
 		p.Name, p.Country = "", ""
 	}
 	return p
+}
+
+// postUnitM is the unit of metres the faces can write, or none, when the
+// distances stay in kilometres.
+func postUnitM(lang string) string {
+	if u := strings.TrimSpace(i18n.T(lang, "unit.m", "m", "")); u != "" && anim.Covers(u) {
+		return u
+	}
+	return ""
 }
 
 func postUnit(lang string) string {

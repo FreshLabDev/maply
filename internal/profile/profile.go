@@ -337,7 +337,7 @@ func build(data db.Profile, lang string, today round.Date, closed func(round.Dat
 	p.Title, p.Name, p.DaysLabel = t("profile.title"), anim.Name(data.Name), t("profile.recent")
 	p.Total = anim.Tile{Value: anim.Thousands(float64(total)), Label: t("profile.points")}
 
-	world, worldLabel, worldBest := "—", t("profile.world", "n", strconv.Itoa(scored[len(scored)-1].DayNo)), 0
+	world, worldLabel, worldBest := "…", t("profile.world", "n", strconv.Itoa(scored[len(scored)-1].DayNo)), 0
 	for _, w := range data.World {
 		if !closed(w.Date) {
 			continue
@@ -348,7 +348,7 @@ func build(data db.Profile, lang string, today round.Date, closed func(round.Dat
 			worldBest = w.Rank
 		}
 	}
-	bestPlace := "—"
+	bestPlace := "…"
 	if worldBest > 0 {
 		bestPlace = strconv.Itoa(worldBest)
 	}

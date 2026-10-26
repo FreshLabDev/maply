@@ -24,6 +24,14 @@ import (
 // groupPlaces is how many of a group's members the look back names.
 const groupPlaces = 10
 
+// A median of two players or "ahead of 0%" says nothing: the day's typical
+// miss shows from worldDayFrom players, the share beaten from worldAheadFrom
+// and only when it is above zero.
+const (
+	worldDayFrom   = 5
+	worldAheadFrom = 10
+)
+
 // entryName is how the ranking names someone: the first name, the site's
 // own name, or "Guest".
 func entryName(lang string, e db.Entry) string {
@@ -33,9 +41,9 @@ func entryName(lang string, e db.Entry) string {
 	return displayName(e.Name)
 }
 
-// kmText is "242 km" in lang.
+// kmText is "242 km" in lang, or "40 m" under a kilometre.
 func kmText(lang string, km float64) string {
-	return i18n.T(lang, "unit.km", "km", i18n.FormatKm(lang, km))
+	return i18n.FormatDistance(lang, km)
 }
 
 // betterPct is the share of the other players someone at rank beat.
@@ -57,13 +65,18 @@ func (s *Scheduler) lookBack(ctx context.Context, lang string, d round.Date, c d
 	}
 	n := i18n.FormatNumber(lang, w.Players())
 	first := w.Entries[0]
-	lines := []string{i18n.T(lang, "world.first", "n", n, "name", entryName(lang, first), "km", kmText(lang, first.Km))}
-	if w.MedianKm != nil {
+	lines := []string{i18n.T(lang, "world.first", "name", entryName(lang, first), "km", kmText(lang, first.Km))}
+	if w.MedianKm != nil && w.Players() >= worldDayFrom {
 		lines[0] += " " + i18n.T(lang, "world.day", "km", kmText(lang, *w.MedianKm), "pct", strconv.Itoa(w.CountryPct))
 	}
 	if c.Kind == "dm" {
 		if rank := w.RankOf(c.ID); rank > 0 {
-			lines = append(lines, i18n.T(lang, "world.you", "rank", strconv.Itoa(rank), "n", n, "pct", strconv.Itoa(betterPct(rank, w.Players()))))
+			pct := betterPct(rank, w.Players())
+			if w.Players() >= worldAheadFrom && pct > 0 {
+				lines = append(lines, i18n.T(lang, "world.you_ahead", "rank", strconv.Itoa(rank), "n", n, "pct", strconv.Itoa(pct)))
+			} else {
+				lines = append(lines, i18n.T(lang, "world.you", "rank", strconv.Itoa(rank), "n", n))
+			}
 		}
 		return strings.Join(lines, "\n"), nil
 	}
@@ -81,10 +94,10 @@ func (s *Scheduler) lookBack(ctx context.Context, lang string, d round.Date, c d
 			places = append(places, "…")
 			break
 		}
-		places = append(places, fmt.Sprintf("%s — %d", displayName(g.FirstName), rank))
+		places = append(places, fmt.Sprintf("%s #%d", displayName(g.FirstName), rank))
 	}
 	if len(places) > 0 {
-		lines = append(lines, i18n.T(lang, "world.group", "places", strings.Join(places, ", ")))
+		lines = append(lines, i18n.T(lang, "world.group", "n", n, "places", strings.Join(places, ", ")))
 	}
 	return strings.Join(lines, "\n"), nil
 }

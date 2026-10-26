@@ -30,7 +30,7 @@ func TestLookBackComesOnceTheDayAfter(t *testing.T) {
 	               VALUES (1, 'used', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
 	y, d := round.NewDate(2026, 11, 1), round.NewDate(2026, 11, 2)
 	exec(t, pool, `INSERT INTO maply.round (date, day_no, place_id) VALUES ($1, 1, 1)`, y.Time())
-	chat := &tg.Chat{ID: group, Type: "supergroup"}
+	chat := &tg.Chat{ID: group, Type: "supergroup", Title: "Café <3"}
 	for _, u := range []tg.User{{ID: player, FirstName: "Pin"}, {ID: quiet, FirstName: "Ana"}} {
 		if err := store.Touch(ctx, u, chat); err != nil {
 			t.Fatal(err)
@@ -64,12 +64,16 @@ func TestLookBackComesOnceTheDayAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Yesterday 2 played worldwide", "first place: Ana", "Your place: 2 of 2"} {
+	for _, want := range []string{"Yesterday’s first place worldwide: Ana", "Your place: 2 of 2."} {
 		if !strings.Contains(back, want) {
 			t.Errorf("DM look back %q lacks %q", back, want)
 		}
 	}
-	if back, _ := s.yesterday(ctx, "en", d, grp); !strings.Contains(back, "Ana — 1, Pin — 2") {
+	// Two players make no typical miss and no share beaten.
+	if strings.Contains(back, "Typical") || strings.Contains(back, "ahead of") {
+		t.Errorf("DM look back %q has statistics of two players", back)
+	}
+	if back, _ := s.yesterday(ctx, "en", d, grp); !strings.Contains(back, "of 2: Ana #1, Pin #2") {
 		t.Errorf("group look back = %q", back)
 	}
 	// Carried by the morning post, it is not repeated at 20:00.
@@ -85,5 +89,53 @@ func TestLookBackComesOnceTheDayAfter(t *testing.T) {
 	clock = d.At(20, 0, tokyo)
 	if late, _ := s.lateLookBack(ctx, "en", d, dm, db.ChatRound{}); !strings.Contains(late, "Your place: 2 of 2") {
 		t.Errorf("Tokyo result look back = %q", late)
+	}
+}
+
+// A DM result tells the person about their own day: where the points came
+// from and their place in each group they play in.
+func TestOwnLinesTellThePersonTheirDay(t *testing.T) {
+	store, pool := testDB(t)
+	ctx := context.Background()
+	exec(t, pool, `INSERT INTO maply.place (id, status, source, source_id, license, kind, lat, lon, image_key,
+	                                       country_iso, continent, difficulty, reviewed_at)
+	               OVERRIDING SYSTEM VALUE
+	               VALUES (1, 'used', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+	d := round.NewDate(2026, 11, 1)
+	exec(t, pool, `INSERT INTO maply.round (date, day_no, place_id) VALUES ($1, 1, 1)`, d.Time())
+	if err := store.EnsureChat(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	chat := &tg.Chat{ID: group, Type: "supergroup", Title: "Café <3"}
+	for _, u := range []tg.User{{ID: player, FirstName: "Pin"}, {ID: quiet, FirstName: "Ana"}} {
+		if err := store.Touch(ctx, u, chat); err != nil {
+			t.Fatal(err)
+		}
+	}
+	answered := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	closes := time.Date(2026, 11, 1, 18, 0, 0, 0, time.UTC)
+	for id, pin := range map[int64]geo.Point{player: {Lat: 38.7201, Lon: -9.1401}, quiet: {Lat: 40.4, Lon: -3.7}} {
+		if err := store.InsertGuess(ctx, db.NewGuess{Date: d, UserID: id, Context: "group", ChatID: group, Pin: pin, AnsweredAt: answered, Deadline: closes}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lisbon := scoring.Place{Point: geo.Point{Lat: 38.72, Lon: -9.14}, Country: "PT", Continent: "europe"}
+	if _, err := store.ScoreDue(ctx, d, closes, func(p geo.Point) scoring.Score { return scoring.Judge(p, lisbon, nil) }); err != nil {
+		t.Fatal(err)
+	}
+	g, ok, err := store.GuessOf(ctx, d, player)
+	if err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	s := &Scheduler{Store: store, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	lines, err := s.ownLines(ctx, "en", d, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(lines, "\n")
+	for _, want := range []string{"Your result: 14 m · ", "3,500 for the distance", "In Café &lt;3: 1 of 2."} {
+		if !strings.Contains(text, want) {
+			t.Errorf("own lines %q lack %q", text, want)
+		}
 	}
 }

@@ -319,7 +319,7 @@ func (s *Scheduler) groupResult(ctx context.Context, c db.Chat, rd db.Round, cr 
 	if back != "" {
 		lines = append(lines, "", back)
 	}
-	scene := resultScene(lang, rd.DayNo, answer, guesses, streaks)
+	scene := resultScene(lang, rd.DayNo, answer, guesses, streaks, s.faces(ctx, guesses))
 	msg, err := s.sendResult(ctx, c, rd, scene, fitCaption(card.Quoted(lang, rd.DayNo, answer), lines), markup)
 	if err != nil {
 		return err
@@ -337,23 +337,32 @@ func (s *Scheduler) dmResult(ctx context.Context, c db.Chat, rd db.Round, cr db.
 	if cr.PostMsgID == 0 && !answered {
 		return errSkip
 	}
-	own := i18n.T(lang, "result.missed")
+	own := []string{i18n.T(lang, "result.missed")}
 	if answered && g.Km != nil {
-		own = i18n.T(lang, "result.your", "km", i18n.FormatKm(lang, *g.Km), "points", i18n.FormatNumber(lang, g.Total()))
+		if own, err = s.ownLines(ctx, lang, rd.Date, g); err != nil {
+			return err
+		}
 	}
 	back, err := s.lateLookBack(ctx, lang, rd.Date, c, cr)
 	if err != nil {
 		return err
 	}
 	if back != "" {
-		own += "\n\n" + back
+		own = append(own, "", back)
 	}
 	inGroups, err := s.Store.InGroups(ctx, c.ID)
 	if err != nil {
 		return err
 	}
 	if inGroups {
-		msg, err := s.TG.SendText(ctx, c.ID, own, markup)
+		// The groups show the place and the fact; the DM names the day and
+		// the place in a line and keeps the rest for the person's own day.
+		text := fmt.Sprintf("<b>maply #%d</b>", rd.DayNo)
+		if place := card.Place(lang, answer); place != "" {
+			text += ": " + html.EscapeString(place)
+		}
+		text += "\n" + strings.Join(own, "\n")
+		msg, err := s.TG.SendText(ctx, c.ID, text, markup)
 		if err != nil {
 			return err
 		}
@@ -361,9 +370,9 @@ func (s *Scheduler) dmResult(ctx context.Context, c db.Chat, rd db.Round, cr db.
 	}
 	var scene anim.Scene
 	if answered {
-		scene = resultScene(lang, rd.DayNo, answer, []db.Guess{g}, nil)
+		scene = resultScene(lang, rd.DayNo, answer, []db.Guess{g}, nil, s.faces(ctx, []db.Guess{g}))
 	}
-	msg, err := s.sendResult(ctx, c, rd, scene, fitCaption(card.Quoted(lang, rd.DayNo, answer), []string{own}), markup)
+	msg, err := s.sendResult(ctx, c, rd, scene, fitCaption(card.Quoted(lang, rd.DayNo, answer), own), markup)
 	if err != nil {
 		return err
 	}
@@ -380,11 +389,11 @@ func table(lang string, guesses []db.Guess, streaks map[int64]int) []string {
 			lines = append(lines, fmt.Sprintf("+%d", len(guesses)-tableRows))
 			break
 		}
-		score := "—"
+		score := "…"
 		if g.Km != nil {
-			score = i18n.T(lang, "unit.km", "km", i18n.FormatKm(lang, *g.Km)) + " · " + i18n.FormatNumber(lang, g.Total())
+			score = i18n.FormatDistance(lang, *g.Km) + " · " + i18n.FormatNumber(lang, g.Total())
 		}
-		line := fmt.Sprintf("%d. %s — %s", i+1, displayName(g.FirstName), score)
+		line := fmt.Sprintf("%d. %s, %s", i+1, displayName(g.FirstName), score)
 		if n := streaks[g.UserID]; n >= 2 {
 			line += fmt.Sprintf(" 🔥%d", n)
 		}

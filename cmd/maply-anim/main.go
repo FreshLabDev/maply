@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/FreshLabDev/maply/internal/anim"
@@ -33,7 +34,14 @@ func main() {
 	scenes := flag.String("scenes", "results,morning,world,intrigue", "which posts, comma-separated")
 	still := flag.Float64("still", -1, "write a PNG of the frame at this second instead of the video")
 	workers := flag.Int("workers", 0, "frames drawn at once; 0 is one per CPU")
+	faces := flag.String("faces", "", "a folder of JPEG profile photos, given to the sample players in name order")
 	flag.Parse()
+	if *faces != "" {
+		var err error
+		if sampleFaces, err = loadFaces(*faces); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	for _, name := range strings.Split(*scenes, ",") {
 		s, err := scene(name, *pano)
@@ -61,6 +69,31 @@ func main() {
 		log.Printf("%s: %d frames in %.2fs (drawing %.2fs of CPU, %.1f ms a frame)", path, st.Frames,
 			st.Total.Seconds(), st.Draw.Seconds(), st.Draw.Seconds()*1000/float64(st.Frames))
 	}
+}
+
+// sampleFaces are the photos -faces gives the sample players.
+var sampleFaces []*anim.Face
+
+func loadFaces(dir string) ([]*anim.Face, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "*.jpg"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	var out []*anim.Face
+	for _, p := range paths {
+		f, err := os.Open(p)
+		if err != nil {
+			return nil, err
+		}
+		img, err := jpeg.Decode(f)
+		f.Close()
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		out = append(out, anim.NewFace(img))
+	}
+	return out, nil
 }
 
 // The sample is day #1, Zanzibar: ten made-up players in a group and 348
@@ -91,7 +124,12 @@ func scene(name, pano string) (anim.Scene, error) {
 			{Name: "Петя", Lat: -13.96, Lon: 33.79},
 		}
 		rank(place, players)
-		return anim.NewResults(1, place, players, "км", "ru"), nil
+		for i := range players {
+			if i < len(sampleFaces) {
+				players[i].Face = sampleFaces[i]
+			}
+		}
+		return anim.NewResults(1, place, players, "км", "м", "ru"), nil
 	case "morning":
 		if pano == "" {
 			return nil, fmt.Errorf("the morning post needs -pano")

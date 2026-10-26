@@ -47,7 +47,7 @@ func TestResultSceneRanksAndOrders(t *testing.T) {
 		{UserID: 1, FirstName: "Pin", Km: km(900), PtsKm: pts(2000), PtsBonus: pts(0), AnsweredAt: at},
 		{UserID: 3, FirstName: "Late", AnsweredAt: at.Add(-time.Hour)},
 	}
-	s := resultScene("en", 3, db.Answer{CountryISO: "PT", City: map[string]string{"en": "Lisbon"}}, guesses, map[int64]int{2: 6, 1: 1})
+	s := resultScene("en", 3, db.Answer{CountryISO: "PT", City: map[string]string{"en": "Lisbon"}}, guesses, map[int64]int{2: 6, 1: 1}, nil)
 	r, ok := s.(*anim.Results)
 	if !ok {
 		t.Fatalf("scene = %T", s)
@@ -58,7 +58,7 @@ func TestResultSceneRanksAndOrders(t *testing.T) {
 	if r.Players[1].Streak != 6 || r.Players[0].Streak != 0 || r.Players[1].Points != 4800 {
 		t.Fatalf("streaks and points = %+v", r.Players)
 	}
-	if resultScene("en", 3, db.Answer{}, guesses[2:], nil) != nil {
+	if resultScene("en", 3, db.Answer{}, guesses[2:], nil, nil) != nil {
 		t.Fatal("a result nobody was scored in is drawn")
 	}
 }

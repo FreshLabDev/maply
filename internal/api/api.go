@@ -10,6 +10,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -66,6 +67,12 @@ type Sharer interface {
 	Prepare(ctx context.Context, sh card.Share) (string, error)
 }
 
+// Avatars gives the kept profile photos of players as square JPEGs, without
+// asking Telegram, leaving out people who have none.
+type Avatars interface {
+	Kept(ctx context.Context, ids []int64) map[int64][]byte
+}
+
 type Server struct {
 	Store     Store
 	InitData  *auth.Verifier
@@ -79,8 +86,11 @@ type Server struct {
 	ImagesDir string
 	// BotUsername is where the site sends a visitor to play in Telegram.
 	BotUsername string
-	Log         *slog.Logger
-	Now         func() time.Time
+	// Avatars gives the players' kept photos for the result's marks; nil
+	// keeps the letters.
+	Avatars Avatars
+	Log     *slog.Logger
+	Now     func() time.Time
 
 	ipLimit    *limiter
 	userLimit  *limiter
@@ -408,6 +418,8 @@ type line struct {
 	// Speed is the bonus for answering early; the site's anonymous check has none.
 	Speed int  `json:"speed,omitempty"`
 	Me    bool `json:"me,omitempty"`
+	// Photo is a data: URL of the profile photo, for the mark on the map.
+	Photo string `json:"photo,omitempty"`
 }
 
 type resultResponse struct {
@@ -474,8 +486,19 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		},
 		Table: make([]line, 0, len(guesses)),
 	}
+	photos := map[int64][]byte{}
+	if s.Avatars != nil {
+		ids := make([]int64, len(guesses))
+		for i, g := range guesses {
+			ids[i] = g.UserID
+		}
+		photos = s.Avatars.Kept(ctx, ids)
+	}
 	for _, g := range guesses {
 		l := line{Name: g.FirstName, Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Bonus: g.PtsBonus, Speed: g.Speed(), Me: g.UserID == p.user.ID}
+		if b := photos[g.UserID]; b != nil {
+			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
+		}
 		if g.PtsKm != nil && g.PtsBonus != nil {
 			total := g.Total()
 			l.Points = &total
