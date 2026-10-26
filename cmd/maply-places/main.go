@@ -82,7 +82,15 @@ func main() {
 	log.SetFlags(0)
 	out := flag.String("out", "curation/out", "output directory: images/, cache/, places.sql, manifest.json")
 	factsPath := flag.String("facts", "", "JSON {\"<batch>/<n>\": {\"city\": {lang: name}, \"fact\": {lang: fact}}}; optional")
+	sharpenCSV := flag.String("sharpen", "", "CSV of id,kind,source_id,image_key: fetch the originals again into <out>/sharp")
 	flag.Parse()
+	if *sharpenCSV != "" {
+		p := &preparer{out: *out, token: os.Getenv("MAPILLARY_TOKEN"), client: &http.Client{Timeout: 2 * time.Minute}}
+		if err := p.sharpen(*sharpenCSV, filepath.Join(*out, "sharp")); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if flag.NArg() == 0 {
 		log.Fatal("usage: maply-places [-out dir] [-facts file] batch-dir...")
 	}
