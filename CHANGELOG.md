@@ -11,6 +11,17 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.7 - 2026-10-26
+
+Results show the players' faces, the DM result is about the person's own
+day, and the texts are shorter.
+
+Operators: migration `010_avatar.sql` runs on start with
+`AUTO_MIGRATE=true`. The bot now calls `getUserProfilePhotos` and
+downloads small profile photos, at most once a day per player. The
+sharper place images are files in the images directory under the same
+keys; no database change goes with them.
+
 ### Added
 
 - Players' Telegram photos stand in for their letters: in the pins and on
