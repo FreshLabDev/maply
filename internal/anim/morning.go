@@ -36,7 +36,7 @@ const (
 )
 
 func NewMorning(day int, pano *Pano, reveal, lang string) *Morning {
-	m := &Morning{Day: day, Pano: pano, Reveal: reveal, Lang: language.NewLanguage(lang)}
+	m := &Morning{Day: day, Pano: pano, Reveal: reveal, Lang: ShapingLang(lang)}
 	n := morningDur*FPS + 2
 	m.yaw = make([]float64, n)
 	for i := 1; i < n; i++ {

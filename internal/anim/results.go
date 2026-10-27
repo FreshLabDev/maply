@@ -40,7 +40,7 @@ var resultsPodium = podium{h: [3]float64{172, 132, 102}, rise: 6.2, step: 0.42, 
 // NewResults ranks nobody: the players come with their distance, points and
 // rank, as the bot scored them.
 func NewResults(day int, place Place, players []Player, unit, unitM, lang string) *Results {
-	r := &Results{Day: day, Place: place, Players: players, Unit: unit, UnitM: unitM, Lang: language.NewLanguage(lang)}
+	r := &Results{Day: day, Place: place, Players: players, Unit: unit, UnitM: unitM, Lang: ShapingLang(lang)}
 	lats, lons := []float64{place.Lat}, []float64{place.Lon}
 	for _, p := range players {
 		lats, lons = append(lats, p.Lat), append(lons, p.Lon)

@@ -40,7 +40,7 @@ type Profile struct {
 	Lang      language.Language
 }
 
-func NewProfile(lang string) *Profile { return &Profile{Lang: language.NewLanguage(lang)} }
+func NewProfile(lang string) *Profile { return &Profile{Lang: ShapingLang(lang)} }
 
 func (s *Profile) Size() (int, int)  { return 1200, 630 }
 func (s *Profile) Duration() float64 { return profileDur }

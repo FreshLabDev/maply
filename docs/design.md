@@ -113,7 +113,7 @@ The posts are short seamless loops, sent as MP4 without sound, which Telegram pl
 They were designed in a browser canvas; `internal/anim` draws the same frames in Go on the CPU, with no browser or GPU:
 
 - the halftone dots of the globes are anti-aliased ellipses computed per pixel, 4° dots for the logo's globe and 1° dots for the map, both from the countries of `internal/geo`;
-- text is shaped by HarfBuzz rules (go-text) in Sofia Sans with the chat's language set, since the font draws Bulgarian Cyrillic unless told otherwise; the streak's 🔥 is drawn as a flame, because the brand's faces have no emoji;
+- text is shaped by HarfBuzz rules (go-text) in Sofia Sans with the chat's language set, since the font draws Bulgarian Cyrillic unless told otherwise; it has local forms for Russian only, so Ukrainian and Belarusian are shaped as Russian; the streak's 🔥 is drawn as a flame, because the brand's faces have no emoji;
 - the panorama is projected per pixel with trilinear mip sampling at twice the size and averaged down;
 - frames are drawn in parallel, one per core, and piped in order to ffmpeg: libx264, CRF 22, yuv420p, BT.709, `+faststart`.
 

@@ -173,6 +173,24 @@ func TestCyrillicFollowsLanguage(t *testing.T) {
 	}
 }
 
+// The font has local forms for Russian only, so Ukrainian and Belarusian
+// must come out in the Russian ones and not in the Bulgarian default.
+func TestUkrainianAndBelarusianAreNotDrawnInBulgarianForms(t *testing.T) {
+	same := func(a, b *Run) bool {
+		return slices.EqualFunc(a.segs, b.segs, func(x, y glyphSeg) bool { return x == y })
+	}
+	text := "вдтш"
+	ru := Body.Layout(text, 40, ShapingLang("ru"))
+	if same(ru, Body.Layout(text, 40, ShapingLang("bg"))) {
+		t.Fatal("the Russian and Bulgarian forms are the same: the probe tells nothing")
+	}
+	for _, lang := range []string{"uk", "be"} {
+		if !same(Body.Layout(text, 40, ShapingLang(lang)), ru) {
+			t.Errorf("%s is drawn in the Bulgarian forms", lang)
+		}
+	}
+}
+
 func TestRngIsMulberry32(t *testing.T) {
 	r := rng(7)
 	// The design's JavaScript gives these for seed 7.

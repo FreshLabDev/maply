@@ -11,6 +11,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Fixed
+
+- Ukrainian and Belarusian text on the posts and the stats card is drawn in
+  the usual Cyrillic forms. It came out in the font's Bulgarian ones, a в
+  like a ϐ and a т like an m, since Sofia Sans has local forms for Russian
+  only.
+
 ## v0.0.1-alpha.8 - 2026-10-26
 
 The DM result shows the whole world's day, and sharing it sends everyone,

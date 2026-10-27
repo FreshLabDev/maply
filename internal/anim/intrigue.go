@@ -24,7 +24,7 @@ type Intrigue struct {
 const intrigueDur = 12
 
 func NewIntrigue(day, hour, minute int, weather string, chatHour float64, reveal, lang string) *Intrigue {
-	return &Intrigue{Day: day, Hour: hour, Minute: minute, Weather: weather, ChatHour: chatHour, Reveal: reveal, Lang: language.NewLanguage(lang)}
+	return &Intrigue{Day: day, Hour: hour, Minute: minute, Weather: weather, ChatHour: chatHour, Reveal: reveal, Lang: ShapingLang(lang)}
 }
 
 func (in *Intrigue) Size() (int, int)  { return 720, 720 }

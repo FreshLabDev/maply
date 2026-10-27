@@ -38,7 +38,7 @@ const worldDur = 12
 var worldPodium = podium{h: [3]float64{112, 84, 64}, rise: 5.7, step: 0.38, down: 9.3, num: 64, numY: 62, nameY: -42, lineY: -13}
 
 func NewWorld(day int, place Place, guesses []Guess, top [3]*Winner, unit, lang string) *World {
-	return &World{Day: day, Place: place, Guesses: guesses, Top: top, Unit: unit, Lang: language.NewLanguage(lang)}
+	return &World{Day: day, Place: place, Guesses: guesses, Top: top, Unit: unit, Lang: ShapingLang(lang)}
 }
 
 func (w *World) Size() (int, int)  { return 720, 900 }
