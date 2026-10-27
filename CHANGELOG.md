@@ -11,6 +11,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.9 - 2026-10-27
+
+Ukrainian and Belarusian posts are drawn in the usual Cyrillic letters.
+
+Operators: nothing to do. Pictures already drawn and kept by file_id, such
+as today's world animation, stay as they are until they are drawn again.
+
 ### Fixed
 
 - Ukrainian and Belarusian text on the posts and the stats card is drawn in
