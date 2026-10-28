@@ -11,6 +11,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Changed
+
+- Places of the same difficulty come up in a fixed shuffled order instead of
+  the order they were added, so a new batch mixes with the places left from
+  the old ones instead of waiting behind them.
+- The curation scripts collect 360° panoramas only, and plan a batch as big
+  cities away from the centre, small towns and villages, and roads and
+  nature (`scripts/curation/pool.py`).
+
+### Fixed
+
+- Dates in the JSON logs are written as the day, not as `{}`.
+
 ## v0.0.1-alpha.9 - 2026-10-27
 
 Ukrainian and Belarusian posts are drawn in the usual Cyrillic letters.

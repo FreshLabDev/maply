@@ -27,7 +27,9 @@ const roundLockKey int64 = 0x6d61706c7952 // "maplyR"
 
 // EnsureRound returns the round for d, creating it from the place queue the
 // first time anyone asks. The place is the approved one whose difficulty is
-// closest to the weekday's, oldest first.
+// closest to the weekday's. Among those the order is a fixed shuffle, so a new
+// batch mixes with the places left from the old ones instead of queueing
+// behind them.
 func (s *Store) EnsureRound(ctx context.Context, d round.Date) (Round, error) {
 	if r, ok, err := s.roundFor(ctx, s.pool, d); err != nil || ok {
 		return r, err
@@ -61,7 +63,7 @@ func (s *Store) EnsureRound(ctx context.Context, d round.Date) (Round, error) {
 	err = tx.QueryRow(ctx, `
 		SELECT id FROM place
 		 WHERE status = 'approved'
-		 ORDER BY abs(difficulty - $1), id
+		 ORDER BY abs(difficulty - $1), md5(id::text), id
 		 LIMIT 1
 		 FOR UPDATE`, round.TargetDifficulty(d.Weekday())).Scan(&placeID)
 	if errors.Is(err, pgx.ErrNoRows) {
