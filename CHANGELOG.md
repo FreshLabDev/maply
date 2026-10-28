@@ -11,6 +11,15 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.10 - 2026-10-28
+
+New places join the queue mixed with the old ones, and the place pool grows
+with 148 panoramas away from big-city centres: outskirts, small towns and
+country roads in 69 countries.
+
+Operators: no migration. The new places and their images were loaded on
+ws04 before this release; nothing is needed on deploy.
+
 ### Changed
 
 - Places of the same difficulty come up in a fixed shuffled order instead of
