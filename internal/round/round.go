@@ -6,6 +6,7 @@ package round
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -36,7 +37,10 @@ func ParseDate(s string) (Date, error) {
 	return Date{t}, nil
 }
 
-func (d Date) String() string        { return d.t.Format(time.DateOnly) }
+func (d Date) String() string { return d.t.Format(time.DateOnly) }
+
+// LogValue writes the date into JSON logs, which would print a struct as {}.
+func (d Date) LogValue() slog.Value  { return slog.StringValue(d.String()) }
 func (d Date) IsZero() bool          { return d.t.IsZero() }
 func (d Date) Weekday() time.Weekday { return d.t.Weekday() }
 func (d Date) AddDays(n int) Date    { return Date{d.t.AddDate(0, 0, n)} }

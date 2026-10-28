@@ -2,6 +2,8 @@
 package round
 
 import (
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 )
@@ -158,4 +160,21 @@ func TestDeadlineNeedsAZone(t *testing.T) {
 	if _, err := Deadline(NewDate(2026, time.November, 1), nil); err == nil {
 		t.Fatal("Deadline without zones succeeded")
 	}
+}
+
+func TestDateLogsAsItsDay(t *testing.T) {
+	var b strings.Builder
+	slog.New(slog.NewJSONHandler(&b, nil)).Info("x", "date", mustDate(t, "2026-10-28"))
+	if !strings.Contains(b.String(), `"date":"2026-10-28"`) {
+		t.Fatalf("log line %s", b.String())
+	}
+}
+
+func mustDate(t *testing.T, s string) Date {
+	t.Helper()
+	d, err := ParseDate(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
 }
