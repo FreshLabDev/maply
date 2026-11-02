@@ -267,12 +267,39 @@ func TestNameKeepsWhatTheFacesWrite(t *testing.T) {
 		"Аня":                        "Аня",
 		"  Lucía  ":                  "Lucía",
 		"李雷":                         "?",
-		"Ann 🙂":                      "Ann",
+		"Ann 🙂":                      "Ann 🙂",
+		"🦊":                          "🦊",
+		"李雷 🇩🇪":                      "🇩🇪",
 		"":                           "?",
 		"Christopher-Alexander Long": "Christopher-Ale…",
 	} {
 		if got := Name(in); got != want {
 			t.Errorf("Name(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// An emoji is drawn from the fallback face, and a sequence of several code
+// points comes out as one glyph: a flag, a family, a skin tone.
+func TestEmojiAreDrawn(t *testing.T) {
+	for _, s := range []string{"🦊", "🇩🇪", "👨‍👩‍👧", "👍🏽", "❤️"} {
+		r := Body.Layout(s, 40, ShapingLang("en"))
+		if len(r.segs) == 0 || r.Width < 20 || r.Width > 80 {
+			t.Errorf("%q: %d segments, %.1f wide", s, len(r.segs), r.Width)
+		}
+	}
+	// "Аня 🦊" is as wide as its two parts and a space.
+	whole := Body.Layout("Аня 🦊", 40, ShapingLang("ru")).Width
+	parts := Body.Layout("Аня ", 40, ShapingLang("ru")).Width + Body.Layout("🦊", 40, ShapingLang("ru")).Width
+	if math.Abs(whole-parts) > 0.5 {
+		t.Errorf("Аня 🦊 is %.1f wide, its parts %.1f", whole, parts)
+	}
+}
+
+func TestInitialKeepsAWholeEmoji(t *testing.T) {
+	for in, want := range map[string]string{"Аня": "А", "🇩🇪 Max": "🇩🇪", "👩‍💻": "👩‍💻", "👍🏽x": "👍🏽", "": ""} {
+		if got := initial(in); got != want {
+			t.Errorf("initial(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

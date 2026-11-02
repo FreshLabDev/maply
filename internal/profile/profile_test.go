@@ -37,7 +37,7 @@ func closedBefore(d round.Date) func(round.Date) bool {
 
 func TestBuildLaysOutTheNumbers(t *testing.T) {
 	p := build(sample(), "ru", today, closedBefore(today.AddDays(-1)))
-	if p.Name != "Аня" || p.Title != "статистика" || p.Total.Value != "6 600" {
+	if p.Name != "Аня 🙂" || p.Title != "статистика" || p.Total.Value != "6 600" {
 		t.Fatalf("name %q, title %q, total %q", p.Name, p.Title, p.Total.Value)
 	}
 	want := []string{"2", "3", "750 км", "4 100", "3 / 40", "3"}

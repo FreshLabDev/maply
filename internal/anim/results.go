@@ -194,10 +194,25 @@ func (c *Canvas) confetti(since, top float64) {
 	}
 }
 
-// initial is the first letter of a name, for its pin.
+// initial is the first letter of a name, for its pin: a whole emoji when the
+// name starts with one, a flag or a joined sequence included.
 func initial(name string) string {
-	for _, r := range name {
-		return string(r)
+	rs := []rune(name)
+	if len(rs) == 0 {
+		return ""
 	}
-	return ""
+	n := 1
+	if regional(rs[0]) && len(rs) > 1 && regional(rs[1]) {
+		n = 2
+	}
+	for n < len(rs) && sticks(rs[n]) {
+		n++
+		if rs[n-1] == 0x200D && n < len(rs) {
+			n++ // the code point the joiner joins on
+		}
+	}
+	return string(rs[:n])
 }
+
+// regional is one half of a flag.
+func regional(r rune) bool { return r >= 0x1F1E6 && r <= 0x1F1FF }

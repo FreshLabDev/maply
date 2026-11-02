@@ -19,21 +19,25 @@ import (
 	"golang.org/x/image/vector"
 )
 
-// Sofia Sans and Sofia Sans Extra Condensed, the brand's faces, as variable
-// fonts under the SIL Open Font License (fonts/OFL.txt).
+// Sofia Sans and Sofia Sans Extra Condensed, the brand's faces, and Noto
+// Emoji, the one-colour emoji face they fall back to, as variable fonts under
+// the SIL Open Font License (fonts/OFL.txt).
 var (
 	//go:embed fonts/SofiaSans.ttf
 	sofiaSans []byte
 	//go:embed fonts/SofiaSansExtraCondensed.ttf
 	sofiaSansExtraCondensed []byte
+	//go:embed fonts/NotoEmoji.ttf
+	notoEmoji []byte
 )
 
 // The faces of the posts: the display face of the logo and the body face in
-// two weights.
+// two weights. An emoji in a name is drawn from Noto Emoji in the text's own
+// colour.
 var (
-	Display    = mustFont(sofiaSansExtraCondensed, 700)
-	Body       = mustFont(sofiaSans, 700)
-	BodyMedium = mustFont(sofiaSans, 500)
+	Display    = mustFont(sofiaSansExtraCondensed, 700).with(mustFont(notoEmoji, 700))
+	Body       = mustFont(sofiaSans, 700).with(mustFont(notoEmoji, 700))
+	BodyMedium = mustFont(sofiaSans, 500).with(mustFont(notoEmoji, 500))
 )
 
 // ShapingLang is the language the faces are told for text in the language
@@ -58,6 +62,13 @@ type Font struct {
 	upem      float64
 	asc, desc float64 // font units; desc is negative
 	runs      map[runKey]*Run
+	// fallback draws what face has no glyph for: emoji.
+	fallback *Font
+}
+
+func (f *Font) with(fallback *Font) *Font {
+	f.fallback = fallback
+	return f
 }
 
 type runKey struct {
@@ -102,13 +113,31 @@ func (f *Font) Layout(s string, size float64, lang language.Language) *Run {
 		return r
 	}
 	text := []rune(s)
+	r := &Run{middle: (f.asc + f.desc) / 2 * (size / f.upem)}
+	pen := 0.0
+	for _, part := range f.split(text) {
+		if part.face == f {
+			pen = f.shape(r, text, part.start, part.end, size, lang, pen)
+			continue
+		}
+		// The fallback belongs to this face alone, but Covered reads it too.
+		part.face.mu.Lock()
+		pen = part.face.shape(r, text, part.start, part.end, size, lang, pen)
+		part.face.mu.Unlock()
+	}
+	r.Width = pen
+	f.runs[key] = r
+	return r
+}
+
+// shape adds text[start:end] to r with the pen at pen, and returns where the
+// pen ends.
+func (f *Font) shape(r *Run, text []rune, start, end int, size float64, lang language.Language, pen float64) float64 {
 	out := f.shaper.Shape(shaping.Input{
-		Text: text, RunStart: 0, RunEnd: len(text), Direction: di.DirectionLTR,
-		Face: f.face, Size: fixed.Int26_6(math.Round(size * 64)), Script: scriptOf(text), Language: lang,
+		Text: text, RunStart: start, RunEnd: end, Direction: di.DirectionLTR,
+		Face: f.face, Size: fixed.Int26_6(math.Round(size * 64)), Script: scriptOf(text[start:end]), Language: lang,
 	})
 	k := size / f.upem
-	r := &Run{middle: (f.asc + f.desc) / 2 * k}
-	pen := 0.0
 	for _, g := range out.Glyphs {
 		ox, oy := pen+fx(g.XOffset), -fx(g.YOffset)
 		if outline, ok := f.face.GlyphData(g.GlyphID).(font.GlyphOutline); ok {
@@ -123,9 +152,55 @@ func (f *Font) Layout(s string, size float64, lang language.Language) *Run {
 		}
 		pen += fx(g.Advance)
 	}
-	r.Width = pen
-	f.runs[key] = r
-	return r
+	return pen
+}
+
+// part is a stretch of text drawn from one face.
+type part struct {
+	face       *Font
+	start, end int
+}
+
+// split cuts text where it passes between the face and its fallback. The
+// caller holds f.mu. What
+// glues an emoji together (a joiner, a variation selector, a skin tone, a
+// keycap, a flag's tag) stays with the letter before it, so a sequence like
+// a family or a flag is shaped whole.
+func (f *Font) split(text []rune) []part {
+	var parts []part
+	for i, r := range text {
+		face := f
+		if f.fallback != nil && (sticks(r) && len(parts) > 0 || !f.hasLocked(r) && f.fallback.has(r)) {
+			face = f.fallback
+			if sticks(r) {
+				face = parts[len(parts)-1].face
+			}
+		}
+		if n := len(parts); n > 0 && parts[n-1].face == face {
+			parts[n-1].end = i + 1
+			continue
+		}
+		parts = append(parts, part{face, i, i + 1})
+	}
+	return parts
+}
+
+// sticks tells whether r only modifies the character before it.
+func sticks(r rune) bool {
+	return r == 0x200D || r == 0x20E3 || (r >= 0xFE00 && r <= 0xFE0F) ||
+		(r >= 0x1F3FB && r <= 0x1F3FF) || (r >= 0xE0020 && r <= 0xE007F)
+}
+
+// has tells whether the face itself has a glyph for r.
+func (f *Font) has(r rune) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.hasLocked(r)
+}
+
+func (f *Font) hasLocked(r rune) bool {
+	_, ok := f.face.NominalGlyph(r)
+	return ok
 }
 
 func fx(v fixed.Int26_6) float64 { return float64(v) / 64 }
@@ -261,8 +336,8 @@ func segPoints(op ot.SegmentOp) int {
 	return 1
 }
 
-// Covers tells whether the brand's faces have a glyph for every letter of s.
-// They cover Latin and Cyrillic; a name or a place in another script is
+// Covers tells whether the faces have a glyph for every letter of s. They
+// cover Latin, Cyrillic and emoji; a name or a place in another script is
 // written some other way before it goes on a post.
 func Covers(s string) bool {
 	for _, r := range s {
@@ -273,13 +348,14 @@ func Covers(s string) bool {
 	return true
 }
 
-// Covered tells whether the brand's faces have a glyph for r.
+// Covered tells whether the faces, with their emoji fallback, have a glyph
+// for r. What glues an emoji together counts as covered.
 func Covered(r rune) bool {
+	if sticks(r) {
+		return true
+	}
 	for _, f := range []*Font{Display, Body} {
-		f.mu.Lock()
-		_, ok := f.face.NominalGlyph(r)
-		f.mu.Unlock()
-		if !ok {
+		if !f.has(r) && (f.fallback == nil || !f.fallback.has(r)) {
 			return false
 		}
 	}

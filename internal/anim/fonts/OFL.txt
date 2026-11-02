@@ -1,4 +1,5 @@
 Copyright 2019 The Sofia Sans Project Authors (https://github.com/lettersoup/Sofia-Sans)
+Copyright 2013 Google LLC (Noto Emoji, https://github.com/googlefonts/noto-emoji)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
