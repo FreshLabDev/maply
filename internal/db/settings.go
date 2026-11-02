@@ -99,6 +99,19 @@ func (s *Store) AdoptChatZone(ctx context.Context, chatID int64, zone string) er
 	return nil
 }
 
+// AdoptDMZone sets a person's zone from their phone, only while they have
+// none: a zone they picked stays. It reports whether it set one.
+func (s *Store) AdoptDMZone(ctx context.Context, userID int64, zone string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		INSERT INTO chat_settings (chat_id, kind, timezone) VALUES ($1, 'dm', $2)
+		ON CONFLICT (chat_id) DO UPDATE SET timezone = EXCLUDED.timezone, updated_at = now()
+		 WHERE chat_settings.timezone IS NULL`, userID, zone)
+	if err != nil {
+		return false, fmt.Errorf("adopt zone of %d: %w", userID, err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // LeaveChat marks a group maply was removed from, or a DM whose person
 // blocked it. The row stays: its zone is still the chat's if maply comes back.
 func (s *Store) LeaveChat(ctx context.Context, chatID int64) error {

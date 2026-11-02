@@ -97,6 +97,25 @@ func (s *Store) DMResults(ctx context.Context, d round.Date) ([]DMResult, error)
 	})
 }
 
+// GroupResults is the results of d in groups maply is still in, for putting
+// the final world line in them once the day closes everywhere.
+func (s *Store) GroupResults(ctx context.Context, d round.Date) ([]DMResult, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT cr.chat_id, cr.result_msg_id FROM chat_round cr
+		  JOIN chat_settings cs ON cs.chat_id = cr.chat_id
+		 WHERE cr.date = $1 AND cs.kind = 'group' AND cs.active
+		   AND cr.result_msg_id IS NOT NULL
+		 ORDER BY cr.chat_id`, d.Time())
+	if err != nil {
+		return nil, fmt.Errorf("group results %s: %w", d, err)
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (DMResult, error) {
+		var r DMResult
+		err := row.Scan(&r.ChatID, &r.MsgID)
+		return r, err
+	})
+}
+
 // SetWorldResult records a DM result that shows the world picture of
 // version. An empty fileID keeps the one recorded.
 func (s *Store) SetWorldResult(ctx context.Context, chatID int64, d round.Date, msgID int64, fileID, version string) error {

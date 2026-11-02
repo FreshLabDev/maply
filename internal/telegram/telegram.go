@@ -323,3 +323,30 @@ func (c *Client) SavePreparedAnimation(ctx context.Context, userID int64, a Prep
 		"allow_user_chats": true, "allow_group_chats": true,
 	})
 }
+
+// PreparedText is a text message for shareMessage: a title for the picker
+// and the message itself.
+type PreparedText struct {
+	ID          string
+	Title       string
+	Description string
+	Text        string
+	Markup      Markup
+}
+
+func (c *Client) SavePreparedText(ctx context.Context, userID int64, t PreparedText) (PreparedMessage, error) {
+	result := map[string]any{
+		"type": "article", "id": t.ID, "title": t.Title, "description": t.Description,
+		"input_message_content": map[string]any{
+			"message_text": t.Text, "parse_mode": "HTML",
+			"link_preview_options": map[string]any{"is_disabled": true},
+		},
+	}
+	if t.Markup != nil {
+		result["reply_markup"] = t.Markup
+	}
+	return call[PreparedMessage](ctx, c, "savePreparedInlineMessage", map[string]any{
+		"user_id": userID, "result": result,
+		"allow_user_chats": true, "allow_group_chats": true,
+	})
+}

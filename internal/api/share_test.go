@@ -39,6 +39,15 @@ var shareDay = round.NewDate(2026, time.November, 2)
 type shareStore struct {
 	Store
 	scored int
+	// guess is the person's answer, when they have one.
+	guess *db.Guess
+}
+
+func (s *shareStore) GuessOf(context.Context, round.Date, int64) (db.Guess, bool, error) {
+	if s.guess == nil {
+		return db.Guess{}, false, nil
+	}
+	return *s.guess, true, nil
 }
 
 func (s *shareStore) Touch(context.Context, tg.User, *tg.Chat) error  { return nil }
@@ -66,9 +75,15 @@ func (shareMembers) IsMember(context.Context, round.Date, int64, int64) (bool, e
 }
 
 type fakeSharer struct {
-	can   bool
-	err   error
-	calls []card.Share
+	can    bool
+	err    error
+	calls  []card.Share
+	scores []card.Share
+}
+
+func (f *fakeSharer) PrepareScore(_ context.Context, sh card.Share) (string, error) {
+	f.scores = append(f.scores, sh)
+	return "score-1", f.err
 }
 
 func (f *fakeSharer) CanShare() bool { return f.can }
@@ -174,15 +189,26 @@ func TestShareFromAGroupPreparesThatGroupsCard(t *testing.T) {
 	}
 }
 
-func TestShareSaysNothingBeforeTheReveal(t *testing.T) {
+// Before the reveal a person who has not answered gets nothing, and one who
+// has shares their score alone: no card, no place.
+func TestShareBeforeTheRevealIsTheScoreAlone(t *testing.T) {
 	sharer := &fakeSharer{can: true}
 	h, store := shareServer(t, afterKyivReveal.Add(-time.Hour), sharer)
 	rec := postShare(h, signedLaunch(777, ""))
-	if rec.Code != http.StatusForbidden || answerOf(t, rec)["error"] != "not_revealed" {
+	if rec.Code != http.StatusForbidden || answerOf(t, rec)["error"] != "not_answered" {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
-	if len(sharer.calls) != 0 || store.scored != 0 {
-		t.Fatalf("a card was prepared before the reveal: %+v", sharer.calls)
+	if len(sharer.calls)+len(sharer.scores) != 0 {
+		t.Fatalf("something was prepared without an answer: %+v %+v", sharer.calls, sharer.scores)
+	}
+	km := 312.4
+	store.guess = &db.Guess{UserID: 777, Km: &km}
+	rec = postShare(h, signedLaunch(777, ""))
+	if rec.Code != http.StatusOK || answerOf(t, rec)["id"] != "score-1" {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if len(sharer.calls) != 0 || len(sharer.scores) != 1 || sharer.scores[0] != (card.Share{UserID: 777, ChatID: 777, Date: shareDay}) {
+		t.Fatalf("cards %+v, scores %+v", sharer.calls, sharer.scores)
 	}
 }
 

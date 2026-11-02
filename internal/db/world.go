@@ -33,7 +33,8 @@ func (e Entry) Site() bool { return e.Player != "" }
 
 // World is a day's ranking over the answers scored so far. Until the last
 // zone's reveal it is not final: later zones are still answering, and Pending
-// counts the answers already in that wait for their deadline.
+// counts the answers already in but not scored yet. Telegram answers are scored
+// as they come in, so these are mostly site answers waiting for their deadline.
 type World struct {
 	Entries []Entry // best first
 	Pending int

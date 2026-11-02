@@ -119,7 +119,7 @@ func (s *Store) InsertGuess(ctx context.Context, g NewGuess) error {
 }
 
 // Guess is one stored answer. Score fields are nil until it is scored, which
-// happens only after its deadline.
+// the Mini App does the moment the answer comes in.
 type Guess struct {
 	UserID     int64
 	FirstName  string
@@ -185,13 +185,15 @@ func scanGuess(row pgx.CollectableRow) (Guess, error) {
 	return g, err
 }
 
-// ScoreDue scores every answer for d whose deadline has passed and that has no
-// score yet, the site's included. A distance exists only once the person can no longer answer.
+// ScoreDue scores every answer for d that has no score yet. A Telegram
+// answer is scored at once: the person sees the place the moment they have
+// answered, and a person has one answer a day. A site answer waits for its
+// deadline, since a guest can always come back as another guest.
 // judge scores the pin; the speed bonus comes from the answer's own times.
 func (s *Store) ScoreDue(ctx context.Context, d round.Date, now time.Time, judge func(geo.Point) scoring.Score) (int, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT user_id, lat, lon, answered_at, deadline_at FROM guess
-		 WHERE date = $1 AND km IS NULL AND deadline_at <= $2`, d.Time(), now)
+		 WHERE date = $1 AND km IS NULL`, d.Time())
 	if err != nil {
 		return 0, fmt.Errorf("due guesses: %w", err)
 	}

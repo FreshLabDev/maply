@@ -6,7 +6,8 @@ player, and production-minded.
 ## Project Shape
 
 - maply is a daily geo-guessing game: one place a day for everyone, a pin on the
-  map, the answer at 20:00. The product is in [`docs/design.md`](docs/design.md),
+  map, the place right after answering, the names and the group's result at
+  20:00. The product is in [`docs/design.md`](docs/design.md),
   the order of work in [`docs/mvp-plan.md`](docs/mvp-plan.md). Read them before
   changing behavior.
 - The Go service has config, the database with embedded migrations, Telegram
@@ -72,12 +73,20 @@ the diff looks like.
 
 - A person's answer window closes at the earliest reveal among all of their
   contexts: the DM and every group `core.presence` has seen them in.
-- Before the reveal the API answers a guess with "accepted" and nothing else:
-  no distance, no score, no hint of direction. Distance alone is enough to
-  triangulate a place.
+- In Telegram (DM and group) a guess is scored the moment it comes in, and the
+  person sees the place, their distance and their score right away. Before the
+  chat's reveal they also see everyone else's answers in that chat, but only as
+  distance, score and a point on the map: no name, photo, user ID, bonus, speed
+  or answer time. The server strips these; the client never receives them.
+- Nobody sees the place without having answered. Before the reveal
+  `/api/result` and `/api/share` answer a person with no answer `403
+  not_answered`, and nothing else. This is the invariant that keeps the live
+  screen safe; `TestADayAcrossZones` covers it.
+- Before the reveal, sharing sends a text line with the day, distance and score
+  only, never the picture with the place.
 - The place's coordinates, city, country, source ID and source URL never appear
-  in an API response, an image name, an image's EXIF, a log line or an error
-  message before the reveal.
+  in an API response to someone who has not answered, an image name, an image's
+  EXIF, a log line or an error message before the reveal.
 - The card page opens only with a card token (`auth.Signer.SignCard`, never the
   startapp payload) and only after the chat's reveal; shared card images are
   served under random keys. Keep both when touching `internal/card`.
@@ -200,8 +209,12 @@ console has no errors.
   including after a restart in the middle of the day.
 - A person in a Kyiv group who is also in a Moscow group cannot answer after
   20:00 Moscow time in winter.
-- No API response before the reveal contains the place's coordinates, name or
-  source.
+- Before the reveal, no API response to someone who has not answered gives
+  the place's coordinates, name or source, and no response names another
+  player.
+- Right after answering in Telegram, the Mini App shows the place and the
+  others' answers without names; a new answer appears within a few seconds;
+  names appear at the chat's reveal without reopening the app.
 - The Mini App opens from the DM button and from the group link, on iOS,
   Android and Desktop; Back, haptics and the closing confirmation work.
 - Images served from `/img/` have no EXIF.

@@ -289,9 +289,33 @@ func (s *Scheduler) groupResult(ctx context.Context, c db.Chat, rd db.Round, cr 
 			s.Log.Info("post not unpinned", "chat", c.ID, "error", err)
 		}
 	}
-	guesses, err := s.Store.ChatGuesses(ctx, rd.Date, c.ID)
+	gr, err := s.groupCaption(ctx, c, rd, cr, answer, lang, false)
 	if err != nil {
 		return err
+	}
+	scene := resultScene(lang, rd.DayNo, answer, gr.guesses, gr.streaks, s.faces(ctx, gr.guesses))
+	msg, err := s.sendResult(ctx, c, rd, scene, gr.caption, markup)
+	if err != nil {
+		return err
+	}
+	return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID, animationID(msg))
+}
+
+// groupDay is a group's result: its caption and what it was drawn from.
+type groupDay struct {
+	caption string
+	guesses []db.Guess
+	streaks map[int64]int
+}
+
+// groupCaption is the result's caption: the place, the table, who answered,
+// and where the group stands in the world. At 20:00 the world is still
+// answering further west, so the line says "now"; once the day closes
+// everywhere, worldFinal draws it again with final set.
+func (s *Scheduler) groupCaption(ctx context.Context, c db.Chat, rd db.Round, cr db.ChatRound, answer db.Answer, lang string, final bool) (groupDay, error) {
+	guesses, err := s.Store.ChatGuesses(ctx, rd.Date, c.ID)
+	if err != nil {
+		return groupDay{}, err
 	}
 	ids := make([]int64, len(guesses))
 	for i, g := range guesses {
@@ -299,29 +323,31 @@ func (s *Scheduler) groupResult(ctx context.Context, c db.Chat, rd db.Round, cr 
 	}
 	streaks, err := s.Store.Streaks(ctx, ids, rd.Date)
 	if err != nil {
-		return err
+		return groupDay{}, err
 	}
 	silent, err := s.Store.Silent(ctx, c.ID, rd.Date)
 	if err != nil {
-		return err
+		return groupDay{}, err
 	}
 	lines := table(lang, guesses, streaks)
 	if len(guesses) > 0 {
 		lines = append(lines, "", i18n.T(lang, "result.answered_of", "n", strconv.Itoa(len(guesses)), "total", strconv.Itoa(len(guesses)+len(silent))))
+		w, err := s.Store.World(ctx, rd.Date)
+		if err != nil {
+			return groupDay{}, err
+		}
+		if line := worldGroupLine(lang, w, guesses, final); line != "" {
+			lines = append(lines, line)
+		}
 	}
 	back, err := s.lateLookBack(ctx, lang, rd.Date, c, cr)
 	if err != nil {
-		return err
+		return groupDay{}, err
 	}
 	if back != "" {
-		lines = append(lines, "", back)
+		lines = append(lines, "", "<blockquote>"+back+"</blockquote>")
 	}
-	scene := resultScene(lang, rd.DayNo, answer, guesses, streaks, s.faces(ctx, guesses))
-	msg, err := s.sendResult(ctx, c, rd, scene, fitCaption(card.Quoted(lang, rd.DayNo, answer), lines), markup)
-	if err != nil {
-		return err
-	}
-	return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID, animationID(msg))
+	return groupDay{fitCaption(card.Quoted(lang, rd.DayNo, answer), lines), guesses, streaks}, nil
 }
 
 // dmResult is the whole result for somebody who plays alone, and only their
@@ -395,7 +421,11 @@ func table(lang string, guesses []db.Guess, streaks map[int64]int) []string {
 		if g.Km != nil {
 			score = i18n.FormatDistance(lang, *g.Km) + " · " + i18n.FormatNumber(lang, g.Total())
 		}
-		line := fmt.Sprintf("%d. %s, %s", i+1, displayName(g.FirstName), score)
+		place := fmt.Sprintf("%d.", i+1)
+		if i < len(medals) && g.Km != nil {
+			place = medals[i]
+		}
+		line := fmt.Sprintf("%s %s · %s", place, displayName(g.FirstName), score)
 		if n := streaks[g.UserID]; n >= 2 {
 			line += fmt.Sprintf(" 🔥%d", n)
 		}
@@ -439,27 +469,96 @@ func visibleLen(s string) int {
 	return n
 }
 
-// postCaption is the morning post: the day, the question, the look back at
-// yesterday when it is final, and in a group the who-answered line.
-func postCaption(lang string, dayNo int, yesterday, line string, group bool) string {
-	text := fmt.Sprintf("<b>maply #%d</b>\n%s", dayNo, i18n.T(lang, "post.hint", "time", revealText()))
-	if yesterday != "" {
-		text += "\n\n" + yesterday
-	}
+var medals = []string{"🥇", "🥈", "🥉"}
+
+// bestShown is how many of the best distances the group's post shows.
+const bestShown = 3
+
+// postCaption is the morning post: the day and the question, in a group who
+// has answered and the best distances so far, and the look back at yesterday
+// when it is final, set apart in a quote.
+func postCaption(lang string, dayNo int, yesterday, block string, group bool) string {
+	text := fmt.Sprintf("<b>maply #%d</b> · %s\n%s", dayNo, i18n.T(lang, "post.hint"), i18n.T(lang, "post.how", "time", revealText()))
 	if group {
-		text += "\n\n" + line
+		text += "\n\n" + block
+	}
+	if yesterday != "" {
+		text += "\n\n<blockquote>" + yesterday + "</blockquote>"
 	}
 	return text
 }
 
-func answeredText(lang string, names []string) string {
-	if len(names) == 0 {
+// answeredBlock is the group post's live part: who has answered, in the
+// alphabet's order rather than the answers', and the best distances so far
+// without names. The Mini App shows the same answers unnamed; listing names
+// in the order they came would tell who is who.
+func answeredBlock(lang string, guesses []db.Guess) string {
+	if len(guesses) == 0 {
 		return i18n.T(lang, "post.nobody")
+	}
+	names := make([]string, 0, len(guesses))
+	var kms []float64
+	for _, g := range guesses {
+		names = append(names, strings.TrimSpace(g.FirstName))
+		if g.Km != nil {
+			kms = append(kms, *g.Km)
+		}
+	}
+	sort.SliceStable(names, func(i, j int) bool { return strings.ToLower(names[i]) < strings.ToLower(names[j]) })
+	for i, n := range names {
+		names[i] = displayName(n)
 	}
 	if len(names) > nameLimit {
 		names = append(names[:nameLimit:nameLimit], fmt.Sprintf("+%d", len(names)-nameLimit))
 	}
-	return i18n.T(lang, "post.answered", "names", strings.Join(names, ", "))
+	text := "<b>" + i18n.T(lang, "post.answered", "n", strconv.Itoa(len(guesses))) + "</b>\n" + strings.Join(names, ", ")
+	if len(kms) > 0 {
+		sort.Float64s(kms)
+		best := make([]string, 0, bestShown)
+		for _, km := range kms[:min(len(kms), bestShown)] {
+			best = append(best, i18n.FormatDistance(lang, km))
+		}
+		text += "\n<b>" + i18n.T(lang, "post.best") + "</b>\n" + strings.Join(best, " · ")
+	}
+	return text
+}
+
+// worldGroupLine is where the group's players stand among everyone who has
+// answered today, best first. final says the day has closed in every zone.
+func worldGroupLine(lang string, w db.World, guesses []db.Guess, final bool) string {
+	type placed struct {
+		name string
+		rank int
+	}
+	var list []placed
+	for _, g := range guesses {
+		if rank := w.RankOf(g.UserID); rank > 0 {
+			list = append(list, placed{displayName(g.FirstName), rank})
+		}
+	}
+	if len(list) == 0 {
+		return ""
+	}
+	sort.SliceStable(list, func(i, j int) bool { return list[i].rank < list[j].rank })
+	places := make([]string, 0, min(len(list), groupPlaces)+1)
+	for i, p := range list {
+		if i == groupPlaces {
+			places = append(places, "…")
+			break
+		}
+		places = append(places, fmt.Sprintf("%s #%d", p.name, p.rank))
+	}
+	n := i18n.FormatNumber(lang, w.Players())
+	if !final {
+		return i18n.T(lang, "result.world_group_now", "places", strings.Join(places, ", "), "n", n)
+	}
+	line := i18n.T(lang, "result.world_group_final", "places", strings.Join(places, ", "), "n", n)
+	// The world's first, unless they are in this group and named already.
+	if list[0].rank != 1 {
+		first := w.Entries[0]
+		line += " " + i18n.T(lang, "result.world_first", "name", entryName(lang, first), "km", kmText(lang, first.Km))
+	}
+	return line
 }
 
 func sortByAnswer(gs []db.Guess) {

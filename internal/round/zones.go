@@ -142,3 +142,43 @@ func (z Zones) LastReveal(d Date) time.Time {
 	}
 	return last
 }
+
+// Match is the zone among ZoneChoices that keeps the same clock as device, an
+// IANA name from the person's phone, all year: the same offset in winter and
+// in summer. Paris and Warsaw match Berlin, Riga matches Kyiv. A device zone
+// with no such twin, or one that is not a zone, matches nothing.
+func (z Zones) Match(device string, now time.Time) string {
+	if device == "" {
+		return ""
+	}
+	if IsChoice(device) {
+		return device
+	}
+	loc, err := time.LoadLocation(device)
+	if err != nil {
+		return ""
+	}
+	year := now.Year()
+	probes := []time.Time{
+		time.Date(year, time.January, 15, 12, 0, 0, 0, time.UTC),
+		time.Date(year, time.April, 15, 12, 0, 0, 0, time.UTC),
+		time.Date(year, time.July, 15, 12, 0, 0, 0, time.UTC),
+		time.Date(year, time.October, 15, 12, 0, 0, 0, time.UTC),
+		now,
+	}
+	for _, name := range ZoneChoices {
+		same := true
+		for _, t := range probes {
+			_, a := t.In(loc).Zone()
+			_, b := t.In(z.locs[name]).Zone()
+			if a != b {
+				same = false
+				break
+			}
+		}
+		if same {
+			return name
+		}
+	}
+	return ""
+}

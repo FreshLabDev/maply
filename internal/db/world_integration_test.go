@@ -16,10 +16,14 @@ import (
 	"github.com/FreshLabDev/maply/internal/scoring"
 )
 
-const sitePlayer = "0b6f3f5e-8a3c-4d1e-9f2a-5c7d8e9f0a1b"
+const (
+	sitePlayer      = "0b6f3f5e-8a3c-4d1e-9f2a-5c7d8e9f0a1b"
+	otherSitePlayer = "6a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+)
 
-// Telegram and site players stand in one list, best first; an answer still
-// waiting for its deadline is counted but not ranked.
+// Telegram and site players stand in one list, best first. A Telegram answer
+// is scored at once; a site answer still waiting for its deadline is counted
+// but not ranked.
 func TestWorldRanksEveryoneTogether(t *testing.T) {
 	store := testStore(t)
 	seedRound(t, store)
@@ -37,6 +41,7 @@ func TestWorldRanksEveryoneTogether(t *testing.T) {
 		{Date: d, UserID: 7, Context: "dm", Pin: geo.Point{Lat: 48, Lon: 2}, AnsweredAt: early, Deadline: closes},
 		// Ana answers at the last minute: no speed bonus to beat the site's pin.
 		{Date: d, UserID: 8, Context: "dm", Pin: geo.Point{Lat: 50, Lon: 30}, AnsweredAt: closes.Add(-time.Minute), Deadline: closes},
+		// Late's window runs ten hours longer; the score is there all the same.
 		{Date: d, UserID: 9, Context: "dm", Pin: geo.Point{Lat: 0, Lon: 0}, AnsweredAt: early, Deadline: closes.Add(10 * time.Hour)},
 	} {
 		if err := store.InsertGuess(ctx, g); err != nil {
@@ -52,22 +57,29 @@ func TestWorldRanksEveryoneTogether(t *testing.T) {
 	if err := store.InsertSiteGuess(ctx, NewSiteGuess{Date: d, Player: sitePlayer, Pin: geo.Point{}, AnsweredAt: early, Deadline: closes}); !errors.Is(err, ErrAlreadyAnswered) {
 		t.Fatalf("second site answer: %v", err)
 	}
+	// A guest further west still has hours to go.
+	if err := store.SitePlayer(ctx, otherSitePlayer, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InsertSiteGuess(ctx, NewSiteGuess{Date: d, Player: otherSitePlayer, Pin: geo.Point{Lat: 40, Lon: -74}, AnsweredAt: early, Deadline: closes.Add(6 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
 	kyiv := scoring.Place{Point: geo.Point{Lat: 50.45, Lon: 30.52}, Country: "UA", Continent: "europe"}
 	n, err := store.ScoreDue(ctx, d, closes, func(p geo.Point) scoring.Score { return scoring.Judge(p, kyiv, nil) })
-	if err != nil || n != 3 {
+	if err != nil || n != 4 {
 		t.Fatalf("scored %d, %v", n, err)
 	}
 	w, err := store.World(ctx, d)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w.Players() != 3 || w.Pending != 1 {
+	if w.Players() != 4 || w.Pending != 1 {
 		t.Fatalf("players %d, pending %d", w.Players(), w.Pending)
 	}
 	if first := w.Entries[0]; !first.Site() || first.Name != "Lucía" || first.Rank != 1 {
 		t.Fatalf("first = %+v", first)
 	}
-	if w.RankOf(8) != 2 || w.RankOf(7) != 3 || w.RankOf(9) != 0 || w.PlaceOf(sitePlayer) != 1 {
+	if w.RankOf(8) != 2 || w.RankOf(7) != 3 || w.RankOf(9) != 4 || w.PlaceOf(sitePlayer) != 1 || w.PlaceOf(otherSitePlayer) != 0 {
 		t.Fatalf("ranks = %+v", w.Entries)
 	}
 	if w.MedianKm == nil {
@@ -75,7 +87,7 @@ func TestWorldRanksEveryoneTogether(t *testing.T) {
 	}
 	// The pins come in the ranking's order, the site's among them.
 	pins, err := store.WorldPins(ctx, d)
-	if err != nil || len(pins) != 3 {
+	if err != nil || len(pins) != 4 {
 		t.Fatalf("pins = %+v, %v", pins, err)
 	}
 	for i, p := range pins {
@@ -104,7 +116,7 @@ func TestWorldRanksEveryoneTogether(t *testing.T) {
 	}
 
 	days, err := store.Days(ctx, d, 7)
-	if err != nil || len(days) != 1 || days[0].Players != 3 || days[0].Pending != 1 || days[0].DayNo != 1 {
+	if err != nil || len(days) != 1 || days[0].Players != 4 || days[0].Pending != 1 || days[0].DayNo != 1 {
 		t.Fatalf("days = %+v, %v", days, err)
 	}
 	mine, err := store.MyDays(ctx, 7, days)

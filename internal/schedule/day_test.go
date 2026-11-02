@@ -32,25 +32,67 @@ func TestVisibleLenSkipsTagsAndCountsUTF16(t *testing.T) {
 	}
 }
 
-func TestAnsweredTextCapsTheList(t *testing.T) {
-	var names []string
-	for i := 0; i < nameLimit+5; i++ {
-		names = append(names, "A")
+func scored(id int64, name string, km float64, pts int) db.Guess {
+	bonus := 0
+	return db.Guess{UserID: id, FirstName: name, Km: &km, PtsKm: &pts, PtsBonus: &bonus}
+}
+
+// The post names who answered in the alphabet's order, never the answers',
+// and the best distances without names.
+func TestAnsweredBlockHidesWhoIsWho(t *testing.T) {
+	got := answeredBlock("ru", []db.Guess{
+		scored(1, "Вика", 501, 1000), scored(2, "аня", 276, 3000), scored(3, "Боря", 290, 2900), scored(4, "Гена", 1200, 500),
+	})
+	want := "<b>Ответили · 4</b>\nаня, Боря, Вика, Гена\n<b>Лучшие пока</b>\n276 км · 290 км · 501 км"
+	if got != want {
+		t.Fatalf("block = %q, want %q", got, want)
 	}
-	if got := answeredText("en", names); !strings.HasSuffix(got, "+5") {
+	var many []db.Guess
+	for i := 0; i < nameLimit+5; i++ {
+		many = append(many, db.Guess{UserID: int64(i), FirstName: "A"})
+	}
+	if got := answeredBlock("en", many); !strings.Contains(got, "+5") || strings.Contains(got, "<b>Best") {
 		t.Fatalf("answered = %q", got)
 	}
-	if got := answeredText("ru", nil); got != "Ответов пока нет." {
+	if got := answeredBlock("ru", nil); got != "Ответов пока нет." {
 		t.Fatalf("nobody = %q", got)
 	}
 }
 
-func TestTableEscapesNamesAndShowsStreaks(t *testing.T) {
-	km := 12.4
-	pts, bonus := 3000, 500
-	lines := table("en", []db.Guess{{UserID: 1, FirstName: "<i>x", Km: &km, PtsKm: &pts, PtsBonus: &bonus}}, map[int64]int{1: 4})
-	if len(lines) != 1 || lines[0] != "1. &lt;i&gt;x, 12 km · 3,500 🔥4" {
+func TestPostCaptionSetsYesterdayApart(t *testing.T) {
+	got := postCaption("ru", 42, "Вчера первое место в мире: Ким, 12 км.", "<b>Ответили · 1</b>\nАня", true)
+	if !strings.HasPrefix(got, "<b>maply #42</b> · ") || !strings.Contains(got, "\n\n<b>Ответили · 1</b>\nАня\n\n<blockquote>Вчера") || !strings.HasSuffix(got, "</blockquote>") {
+		t.Fatalf("post = %q", got)
+	}
+	if dm := postCaption("ru", 42, "", "", false); strings.Contains(dm, "\n\n") {
+		t.Fatalf("dm post = %q", dm)
+	}
+}
+
+func TestTableEscapesNamesAndShowsMedalsAndStreaks(t *testing.T) {
+	lines := table("en", []db.Guess{scored(1, "<i>x", 12.4, 3500), scored(2, "Bo", 40, 3000), scored(3, "Cy", 90, 2000), scored(4, "Di", 900, 900), {UserID: 5, FirstName: "Ed"}}, map[int64]int{1: 4})
+	want := []string{"🥇 &lt;i&gt;x · 12 km · 3,500 🔥4", "🥈 Bo · 40 km · 3,000", "🥉 Cy · 90 km · 2,000", "4. Di · 900 km · 900", "5. Ed · …"}
+	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("table = %q", lines)
+	}
+}
+
+// The world line ranks the group's players; the final one names the world's
+// first unless it is one of them.
+func TestWorldGroupLine(t *testing.T) {
+	w := db.World{Entries: []db.Entry{{UserID: 9, Name: "Kim", Km: 12, Rank: 1}, {UserID: 2, Rank: 2}, {UserID: 7, Rank: 3}, {UserID: 1, Rank: 4}}}
+	guesses := []db.Guess{scored(1, "Аня", 300, 2000), scored(2, "Боря", 50, 3000), {UserID: 3, FirstName: "Вика"}}
+	if got := worldGroupLine("ru", w, guesses, false); got != "🌍 В мире сейчас: Боря #2, Аня #4 из 4." {
+		t.Fatalf("now = %q", got)
+	}
+	if got := worldGroupLine("ru", w, guesses, true); got != "🌍 Итог дня в мире: Боря #2, Аня #4 из 4. Первое место: Kim, 12 км." {
+		t.Fatalf("final = %q", got)
+	}
+	if got := worldGroupLine("ru", w, []db.Guess{scored(9, "Kim", 12, 3400)}, true); strings.Contains(got, "Первое место") {
+		t.Fatalf("final with the first in the group = %q", got)
+	}
+	if got := worldGroupLine("ru", db.World{}, guesses, false); got != "" {
+		t.Fatalf("empty world = %q", got)
 	}
 }
 

@@ -95,6 +95,7 @@ type fakeSaver struct {
 	err     error
 	anim    []telegram.PreparedAnimation
 	animErr error
+	text    []telegram.PreparedText
 }
 
 func (f *fakeSaver) SavePreparedPhoto(_ context.Context, user int64, p telegram.PreparedPhoto) (telegram.PreparedMessage, error) {
@@ -108,6 +109,11 @@ func (f *fakeSaver) SavePreparedAnimation(_ context.Context, user int64, a teleg
 		return telegram.PreparedMessage{}, f.animErr
 	}
 	return telegram.PreparedMessage{ID: a.ID}, nil
+}
+
+func (f *fakeSaver) SavePreparedText(_ context.Context, user int64, t telegram.PreparedText) (telegram.PreparedMessage, error) {
+	f.user, f.text = user, append(f.text, t)
+	return telegram.PreparedMessage{ID: t.ID}, nil
 }
 
 func blankPNG(t *testing.T) []byte {

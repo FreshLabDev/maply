@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package api serves the Mini App: today's picture, the one answer a day, the
-// result after the reveal, and the images.
+// result, and the images.
 //
-// Before a context's reveal nothing here may say anything about where the
-// place is: no coordinates, no names, no distance, no score. An answer is
-// "accepted" and that is all.
+// Nobody learns anything about the place before they have answered: no
+// coordinates, no distance, no score. Once a person has answered, the Mini
+// App shows them the place and their score at once, and the others' answers
+// without a name, a photo, an id or a time: who is who opens at the
+// context's reveal, with the result in the chat. The site keeps the place
+// until the day has closed in every zone (see site.go).
 package api
 
 import (
@@ -18,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +51,8 @@ type Store interface {
 	UserLang(context.Context, int64) (string, error)
 	ChatZone(context.Context, int64) (string, error)
 	World(context.Context, round.Date) (db.World, error)
+	DayPins(context.Context, round.Date) ([][2]float64, error)
+	AdoptDMZone(context.Context, int64, string) (bool, error)
 	Days(context.Context, round.Date, int) ([]db.Day, error)
 	ChatDays(context.Context, int64, []db.Day) (map[round.Date]db.ChatDay, error)
 	MyDays(context.Context, int64, []db.Day) (map[round.Date]db.Mine, error)
@@ -65,6 +71,9 @@ type MemberChecker interface {
 type Sharer interface {
 	CanShare() bool
 	Prepare(ctx context.Context, sh card.Share) (string, error)
+	// PrepareScore is the share before the reveal: the day and the score,
+	// nothing about the place.
+	PrepareScore(ctx context.Context, sh card.Share) (string, error)
 }
 
 // Avatars gives the kept profile photos of players as square JPEGs, without
@@ -95,6 +104,7 @@ type Server struct {
 	ipLimit    *limiter
 	userLimit  *limiter
 	shareLimit *limiter
+	logLimit   *limiter
 }
 
 func (s *Server) Handler() http.Handler {
@@ -105,11 +115,13 @@ func (s *Server) Handler() http.Handler {
 	s.userLimit = newLimiter(30, time.Minute)
 	// A share draws a picture, which is the most expensive thing here.
 	s.shareLimit = newLimiter(5, time.Minute)
+	s.logLimit = newLimiter(10, time.Minute)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/today", s.today)
 	mux.HandleFunc("POST /api/guess", s.guess)
 	mux.HandleFunc("GET /api/result", s.result)
 	mux.HandleFunc("POST /api/share", s.share)
+	mux.HandleFunc("POST /api/log", s.clientLog)
 	mux.HandleFunc("GET /api/site/today", s.siteToday)
 	mux.HandleFunc("GET /api/site/result", s.siteResult)
 	mux.HandleFunc("POST /api/site/guess", s.siteGuess)
@@ -149,6 +161,7 @@ var (
 	errClosed       = apiError{http.StatusConflict, "closed"}
 	errAnswered     = apiError{http.StatusConflict, "already_answered"}
 	errNotRevealed  = apiError{http.StatusForbidden, "not_revealed"}
+	errNotAnswered  = apiError{http.StatusForbidden, "not_answered"}
 	errUnavailable  = apiError{http.StatusServiceUnavailable, "unavailable"}
 )
 
@@ -300,6 +313,9 @@ type todayResponse struct {
 	Bot string `json:"bot,omitempty"`
 	// Name is the site player's own name for the ranking, empty for "Guest".
 	Name string `json:"name,omitempty"`
+	// ZoneSet is the zone the DM just took from the phone, so the app can say
+	// so once.
+	ZoneSet string `json:"zone_set,omitempty"`
 }
 
 func (s *Server) today(w http.ResponseWriter, r *http.Request) {
@@ -309,6 +325,11 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	zoneSet, err := s.adoptZone(ctx, r, &p)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	rd, err := s.Store.EnsureRound(ctx, p.date)
 	if errors.Is(err, db.ErrNoPlace) {
 		s.fail(w, r, errNoRound)
@@ -336,6 +357,7 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 	resp := todayResponse{
 		Date: p.date.String(), Day: rd.DayNo, Image: "/img/" + puzzle.ImageKey, Kind: puzzle.Kind,
 		Heading: puzzle.Heading, Zone: p.zone.String(), Lang: p.lang, Deadline: deadline.UTC(), Reveal: opens.UTC(),
+		ZoneSet: zoneSet,
 	}
 	// Their own pin is theirs to see; it says nothing about the place.
 	if g, ok, err := s.Store.GuessOf(ctx, p.date, p.user.ID); err != nil {
@@ -345,6 +367,27 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 		resp.Answer = &pin{Lat: g.Pin.Lat, Lon: g.Pin.Lon}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// adoptZone gives a DM that never picked a zone the one of the person's
+// phone, sent as ?tz=, when a choice keeps the same clock. Before, the DM
+// followed the language: English meant London even in Berlin.
+func (s *Server) adoptZone(ctx context.Context, r *http.Request, p *play) (string, error) {
+	if p.kind != "dm" {
+		return "", nil
+	}
+	zone := s.Zones.Match(r.URL.Query().Get("tz"), s.Now())
+	if zone == "" {
+		return "", nil
+	}
+	set, err := s.Store.AdoptDMZone(ctx, p.user.ID, zone)
+	if err != nil || !set {
+		return "", err
+	}
+	s.Log.Info("dm zone taken from the phone", "user", p.user.ID, "zone", zone)
+	p.zone = s.Zones.For(zone, "")
+	p.date = round.DateIn(s.Now(), p.zone)
+	return zone, nil
 }
 
 func (s *Server) guess(w http.ResponseWriter, r *http.Request) {
@@ -394,7 +437,13 @@ func (s *Server) guess(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+	// The answer is in: the person sees where it was, and how the others did.
+	resp, err := s.buildResult(ctx, p, now)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 type placeView struct {
@@ -408,6 +457,8 @@ type placeView struct {
 	Source  string  `json:"source"`
 }
 
+// line is one answer in the table. Before the reveal another player's line
+// has the pin, the distance and the points only.
 type line struct {
 	Name   string   `json:"name"`
 	Lat    float64  `json:"lat"`
@@ -422,12 +473,32 @@ type line struct {
 	Photo string `json:"photo,omitempty"`
 }
 
+// worldNow is where the person stands among everyone who has answered so far,
+// and where the others put their pins, without names.
+type worldNow struct {
+	Rank    int   `json:"rank"`
+	Players int   `json:"players"`
+	Pins    []pin `json:"pins"`
+}
+
 type resultResponse struct {
 	Date  string    `json:"date"`
 	Day   int       `json:"day"`
 	Place placeView `json:"place"`
 	Table []line    `json:"table"`
+	// Phase is "live" until the context's reveal, with the others unnamed,
+	// and "final" from then on. The site's result has none.
+	Phase string `json:"phase,omitempty"`
+	// OpensAt is when the names open, in the live phase.
+	OpensAt *time.Time `json:"opens_at,omitempty"`
+	World   *worldNow  `json:"world,omitempty"`
+	// Version changes when someone answers, so the app redraws only then.
+	Version string `json:"version,omitempty"`
 }
+
+// worldPinsShown is how many of the world's pins go to the app: enough for a
+// picture, few enough for a phone polling every few seconds.
+const worldPinsShown = 300
 
 func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	p, err := s.resolve(r)
@@ -435,47 +506,69 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	ctx := r.Context()
-	opens, err := s.opensAt(ctx, p)
+	resp, err := s.buildResult(r.Context(), p, s.Now())
+	var early earlyError
+	if errors.As(err, &early) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": early.code, "opens_at": early.opens.UTC()})
+		return
+	}
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	now := s.Now()
-	if now.Before(opens) {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": errNotRevealed.code, "opens_at": opens.UTC()})
-		return
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// earlyError is a result asked for before the person may see it.
+type earlyError struct {
+	code  string
+	opens time.Time
+}
+
+func (e earlyError) Error() string { return e.code }
+
+// buildResult is the result as this person may see it now. Before the
+// context's reveal it is there only for someone who has answered, and the
+// others in it have no names.
+func (s *Server) buildResult(ctx context.Context, p play, now time.Time) (resultResponse, error) {
+	opens, err := s.opensAt(ctx, p)
+	if err != nil {
+		return resultResponse{}, err
+	}
+	live := now.Before(opens)
+	own, answered, err := s.Store.GuessOf(ctx, p.date, p.user.ID)
+	if err != nil {
+		return resultResponse{}, err
+	}
+	if live && !answered {
+		return resultResponse{}, earlyError{errNotAnswered.code, opens}
 	}
 	rd, ok, err := s.Store.RoundOn(ctx, p.date)
 	if err != nil {
-		s.fail(w, r, err)
-		return
+		return resultResponse{}, err
 	}
 	if !ok {
-		s.fail(w, r, errNoRound)
-		return
+		return resultResponse{}, errNoRound
 	}
 	answer, err := s.Store.Answer(ctx, rd.PlaceID)
 	if err != nil {
-		s.fail(w, r, err)
-		return
+		return resultResponse{}, err
 	}
 	if err := s.scoreDay(ctx, p.date, answer, now); err != nil {
-		s.fail(w, r, err)
-		return
+		return resultResponse{}, err
 	}
 	var guesses []db.Guess
 	if p.kind == "group" {
 		guesses, err = s.Store.ChatGuesses(ctx, p.date, p.chatID)
-	} else {
+	} else if answered {
+		// Scored just now: read it again for the score.
 		var g db.Guess
-		if g, ok, err = s.Store.GuessOf(ctx, p.date, p.user.ID); ok {
+		if g, ok, err = s.Store.GuessOf(ctx, p.date, own.UserID); ok {
 			guesses = []db.Guess{g}
 		}
 	}
 	if err != nil {
-		s.fail(w, r, err)
-		return
+		return resultResponse{}, err
 	}
 	resp := resultResponse{
 		Date: p.date.String(), Day: rd.DayNo,
@@ -485,9 +578,15 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 			Author: answer.Author, License: answer.License, Source: answer.Source,
 		},
 		Table: make([]line, 0, len(guesses)),
+		Phase: "final",
+	}
+	if live {
+		resp.Phase = "live"
+		at := opens.UTC()
+		resp.OpensAt = &at
 	}
 	photos := map[int64][]byte{}
-	if s.Avatars != nil {
+	if s.Avatars != nil && !live {
 		ids := make([]int64, len(guesses))
 		for i, g := range guesses {
 			ids[i] = g.UserID
@@ -495,20 +594,57 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		photos = s.Avatars.Kept(ctx, ids)
 	}
 	for _, g := range guesses {
-		l := line{Name: g.FirstName, Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Bonus: g.PtsBonus, Speed: g.Speed(), Me: g.UserID == p.user.ID}
-		if b := photos[g.UserID]; b != nil {
-			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
-		}
+		me := g.UserID == p.user.ID
+		l := line{Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Me: me}
 		if g.PtsKm != nil && g.PtsBonus != nil {
 			total := g.Total()
 			l.Points = &total
 		}
+		if me || !live {
+			l.Name, l.Bonus, l.Speed = g.FirstName, g.PtsBonus, g.Speed()
+		}
+		if b := photos[g.UserID]; b != nil {
+			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
+		}
 		resp.Table = append(resp.Table, l)
 	}
-	writeJSON(w, http.StatusOK, resp)
+	if answered {
+		if resp.World, err = s.worldNow(ctx, p); err != nil {
+			return resultResponse{}, err
+		}
+	}
+	players := 0
+	if resp.World != nil {
+		players = resp.World.Players
+	}
+	resp.Version = strconv.Itoa(len(guesses)) + "." + strconv.Itoa(players) + "." + resp.Phase
+	return resp, nil
 }
 
-// scoreDay scores every answer for d whose deadline has passed.
+// worldNow is the person's place among everyone scored so far today, and a
+// sample of everyone's pins.
+func (s *Server) worldNow(ctx context.Context, p play) (*worldNow, error) {
+	w, err := s.Store.World(ctx, p.date)
+	if err != nil {
+		return nil, err
+	}
+	pins, err := s.Store.DayPins(ctx, p.date)
+	if err != nil {
+		return nil, err
+	}
+	out := &worldNow{Rank: w.RankOf(p.user.ID), Players: w.Players(), Pins: make([]pin, 0, min(len(pins), worldPinsShown))}
+	step := 1
+	if len(pins) > worldPinsShown {
+		step = (len(pins) + worldPinsShown - 1) / worldPinsShown
+	}
+	for i := 0; i < len(pins); i += step {
+		out.Pins = append(out.Pins, pin{Lat: pins[i][0], Lon: pins[i][1]})
+	}
+	return out, nil
+}
+
+// scoreDay scores the day's answers that have no score yet: every Telegram
+// answer, and the site's whose deadline has passed.
 func (s *Server) scoreDay(ctx context.Context, d round.Date, answer db.Answer, now time.Time) error {
 	place := scoring.Place{Point: answer.Point, Country: answer.CountryISO, Continent: answer.Continent, City: answer.CityShape}
 	_, err := s.Store.ScoreDue(ctx, d, now, func(pt geo.Point) scoring.Score {
@@ -523,9 +659,10 @@ func (s *Server) scoreDay(ctx context.Context, d round.Date, answer db.Answer, n
 const shareWait = 40 * time.Second
 
 // share prepares the result card as a message the Mini App hands to
-// Telegram's shareMessage, and answers with its id. Like /api/result it says
-// nothing before the context's reveal. The card is drawn for the chat the
-// app was opened from: the group's table, or the person's own line from a DM.
+// Telegram's shareMessage, and answers with its id. Before the context's
+// reveal it is the person's score alone, with nothing about the place. The
+// card is drawn for the chat the app was opened from: the group's table, or
+// the person's own line from a DM.
 func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 	p, err := s.resolve(r)
 	if err != nil {
@@ -549,8 +686,29 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.Now()
+	chat := p.chatID
+	if p.kind == "dm" {
+		chat = p.user.ID
+	}
 	if now.Before(opens) {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": errNotRevealed.code, "opens_at": opens.UTC()})
+		// Before the reveal the share is the score alone: whoever gets it may
+		// not have answered yet.
+		g, answered, err := s.Store.GuessOf(ctx, p.date, p.user.ID)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if !answered || g.Km == nil {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": errNotAnswered.code, "opens_at": opens.UTC()})
+			return
+		}
+		id, err := s.Shares.PrepareScore(ctx, card.Share{UserID: p.user.ID, ChatID: chat, Date: p.date})
+		if err != nil {
+			s.Log.Warn("score share not prepared", "chat", chat, "date", p.date, "error", err)
+			s.fail(w, r, errUnavailable)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"id": id})
 		return
 	}
 	rd, ok, err := s.Store.RoundOn(ctx, p.date)
@@ -570,10 +728,6 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 	if err := s.scoreDay(ctx, p.date, answer, now); err != nil {
 		s.fail(w, r, err)
 		return
-	}
-	chat := p.chatID
-	if p.kind == "dm" {
-		chat = p.user.ID
 	}
 	id, err := s.Shares.Prepare(ctx, card.Share{UserID: p.user.ID, ChatID: chat, Date: p.date})
 	if err != nil {

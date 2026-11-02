@@ -1,5 +1,15 @@
 // TODAY is /api/today: the day number, the picture, the deadline and the reveal for the chat the app was opened from.
 let TODAY = null;
+// A script error on someone's phone would otherwise stay there: the first few of a session go to the server's log.
+let reported = 0;
+function report(message, source, line, column, stack) {
+  if (reported++ >= 5) return;
+  const body = JSON.stringify({ message: String(message || ""), source: String(source || ""), line: line || 0, column: column || 0,
+    stack: String(stack || ""), version: (window.Telegram && Telegram.WebApp && Telegram.WebApp.version) || "", page: window.Telegram && Telegram.WebApp && Telegram.WebApp.initData ? "tg" : "site" });
+  try { fetch("/api/log", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {}); } catch {}
+}
+addEventListener("error", (e) => report(e.message, e.filename, e.lineno, e.colno, e.error && e.error.stack));
+addEventListener("unhandledrejection", (e) => report(e.reason && e.reason.message || e.reason, "promise", 0, 0, e.reason && e.reason.stack));
 const $ = (id) => document.getElementById(id);
 const PIN_PATH = "M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1 0 320 349 A60 60 0 1 0 320 229 Z";
 // On the map, markers are dark with a white outline: visible on both light land and green water.
@@ -109,6 +119,7 @@ function tick() {
   const w = $("wleft"); if (w) w.textContent = hm(secondsTo(TODAY.reveal));
   if (state === "guess" && !secondsTo(TODAY.deadline)) toWaiting(true);
   if (state === "wait" && !secondsTo(TODAY.reveal)) loadResult();
+  if (state === "reveal" && PHASE === "live" && !secondsTo(TODAY.reveal)) loadResult();
 }
 setInterval(tick, 15000);
 
@@ -341,19 +352,23 @@ const score = (d, lvl) => base(d) + bonusOf(lvl);
 // The server sends the bonus in points; the ladder makes the level unambiguous.
 const levelOf = (bonus) => [300, 800, 1500].filter((x) => (bonus || 0) >= x).length;
 
-// Send the pin. Before the reveal the server answers "accepted" and nothing else: no distance, no score.
+// Send the pin. In Telegram the answer comes back with the result at once: the place, your score, and the others'
+// answers without names until this chat's reveal. The site answers "accepted" and keeps the place for the evening.
 async function send() {
   $("go").disabled = true;
   try {
     const at = guess.wrap();
-    await api("/api/guess", { lat: at.lat, lon: at.lng });
-    toWaiting("sent");
+    const res = await api("/api/guess", { lat: at.lat, lon: at.lng });
+    if (res && res.place) { if (tgAt("6.2")) tg.disableClosingConfirmation(); toReveal(res); }
+    else toWaiting("sent");
   } catch (e) {
-    if (e.message === "already_answered") { TODAY = await api("/api/today").catch(() => TODAY); restore(); return; }
+    if (e.message === "already_answered") { TODAY = await api(todayPath()).catch(() => TODAY); restore(); return; }
     toast(errorText(e));
     if (e.message === "closed") toWaiting("closed");
   } finally { $("go").disabled = false; }
 }
+// The DM's zone follows the phone until the person picks one: the server takes it from here.
+const todayPath = () => SITE ? "/api/today" : "/api/today?" + new URLSearchParams({ tz });
 // "sent" right after the answer, "closed" when the window shut without one, "restore" when the app reopens after answering.
 function toWaiting(how) {
   state = "wait"; if (marker) marker.setDraggable(false);
@@ -366,14 +381,16 @@ function toWaiting(how) {
   // Zoom past the edge of the globe unfolding: at 3.5 the map is still slightly curved, and a pinch immediately snapped it back to a globe.
   if (guess && view === "map") map.easeTo({ padding: bigCam().padding, center: guess, zoom: GLOBE_Z[1] + 0.4, duration: 700, easing: easeOut });
 }
-// The app reopened after the answer: put the pin back where it was sent.
+// The app reopened after the answer: put the pin back where it was sent and show the result, live or final. The site
+// waits for its evening.
 function restore() {
   if (!TODAY.answer) return;
   guess = new maplibregl.LngLat(TODAY.answer.lon, TODAY.answer.lat);
   if (!marker) marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat(guess).addTo(map);
   else marker.setLngLat(guess);
   if (view === "photo") map.jumpTo({ ...miniCam(), center: guess });
-  toWaiting("restore");
+  if (SITE) toWaiting("restore");
+  else loadResult();
 }
 // Result markers are laid out in pixels on every map-motion frame. A friend's point that falls under the target
 // moves out onto a ring around it; nearby points are pushed apart; a label takes the first free spot, and if it
@@ -423,13 +440,20 @@ map.on("resize", layoutMarks);
 // then the dashed missed part.
 const T_KM = .25, T_B = (k) => .75 + k * .3, ROWS = 4;
 const pct = (x) => (x * 100 / (5000 + SPEED_MAX)).toFixed(2) + "%";
-// rows: { who, d (km), pts, lvl, sp, me } from /api/result. The grey part of a bar is the points for the distance, the
-// gold one after the bonuses is for speed.
-function paintBoard(rows) {
+// rows: { who, d (km), pts, lvl, sp, me, anon } from /api/result. The grey part of a bar is the points for the distance,
+// the gold one after the bonuses is for speed. Before the reveal the others are anonymous: a question mark, no name, and
+// one bar for all their points, since their bonuses would say which country they picked. fresh holds the rows that came
+// in since the last paint; they slide in, the rest stay as they are.
+function paintBoard(rows, fresh) {
   // Collapsed, the first rows and yours are visible; if you are lower, there is one fewer row so the height does not change.
   const meAt = rows.findIndex((r) => r.me), top = meAt >= ROWS ? ROWS - 1 : ROWS, IF = [T("what_continent"), T("what_country"), T("what_city")];
+  const wasOpen = $("lb").classList.contains("open");
   // Segment tooltips sit in data-tip, not data-t: data-t marks the static lines loadTexts fills.
   $("lb").innerHTML = rows.map((r, i) => {
+    const x = i >= top && !r.me ? " x" : "", nw = fresh && fresh.has(r.key) ? " new" : "";
+    if (r.anon) return '<div class="r anon' + x + nw + '"><em>' + (i + 1) + '</em><i class="av">?</i><span>•••</span>' +
+      '<span class="hit" data-rest="' + esc(T("anon_row")) + '"><span class="bar"><i class="km" data-tip="' + esc(T("anon_row")) + '" style="width:' + pct(r.pts) +
+      ';--d:' + T_KM + 's"></i></span></span><b class="s" data-b="' + r.pts + '" data-l="0" data-sp="0">0</b><span class="k">' + fmt(r.d) + ' ' + esc(T("km")) + '</span></div>';
     const b0 = r.pts - bonusOf(r.lvl) - r.sp, segs = ['<i class="km" data-tip="' + esc(T("km_points", { points: fmt(b0), km: fmt(r.d) })) + '" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
     BONUS.forEach((x, k) => {
       if (k < r.lvl) segs.push('<i data-tip="' + esc(T("bonus", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + T_B(k) + 's"></i>');
@@ -438,16 +462,16 @@ function paintBoard(rows) {
     if (r.me) BONUS.forEach((x, k) => {
       if (k >= r.lvl) segs.push('<i class="if" data-tip="' + esc(T("bonus_missed", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
     });
-    const x = i >= top && !r.me ? " x" : "";
-    return '<div class="r' + (r.me ? " me" : "") + x + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me, r.photo) + '<span>' + esc(r.who) + '</span>' +
+    return '<div class="r' + (r.me ? " me" : "") + x + nw + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me, r.photo) + '<span>' + esc(r.who) + '</span>' +
       '<span class="hit" data-rest="' + esc(T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
       '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '" data-sp="' + r.sp + '">0</b><span class="k">' + fmt(r.d) + ' ' + esc(T("km")) + '</span></div>';
   }).join("");
   const hidden = rows.length - Math.min(rows.length, top + (meAt >= top ? 1 : 0));
-  $("lb").classList.remove("open");
+  const open = wasOpen && hidden > 0;
+  $("lb").classList.toggle("open", open);
   $("more").classList.toggle("hidden", hidden <= 0);
   $("more").dataset.n = hidden;
-  $("more").textContent = T("more", { n: hidden }) + " ↓";
+  $("more").textContent = open ? T("less") + " ↑" : T("more", { n: hidden }) + " ↓";
   // Legend and "what if" at the same distance: one line, wraps in whole chunks.
   const t = (h) => '<span>' + h + '</span>', me = rows[meAt], legend = t('<i class="km"></i>' + esc(T("legend_km"))) + ' ' + t('<i></i>' + esc(T("legend_bonus"))) +
     (rows.some((r) => r.sp) ? ' ' + t('<i class="sp"></i>' + esc(T("legend_speed"))) : "");
@@ -487,9 +511,12 @@ $("lb").addEventListener("pointermove", showTip);
 $("lb").addEventListener("pointerdown", showTip);
 $("lb").addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hideTip(); });
 document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".lb")) hideTip(); });
-// Points in the rows count up in time with the bars.
-function countUp() {
-  const t0 = performance.now(), ease = (x) => 1 - (1 - Math.min(1, Math.max(0, x))) ** 3, els = [...document.querySelectorAll(".lb .s")];
+// Points in the rows count up in time with the bars: every row on the first paint, only the new ones after it.
+function countUp(fresh) {
+  if (fresh) document.querySelectorAll(".lb .r:not(.new) .s").forEach((e) => {
+    e.textContent = fmt(+e.dataset.b + bonusOf(+e.dataset.l) + +e.dataset.sp);
+  });
+  const t0 = performance.now(), ease = (x) => 1 - (1 - Math.min(1, Math.max(0, x))) ** 3, els = [...document.querySelectorAll(fresh ? ".lb .r.new .s" : ".lb .s")];
   const tick = (now) => {
     const t = (now - t0) / 1000;
     els.forEach((e) => {
@@ -505,39 +532,110 @@ function countUp() {
 // The country's name in the interface language, from the browser: the server sends only the ISO code.
 const regionName = (iso) => { try { return new Intl.DisplayNames([LANG], { type: "region" }).of(iso); } catch { return iso; } };
 let resultLoading = false;
+// PHASE is "live" from the answer until this chat's reveal, with the others unnamed, then "final". VERSION changes when
+// someone answers, so a poll that brings nothing new redraws nothing.
+let PHASE = "", VERSION = "", seen = new Set(), friendMarkers = [];
 async function loadResult() {
-  if (resultLoading || state === "reveal") return;
+  if (resultLoading || (state === "reveal" && PHASE !== "live")) return;
   resultLoading = true;
-  try { toReveal(await api("/api/result")); }
-  catch (e) {
+  try {
+    const res = await api("/api/result");
+    state === "reveal" ? repaint(res) : toReveal(res);
+  } catch (e) {
     // The server's clock decides; it says when to ask again.
-    if (e.message === "not_revealed" && e.data.opens_at) TODAY.reveal = e.data.opens_at;
-    else toast(errorText(e));
+    if ((e.message === "not_revealed" || e.message === "not_answered") && e.data.opens_at) {
+      TODAY.reveal = e.data.opens_at;
+      if (state === "guess" && TODAY.answer) toWaiting("restore");
+    } else if (state !== "reveal") {
+      toast(errorText(e));
+      if (state === "guess" && TODAY.answer) toWaiting("restore");
+    }
   } finally { resultLoading = false; }
+}
+// While the names are hidden the result asks again every few seconds, so new answers appear as they come. It stops while
+// the app is in the background and picks up again when it comes back.
+setInterval(() => { if (state === "reveal" && PHASE === "live" && !document.hidden) loadResult(); }, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && state === "reveal" && PHASE === "live") loadResult(); });
+// A row's key is its pin: it stays the same when the names open, so only answers that are really new slide in.
+const rowsOf = (res) => res.table.map((r) => {
+  const anon = !r.me && !r.name;
+  return { who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: anon ? 0 : levelOf(r.bonus), sp: r.speed || 0,
+    me: !!r.me, photo: r.photo, anon, key: r.lat.toFixed(5) + "," + r.lon.toFixed(5) };
+}).sort((a, b) => b.pts - a.pts);
+// The plate under the table: while the names are hidden, when they open; and where you stand in the world so far.
+function livePlate(res) {
+  const w = res.world, parts = [];
+  if (PHASE === "live") parts.push('<b class="up lv-on"><i></i>' + esc(T("live_names", { time: AT })) + '</b>');
+  if (w && w.rank) parts.push('<span>' + esc(T("world_now", { rank: fmt(w.rank), n: fmt(w.players) })) + '</span>');
+  return parts.length ? '<div class="pl lv">' + parts.join("") + '</div>' : "";
+}
+function setLive(res) {
+  PHASE = res.phase || "final"; VERSION = res.version || "";
+  if (res.opens_at) TODAY.reveal = res.opens_at;
+  const top = livePlate(res);
+  $("ovTop").innerHTML = top; $("ovTop").classList.toggle("on", !!top);
+  // In the live phase the header counts down to the names.
+  $("timer").classList.toggle("hidden", PHASE !== "live");
+  $("timer").querySelector("span").textContent = T("until_names");
+  tick();
+}
+// Everyone's pins worldwide, small and grey under the markers: where the world thinks it is, without anyone's name.
+function drawWorld(w) {
+  const data = { type: "FeatureCollection", features: ((w && w.pins) || []).map((p) => ({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [p.lon, p.lat] } })) };
+  const src = map.getSource("world");
+  if (src) { src.setData(data); return; }
+  map.addSource("world", { type: "geojson", data });
+  map.addLayer({ id: "world", type: "circle", source: "world", paint: { "circle-radius": 3, "circle-color": "#B5C7BD", "circle-stroke-color": "#1A412B", "circle-stroke-width": 1 } });
+}
+// The others' markers. An unnamed one carries a question mark and its distance instead of a name.
+function drawFriends(friends, fresh) {
+  friendMarkers.forEach((m) => m.remove()); friendMarkers = [];
+  marks.friends = friends.map((f) => {
+    const face = f.anon ? '<i class="av anon">?</i>' : av(f.who, false, f.photo), nw = fresh && fresh.has(f.key) ? " new" : "";
+    const e = el('<div class="friend' + nw + '"><span class="g"><s></s>' + face + '<b>' + esc(f.anon ? kmT(f.d) : f.who) + '</b></span></div>');
+    const m = new maplibregl.Marker({ element: e }).setLngLat(f.at).addTo(map);
+    m.getElement().style.zIndex = 1; friendMarkers.push(m);
+    return { at: f.at, g: e.firstChild, s: e.querySelector("s"), b: e.querySelector("b") };
+  });
+  layoutMarks();
+}
+// A later look at the live result: new answers slide in, and at the reveal the names take the question marks' place.
+function repaint(res) {
+  const was = PHASE;
+  if (res.opens_at) TODAY.reveal = res.opens_at;
+  if (res.version && res.version === VERSION) return;
+  const rows = rowsOf(res), fresh = new Set(rows.filter((r) => !seen.has(r.key)).map((r) => r.key));
+  rows.forEach((r) => seen.add(r.key));
+  mine = rows.find((r) => r.me) || mine;
+  paintBoard(rows, fresh); countUp(fresh);
+  drawFriends(rows.filter((r) => !r.me), fresh);
+  drawWorld(res.world);
+  setLive(res);
+  if (was === "live" && PHASE === "final") { toast(T("names_open")); haptic("success"); }
+  else if (fresh.size) haptic("light");
 }
 function toReveal(res) {
   if (state === "reveal") return;
   state = "reveal";
   const P = res.place, truth = new maplibregl.LngLat(P.lon, P.lat);
   credits(P);
-  const rows = res.table.map((r) => ({ who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0, me: !!r.me, photo: r.photo }))
-    .sort((a, b) => b.pts - a.pts);
+  const rows = rowsOf(res);
+  seen = new Set(rows.map((r) => r.key));
   mine = rows.find((r) => r.me) || null;
   // A pin that never reached the server is not an answer: it leaves the map rather than draw a line to the place.
   if (!mine && marker) { marker.remove(); marker = null; guess = null; }
   if (mine && !guess) guess = new maplibregl.LngLat(mine.at[0], mine.at[1]);
   if (guess && !marker) marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat(guess).addTo(map);
+  if (marker) marker.setDraggable(false);
   const friends = rows.filter((r) => !r.me);
   paintBoard(rows);
   $("lb").offsetWidth; // the bar and avatars must catch the closed state, otherwise there will be no animation
   document.body.classList.add("is-reveal");
   ovUnderBoard();
-  // Layer order: friends, the target above them, your own pin on top.
-  marks = { truth, friends: friends.map((f) => {
-    const e = el('<div class="friend"><span class="g"><s></s>' + av(f.who, false, f.photo) + '<b>' + esc(f.who) + '</b></span></div>');
-    new maplibregl.Marker({ element: e }).setLngLat(f.at).addTo(map).getElement().style.zIndex = 1;
-    return { at: f.at, g: e.firstChild, s: e.querySelector("s"), b: e.querySelector("b") };
-  }) };
+  drawWorld(res.world);
+  // Layer order: the world's pins, friends, the target above them, your own pin on top.
+  marks = { truth, friends: [] };
+  drawFriends(friends, null);
   new maplibregl.Marker({ element: el(TARGET) }).setLngLat(truth).addTo(map).getElement().style.zIndex = 2;
   if (marker) marker.getElement().style.zIndex = 3;
   layoutMarks();
@@ -547,7 +645,7 @@ function toReveal(res) {
     map.addLayer({ id: "line-case", type: "line", source: "line", paint: { "line-color": "#FFFFFF", "line-width": 5 } });
     map.addLayer({ id: "line", type: "line", source: "line", paint: { "line-color": "#1A412B", "line-width": 2, "line-dasharray": [2, 1.5] } });
   }
-  $("timer").classList.add("hidden"); split(!!mine); $("go").textContent = T("share");
+  split(!!mine); $("go").textContent = T("share");
   setCall(T("day_result"), T("see"));
   const where = esc([P.city, regionName(P.country)].filter(Boolean).join(", ")), fact = esc(P.fact || "");
   overlay("", tgLink() +
@@ -562,6 +660,7 @@ function toReveal(res) {
   };
   $("placeX").onclick = () => $("place").classList.add("min");
   $("placeTab").onclick = () => $("place").classList.remove("min");
+  setLive(res);
   view = "map"; document.body.classList.add("is-map"); paintBackdrop(); syncBack();
   const b = new maplibregl.LngLatBounds(truth, truth); if (guess) b.extend(guess); friends.forEach((f) => b.extend(f.at));
   map.setPadding({ left: 0, top: 0, right: 0, bottom: 0 });
@@ -679,7 +778,7 @@ async function boot() {
   // The client's language first, so nothing on the first screen is blank; the person's own choice from core
   // arrives with /api/today and wins.
   const [today] = await Promise.all([
-    SITE || tg.initData ? api("/api/today").catch((e) => e) : null,
+    SITE || tg.initData ? api(todayPath()).catch((e) => e) : null,
     loadTexts(LANG0).catch(() => {}),
   ]);
   setCall(T("where"), T("drop_pin"));
@@ -698,5 +797,6 @@ async function boot() {
   else if (!secondsTo(TODAY.deadline)) toWaiting("closed");
   tick();
   if (!secondsTo(TODAY.reveal)) loadResult();
+  if (TODAY.zone_set) setTimeout(() => toast(T("zone_set", { zone: ZONES[TODAY.zone_set] || TODAY.zone_set })), 1200);
 }
 boot();

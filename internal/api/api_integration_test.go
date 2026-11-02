@@ -140,6 +140,7 @@ func setup(t *testing.T) *harness {
 		Members: members{
 			{kyivGroup, 1}: true, {moscowGroup, 1}: true, // Oksana is in both
 			{moscowGroup, 2}: true, // Ivan
+			{moscowGroup, 6}: true, // Pavel
 			{minskGroup, 3}:  true, // Alesia
 			{kyivGroup, 5}:   true, // Dmitry speaks ru but plays in the Kyiv group
 		},
@@ -236,6 +237,7 @@ func TestADayAcrossZones(t *testing.T) {
 	stranger := initData(4, "Stranger", "ru", hs.payload(kyivGroup))
 	dmitryKyiv := initData(5, "Dmitry", "ru", hs.payload(kyivGroup))
 	dmitryDM := initData(5, "Dmitry", "ru", "")
+	pavel := initData(6, "Pavel", "ru", hs.payload(moscowGroup))
 
 	var before []string
 	record := func(body string) string { before = append(before, body); return body }
@@ -245,7 +247,7 @@ func TestADayAcrossZones(t *testing.T) {
 	today := record(hs.expect("GET", "/api/today", oksanaKyiv, "", http.StatusOK))
 	record(hs.expect("GET", "/api/today", oksanaMoscow, "", http.StatusOK))
 	record(hs.expect("GET", "/api/today", dmitryKyiv, "", http.StatusOK))
-	record(hs.expect("POST", "/api/guess", dmitryDM, `{"lat":48,"lon":30}`, http.StatusOK))
+	hs.expect("POST", "/api/guess", dmitryDM, `{"lat":48,"lon":30}`, http.StatusOK)
 	var td todayResponse
 	if err := json.Unmarshal([]byte(today), &td); err != nil {
 		t.Fatal(err)
@@ -262,9 +264,31 @@ func TestADayAcrossZones(t *testing.T) {
 	record(hs.expect("GET", "/api/today", initData(1, "Oksana", "uk", "forged-payload"), "", http.StatusUnauthorized))
 	record(hs.expect("GET", "/api/today", "", "", http.StatusUnauthorized))
 
-	// Ivan answers at noon; the answer is accepted and nothing else is said.
-	if got := record(hs.expect("POST", "/api/guess", ivan, `{"lat":50.45,"lon":30.52}`, http.StatusOK)); strings.TrimSpace(got) != `{"status":"accepted"}` {
-		t.Fatalf("guess answered %s", got)
+	// Pavel answers first from the Moscow group, Ivan at noon. Each sees the
+	// place and their own score at once; the other is a line without a name.
+	pavelBody := hs.expect("POST", "/api/guess", pavel, `{"lat":55.75,"lon":37.6}`, http.StatusOK)
+	if !strings.Contains(pavelBody, `"phase":"live"`) || !strings.Contains(pavelBody, "Pavel") {
+		t.Fatalf("Pavel's answer = %s", pavelBody)
+	}
+	got := hs.expect("POST", "/api/guess", ivan, `{"lat":50.45,"lon":30.52}`, http.StatusOK)
+	var live resultResponse
+	if err := json.Unmarshal([]byte(got), &live); err != nil {
+		t.Fatal(err)
+	}
+	if live.Phase != "live" || live.Place.Lat != placeLat || live.OpensAt == nil || !live.OpensAt.Equal(time.Date(2026, time.December, 10, 17, 0, 0, 0, time.UTC)) ||
+		len(live.Table) != 2 || live.World == nil || live.World.Players != 3 || live.World.Rank == 0 || len(live.World.Pins) != 3 {
+		t.Fatalf("Ivan's answer = %s", got)
+	}
+	for _, l := range live.Table {
+		if l.Me != (l.Name == "Ivan") || l.Km == nil || l.Points == nil {
+			t.Fatalf("line = %+v", l)
+		}
+		if !l.Me && (l.Name != "" || l.Photo != "" || l.Bonus != nil || l.Speed != 0) {
+			t.Fatalf("Pavel is named before the reveal: %+v", l)
+		}
+	}
+	if strings.Contains(got, "Pavel") {
+		t.Fatalf("Ivan's live result names Pavel: %s", got)
 	}
 	record(hs.expect("POST", "/api/guess", ivan, `{"lat":10,"lon":10}`, http.StatusConflict))
 	record(hs.expect("POST", "/api/guess", alesia, `{"lat":100,"lon":0}`, http.StatusBadRequest))
@@ -272,20 +296,28 @@ func TestADayAcrossZones(t *testing.T) {
 	// 16:30 UTC is 18:30 in Kyiv but 19:30 in Moscow. Alesia (Minsk, 19:30)
 	// still has half an hour.
 	hs.now = time.Date(2026, time.December, 10, 16, 30, 0, 0, time.UTC)
-	record(hs.expect("POST", "/api/guess", alesia, `{"lat":53.9,"lon":27.56}`, http.StatusOK))
-	record(hs.expect("GET", "/api/result", ivan, "", http.StatusForbidden))
+	hs.expect("POST", "/api/guess", alesia, `{"lat":53.9,"lon":27.56}`, http.StatusOK)
+	if got := hs.expect("GET", "/api/result", ivan, "", http.StatusOK); !strings.Contains(got, `"phase":"live"`) || strings.Contains(got, "Pavel") {
+		t.Fatalf("Ivan's result before the reveal = %s", got)
+	}
 
 	// 17:30 UTC: Moscow has revealed (20:30), Kyiv has not (19:30). Oksana's
 	// window closed with Moscow's reveal, so the Kyiv group cannot buy her
 	// another hour.
 	hs.now = time.Date(2026, time.December, 10, 17, 30, 0, 0, time.UTC)
 	record(hs.expect("POST", "/api/guess", oksanaKyiv, `{"lat":49.8,"lon":24}`, http.StatusConflict))
-	record(hs.expect("GET", "/api/result", oksanaKyiv, "", http.StatusForbidden))
-	// Her DM waits for the latest of her chats, Kyiv.
+	// She never answered, so nothing opens for her before the Kyiv reveal:
+	// not in the group, not in her DM, not as a share.
+	if got := record(hs.expect("GET", "/api/result", oksanaKyiv, "", http.StatusForbidden)); !strings.Contains(got, "not_answered") {
+		t.Fatalf("Oksana's result = %s", got)
+	}
 	record(hs.expect("GET", "/api/result", oksanaDM, "", http.StatusForbidden))
-	// Dmitry's DM is on Moscow time, which has revealed, but his Kyiv group
-	// is still guessing: the DM must not tell him first.
-	record(hs.expect("GET", "/api/result", dmitryDM, "", http.StatusForbidden))
+	record(hs.expect("POST", "/api/share", oksanaKyiv, "", http.StatusServiceUnavailable))
+	// Dmitry answered in the morning: his DM shows his result, live until the
+	// Kyiv group has its reveal.
+	if got := hs.expect("GET", "/api/result", dmitryDM, "", http.StatusOK); !strings.Contains(got, `"phase":"live"`) {
+		t.Fatalf("Dmitry's DM = %s", got)
+	}
 
 	for i, body := range before {
 		if leaks(body) {
@@ -302,12 +334,16 @@ func TestADayAcrossZones(t *testing.T) {
 	if err := json.Unmarshal([]byte(res), &rr); err != nil {
 		t.Fatal(err)
 	}
-	if rr.Place.Lat != placeLat || rr.Place.City != "Львов" || len(rr.Table) != 1 || !rr.Table[0].Me || rr.Table[0].Km == nil || *rr.Table[0].Km < 400 {
+	if rr.Phase != "final" || rr.Place.Lat != placeLat || rr.Place.City != "Львов" || len(rr.Table) != 2 || !strings.Contains(res, "Pavel") {
 		t.Fatalf("Moscow result = %s", res)
 	}
+	ivanLine := rr.Table[0]
+	if !ivanLine.Me {
+		ivanLine = rr.Table[1]
+	}
 	// Without Natural Earth embedded nothing earns a country bonus yet.
-	if rr.Table[0].Points == nil || *rr.Table[0].Points <= 0 || *rr.Table[0].Points > 3500 {
-		t.Fatalf("Ivan's points = %v", rr.Table[0].Points)
+	if !ivanLine.Me || ivanLine.Km == nil || *ivanLine.Km < 400 || ivanLine.Points == nil || *ivanLine.Points <= 0 || *ivanLine.Points > 3500 {
+		t.Fatalf("Ivan's line = %+v", ivanLine)
 	}
 
 	// 18:00 UTC: Kyiv reveals too, and the DM with it.
@@ -460,5 +496,42 @@ func TestSitePlayerIsRanked(t *testing.T) {
 	var res resultResponse
 	if err := json.Unmarshal(send("GET", "/api/site/result?date=2026-12-10", player, "").Body.Bytes(), &res); err != nil || len(res.Table) != 1 || res.Table[0].Km == nil || *res.Table[0].Km > 20 {
 		t.Fatalf("site result from the stored answer = %+v, %v", res, err)
+	}
+}
+
+// A DM that never picked a zone takes the phone's, once; a picked one stays.
+// Moving the zone later in the day changes when the names open, never the
+// score.
+func TestDMZoneFromThePhone(t *testing.T) {
+	hs := setup(t)
+	lena := initData(7, "Lena", "en", "")
+	var today todayResponse
+	body := hs.expect("GET", "/api/today?tz=Europe/Paris", lena, "", http.StatusOK)
+	if err := json.Unmarshal([]byte(body), &today); err != nil || today.ZoneSet != "Europe/Berlin" || today.Zone != "Europe/Berlin" {
+		t.Fatalf("today from Paris = %s", body)
+	}
+	body = hs.expect("GET", "/api/today?tz=Asia/Tokyo", lena, "", http.StatusOK)
+	today = todayResponse{}
+	if err := json.Unmarshal([]byte(body), &today); err != nil || today.ZoneSet != "" || today.Zone != "Europe/Berlin" {
+		t.Fatalf("today from Tokyo after Paris = %s", body)
+	}
+	// Dmitry picked Moscow himself.
+	body = hs.expect("GET", "/api/today?tz=Europe/Berlin", initData(5, "Dmitry", "ru", ""), "", http.StatusOK)
+	today = todayResponse{}
+	if err := json.Unmarshal([]byte(body), &today); err != nil || today.ZoneSet != "" || today.Zone != "Europe/Moscow" {
+		t.Fatalf("Dmitry's today = %s", body)
+	}
+
+	// Lena answers at 09:00 UTC, then moves her DM to Tokyo, where 20:00 was
+	// 11:00 UTC. At noon her result is final and keeps its score.
+	hs.expect("POST", "/api/guess", lena, `{"lat":50,"lon":25}`, http.StatusOK)
+	if err := hs.srv.Store.(*db.Store).SetChatZone(context.Background(), 7, "Asia/Tokyo"); err != nil {
+		t.Fatal(err)
+	}
+	hs.now = time.Date(2026, time.December, 10, 12, 0, 0, 0, time.UTC)
+	var rr resultResponse
+	body = hs.expect("GET", "/api/result", lena, "", http.StatusOK)
+	if err := json.Unmarshal([]byte(body), &rr); err != nil || rr.Phase != "final" || len(rr.Table) != 1 || rr.Table[0].Points == nil || *rr.Table[0].Points == 0 {
+		t.Fatalf("Lena's result after the move = %s", body)
 	}
 }

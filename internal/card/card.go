@@ -55,6 +55,7 @@ type Store interface {
 type Saver interface {
 	SavePreparedPhoto(ctx context.Context, userID int64, p telegram.PreparedPhoto) (telegram.PreparedMessage, error)
 	SavePreparedAnimation(ctx context.Context, userID int64, a telegram.PreparedAnimation) (telegram.PreparedMessage, error)
+	SavePreparedText(ctx context.Context, userID int64, t telegram.PreparedText) (telegram.PreparedMessage, error)
 }
 
 // ErrDisabled means there is no renderer; callers use the photo.
@@ -179,6 +180,45 @@ func (s *Service) Prepare(ctx context.Context, sh Share) (string, error) {
 	base := strings.TrimRight(s.PublicURL, "/") + "/card/img/" + img.key
 	msg, err := s.TG.SavePreparedPhoto(ctx, sh.UserID, telegram.PreparedPhoto{
 		ID: img.key, PhotoURL: base + ".jpg", ThumbURL: base + ".t.jpg", Caption: caption, Markup: markup,
+	})
+	if err != nil {
+		return "", err
+	}
+	return msg.ID, nil
+}
+
+// PrepareScore is the share before the reveal: the day, the distance and
+// the points, and a button to play. Nothing in it says where the place is,
+// since whoever gets it may still be guessing.
+func (s *Service) PrepareScore(ctx context.Context, sh Share) (string, error) {
+	if s == nil || s.TG == nil {
+		return "", ErrDisabled
+	}
+	rd, ok, err := s.Store.RoundOn(ctx, sh.Date)
+	if err != nil || !ok {
+		return "", orMissing(err, "round")
+	}
+	g, answered, err := s.Store.GuessOf(ctx, sh.Date, sh.UserID)
+	if err != nil {
+		return "", err
+	}
+	if !answered || g.Km == nil {
+		return "", orMissing(nil, "score")
+	}
+	lang, err := s.langOf(ctx, sh.ChatID)
+	if err != nil {
+		return "", err
+	}
+	score := i18n.FormatDistance(lang, *g.Km) + " · " + i18n.FormatNumber(lang, g.Total())
+	head := fmt.Sprintf("maply #%d", rd.DayNo)
+	id, err := newKey()
+	if err != nil {
+		return "", err
+	}
+	msg, err := s.TG.SavePreparedText(ctx, sh.UserID, telegram.PreparedText{
+		ID: id, Title: head, Description: score,
+		Text:   "<b>" + head + "</b>\n" + i18n.T(lang, "share.score", "score", score),
+		Markup: telegram.Markup{{{Text: i18n.T(lang, "btn.play"), URL: "https://t.me/" + s.Username + "/play"}}},
 	})
 	if err != nil {
 		return "", err

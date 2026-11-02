@@ -288,15 +288,10 @@ func (s *Scheduler) worldMarkup(c db.Chat, d round.Date, lang string, final bool
 	return markup, nil
 }
 
-// worldFinal puts the final picture in every DM result of the job's date.
+// worldFinal runs once the job's date has closed in every zone: it puts the
+// final picture in every DM result and the final world line in every group
+// result. Both are edits, so a group still gets three messages a day.
 func (s *Scheduler) worldFinal(ctx context.Context, j db.Job) error {
-	if s.World == nil {
-		return errSkip
-	}
-	results, err := s.Store.DMResults(ctx, j.Date)
-	if err != nil || len(results) == 0 {
-		return orSkip(err)
-	}
 	rd, ok, err := s.Store.RoundOn(ctx, j.Date)
 	if err != nil || !ok {
 		return orSkip(err)
@@ -306,6 +301,60 @@ func (s *Scheduler) worldFinal(ctx context.Context, j db.Job) error {
 		return err
 	}
 	if err := s.scoreDue(ctx, j.Date, answer); err != nil {
+		return err
+	}
+	if err := s.finalGroups(ctx, j.Date, rd, answer); err != nil {
+		return err
+	}
+	if s.World == nil {
+		return nil
+	}
+	return s.finalDMs(ctx, j.Date, rd, answer)
+}
+
+// finalGroups redraws each group result's caption with the closed day's
+// world line.
+func (s *Scheduler) finalGroups(ctx context.Context, d round.Date, rd db.Round, answer db.Answer) error {
+	results, err := s.Store.GroupResults(ctx, d)
+	if err != nil {
+		return err
+	}
+	done := 0
+	for _, r := range results {
+		c, ok, _ := s.chatOf(ctx, r.ChatID)
+		if !ok || c.Kind != "group" {
+			continue
+		}
+		lang := i18n.Resolve(c.Lang)
+		cr, err := s.Store.ChatRound(ctx, c.ID, d)
+		if err != nil {
+			return err
+		}
+		gr, err := s.groupCaption(ctx, c, rd, cr, answer, lang, true)
+		if err != nil {
+			return err
+		}
+		markup, err := s.playMarkup(c, d, lang, "btn.result")
+		if err != nil {
+			return err
+		}
+		if err := s.TG.EditCaption(ctx, c.ID, r.MsgID, gr.caption, markup); err != nil && !tg.IsMessageNotModified(err) {
+			s.Log.Warn("final world line not put", "chat", c.ID, "date", d, "error", err)
+			continue
+		}
+		done++
+	}
+	if len(results) > 0 {
+		s.Log.Info("final world lines put", "date", d, "results", len(results), "updated", done)
+	}
+	return nil
+}
+
+// finalDMs puts the final world picture in every DM result.
+func (s *Scheduler) finalDMs(ctx context.Context, d round.Date, rd db.Round, answer db.Answer) error {
+	j := db.Job{Date: d}
+	results, err := s.Store.DMResults(ctx, j.Date)
+	if err != nil || len(results) == 0 {
 		return err
 	}
 	done := 0
@@ -341,14 +390,11 @@ func (s *Scheduler) worldFinal(ctx context.Context, j db.Job) error {
 // planWorld queues the final world job of every date a chat is on, while
 // that date is still open somewhere.
 func (s *Scheduler) planWorld(ctx context.Context, chats []db.Chat, now time.Time) error {
-	if s.World == nil {
-		return nil
-	}
 	if s.worldPlanned == nil {
 		s.worldPlanned = map[round.Date]bool{}
 	}
 	for _, c := range chats {
-		if c.Kind != "dm" {
+		if c.Kind == "dm" && s.World == nil {
 			continue
 		}
 		d := round.DateIn(now, s.location(c))

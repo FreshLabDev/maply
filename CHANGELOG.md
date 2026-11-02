@@ -11,6 +11,55 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+Players in Telegram see the place and their score as soon as they answer,
+and watch the group's other answers come in without names until 20:00.
+
+Operators: no migration and nothing to do on deploy.
+
+### Breaking
+
+- The anti-cheat rule changed: in Telegram an answer is scored the moment it
+  comes in, and `POST /api/guess` returns the result instead of
+  `{"status":"accepted"}`. Before the chat's reveal, `/api/result` gives the
+  others' answers only as distance, score and a point, with no name, photo,
+  ID, bonus, speed or answer time, and answers `403 not_answered` to anyone
+  who has not answered. The site still waits for the latest reveal and shows
+  no one else's answers before it.
+
+### Added
+
+- The live screen after answering: the place, the person's distance and
+  score, the group's answers as unnamed rows and map points, their place in
+  the world so far and everyone's answers as grey dots. It refreshes every
+  five seconds while open, a new answer slides in, and the names appear at
+  the chat's reveal without reopening the app.
+- Sharing before the reveal sends a text line with the day, distance and
+  score, without the picture of the place.
+- The group's 20:00 result carries the members' places in the world so far.
+  When the day closes everywhere, the bot edits that line into the final
+  places and who came first in the world. The edit is not a new message.
+- A DM without a chosen zone takes the phone's zone, matched to the closest
+  zone in the picker with the same clock all year (Paris to Berlin, Riga to
+  Kyiv). A zone the person picked is never overwritten.
+- Errors in the Mini App are reported to the server log through
+  `POST /api/log`, at most five per session, without the launch data.
+
+### Changed
+
+- The pinned post is laid out in blocks: who answered, in alphabetical order
+  so the names cannot be matched to the live rows, the three best distances
+  so far without names, and yesterday's summary in a quote.
+- The result table gives medals to the first three.
+
+### Fixed
+
+- Changing the time zone in the middle of the day could open the result
+  before the answers were scored and show 0 points.
+- Emoji in names are drawn in the animations instead of a question mark, and
+  an avatar without a photo shows the whole emoji, flags included.
+- A long name no longer wraps onto a second line in the Mini App's result
+  table.
+
 ## v0.0.1-alpha.10 - 2026-10-28
 
 New places join the queue mixed with the old ones, and the place pool grows

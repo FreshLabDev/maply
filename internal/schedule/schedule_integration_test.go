@@ -301,7 +301,7 @@ func TestOneDay(t *testing.T) {
 		t.Errorf("DM button = %+v, want the Mini App", b)
 	}
 	result := fake.last("photo", group).text
-	for _, want := range []string{"Lisbon", "Portugal", "Built on seven hills.", "1. Pin"} {
+	for _, want := range []string{"Lisbon", "Portugal", "Built on seven hills.", "🥇 Pin", "Worldwide so far: Pin #1 of 1."} {
 		if !strings.Contains(result, want) {
 			t.Errorf("group result %q lacks %q", result, want)
 		}
@@ -312,8 +312,23 @@ func TestOneDay(t *testing.T) {
 	if intr := fake.last("text", group).text; !strings.Contains(intr, "−3") && !strings.Contains(intr, "-3") {
 		t.Errorf("group intrigue = %q, want the weather", intr)
 	}
+	// Once the day closes in every zone, the group's result gets the final
+	// world line by an edit, not a fourth message.
+	messages := len(fake.log)
+	clock = zones.LastReveal(d).Add(3 * time.Minute)
+	s.Step(ctx)
+	if edit := fake.last("edit", group); !strings.Contains(edit.text, "The day worldwide: Pin #1 of 1.") || !strings.Contains(edit.text, "🥇 Pin") {
+		t.Errorf("final world edit = %q", edit.text)
+	}
+	if got := fake.count("photo", group) + fake.count("text", group); got != 3 {
+		t.Errorf("the group got %d messages, want 3", got)
+	}
+	if len(fake.log) != messages+1 {
+		t.Errorf("closing the day sent %d calls, want the one edit", len(fake.log)-messages)
+	}
+	// The next day's jobs are planned by now; the day itself is done.
 	var open int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM maply.job WHERE status NOT IN ('done', 'skipped')`).Scan(&open); err != nil || open != 0 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM maply.job WHERE date = $1 AND status NOT IN ('done', 'skipped')`, d.Time()).Scan(&open); err != nil || open != 0 {
 		t.Errorf("%d jobs left open (%v)", open, err)
 	}
 }

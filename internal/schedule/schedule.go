@@ -49,6 +49,7 @@ type Store interface {
 	SetWorldResult(ctx context.Context, chatID int64, d round.Date, msgID int64, fileID, version string) error
 	WorldVersion(ctx context.Context, chatID int64, d round.Date) (string, error)
 	DMResults(ctx context.Context, d round.Date) ([]db.DMResult, error)
+	GroupResults(ctx context.Context, d round.Date) ([]db.DMResult, error)
 	SetAnswered(ctx context.Context, chatID int64, d round.Date, line string, at time.Time) error
 	OpenPosts(ctx context.Context, since round.Date) ([]db.OpenPost, error)
 	PhotoFileID(ctx context.Context, d round.Date) (string, error)
@@ -452,19 +453,14 @@ func (s *Scheduler) playMarkup(c db.Chat, d round.Date, lang, key string) (teleg
 	return telegram.Markup{{{Text: text, URL: link, Style: tg.StylePrimary}}}, nil
 }
 
-// answeredLine names who in the group has answered, in the order they did.
+// answeredLine is the post's block of who in the group has answered and the
+// best distances so far.
 func (s *Scheduler) answeredLine(ctx context.Context, chatID int64, d round.Date, lang string) (string, error) {
 	guesses, err := s.Store.ChatGuesses(ctx, d, chatID)
 	if err != nil {
 		return "", err
 	}
-	names := make([]string, 0, len(guesses))
-	byTime := append([]db.Guess(nil), guesses...)
-	sortByAnswer(byTime)
-	for _, g := range byTime {
-		names = append(names, displayName(g.FirstName))
-	}
-	return answeredText(lang, names), nil
+	return answeredBlock(lang, guesses), nil
 }
 
 // redraw rewrites each open group post whose who-answered line changed.
