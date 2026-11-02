@@ -11,6 +11,8 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.11 - 2026-11-02
+
 Players in Telegram see the place and their score as soon as they answer,
 and watch the group's other answers come in without names until 20:00.
 
