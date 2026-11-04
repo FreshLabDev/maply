@@ -11,6 +11,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.13 - 2026-11-04
+
+The table under the result is the day's world ranking, in a group and in a
+DM, with a small mark on the group's own players. It folds to your own row,
+and how the points add up sits behind a small (i). Migration 012 adds the
+speed bonus to the day's ranking view; no table changes.
+
 ### Changed
 
 - The table under the map is the world's, in a group and in a DM alike:
