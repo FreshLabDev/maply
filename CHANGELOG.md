@@ -11,6 +11,16 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.12 - 2026-11-04
+
+Group posts read more clearly: the pin lists every distance, the 20:00
+result sets the world places apart, and the morning look back is a heading
+and one fact a line. The result table shows the top five with every
+player's bonuses, opens in full in its own window, and close answers group
+on the map. The result animation names every pin and turns the globe to
+answers on the far side. A DM time zone change can no longer reopen a day
+already seen.
+
 ### Changed
 
 - Zooming the map stops where the hand stops. The app no longer finishes a
