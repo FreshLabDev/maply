@@ -575,7 +575,7 @@ const regionName = (iso) => { try { return new Intl.DisplayNames([LANG], { type:
 let resultLoading = false;
 // PHASE is "live" from the answer until this chat's reveal, with the others unnamed, then "final". VERSION changes when
 // someone answers, so a poll that brings nothing new redraws nothing.
-let PHASE = "", VERSION = "", seen = new Set(), friendMarkers = [];
+let PHASE = "", VERSION = "", seen = new Set();
 async function loadResult() {
   if (resultLoading || (state === "reveal" && PHASE !== "live")) return;
   resultLoading = true;
@@ -632,28 +632,43 @@ function drawWorld(w) {
   map.addSource("world", { type: "geojson", data });
   map.addLayer({ id: "world", type: "circle", source: "world", paint: { "circle-radius": 3, "circle-color": "#B5C7BD", "circle-stroke-color": "#1A412B", "circle-stroke-width": 1 } });
 }
-// The others' markers. An unnamed one carries a question mark and its distance instead of a name.
+// The others' markers. An unnamed one carries a question mark and its distance instead of a name. A marker lives as long
+// as its answer: a new answer adds one, and at the reveal the names take the question marks' place in the same markers.
+// Nothing under a finger is ever replaced, so a gesture that starts on a marker keeps going.
+const friendAt = new Map();
 function drawFriends(friends, fresh) {
-  friendMarkers.forEach((m) => m.remove()); friendMarkers = [];
+  const keep = new Set(friends.map((f) => f.key));
+  friendAt.forEach((it, k) => { if (!keep.has(k)) { it.m.remove(); friendAt.delete(k); } });
   marks.friends = friends.map((f) => {
-    const face = f.anon ? '<i class="av anon">?</i>' : av(f.who, false, f.photo), nw = fresh && fresh.has(f.key) ? " new" : "";
-    const e = el('<div class="friend' + nw + '"><span class="g"><s></s>' + face + '<b>' + esc(f.anon ? kmT(f.d) : f.who) + '</b></span></div>');
-    const m = new maplibregl.Marker({ element: e }).setLngLat(f.at).addTo(map);
-    m.getElement().style.zIndex = 1; friendMarkers.push(m);
-    const it = { at: f.at, e, g: e.firstChild, s: e.querySelector("s"), b: e.querySelector("b"), face: e.querySelector(".av"), name: f.anon ? kmT(f.d) : f.who, n: 0, group: null };
-    it.face0 = it.face.outerHTML;
-    // A tap on a group zooms in until it comes apart.
-    it.g.addEventListener("click", (ev) => {
-      if (!it.group || !it.group.length) return;
-      ev.stopPropagation(); haptic("light");
-      const b = new maplibregl.LngLatBounds(it.at, it.at);
-      it.group.forEach((o) => b.extend(o.at));
-      const cam = map.cameraForBounds(b, { padding: 70, maxZoom: Math.min(map.getZoom() + 4, 14) });
-      if (cam) map.easeTo({ center: cam.center, zoom: Math.max(cam.zoom, map.getZoom() + 1), duration: 650, easing: easeOut });
-    });
+    const name = f.anon ? kmT(f.d) : f.who, face0 = f.anon ? '<i class="av anon">?</i>' : av(f.who, false, f.photo);
+    let it = friendAt.get(f.key);
+    if (!it) {
+      it = newFriend(f, fresh && fresh.has(f.key));
+      friendAt.set(f.key, it);
+    }
+    // A changed face or name is drawn by groupMarks on the next layout, as a group or alone.
+    if (it.name !== name || it.face0 !== face0) { it.name = name; it.face0 = face0; it.n = NaN; }
     return it;
   });
   layoutMarks();
+}
+function newFriend(f, fresh) {
+  const e = el('<div class="friend' + (fresh ? " new" : "") + '"><span class="g"><s></s><i class="av"></i><b></b></span></div>');
+  const m = new maplibregl.Marker({ element: e }).setLngLat(f.at).addTo(map);
+  e.style.zIndex = 1;
+  // The pop plays once: a marker that hides in a group and comes back does not pop again.
+  e.addEventListener("animationend", () => e.classList.remove("new"), { once: true });
+  const it = { m, at: f.at, e, g: e.firstChild, s: e.querySelector("s"), b: e.querySelector("b"), face: e.querySelector(".av"), n: NaN, group: null };
+  // A tap on a group zooms in until it comes apart.
+  it.g.addEventListener("click", (ev) => {
+    if (!it.group || !it.group.length) return;
+    ev.stopPropagation(); haptic("light");
+    const b = new maplibregl.LngLatBounds(it.at, it.at);
+    it.group.forEach((o) => b.extend(o.at));
+    const cam = map.cameraForBounds(b, { padding: 70, maxZoom: Math.min(map.getZoom() + 4, 14) });
+    if (cam) map.easeTo({ center: cam.center, zoom: Math.max(cam.zoom, map.getZoom() + 1), duration: 650, easing: easeOut });
+  });
+  return it;
 }
 // Several answers within a finger's width of each other become one marker: the best of them, with how many more stand
 // behind it. Which ones group changes with the zoom.
@@ -670,8 +685,10 @@ function groupMarks(all) {
     f.n = n;
     f.e.classList.toggle("hid", !lead);
     f.e.classList.toggle("grp", n > 0);
-    if (n > 0) { f.face.outerHTML = '<i class="av grp">' + (n + 1) + '</i>'; f.face = f.g.querySelector(".av"); f.b.textContent = f.name + " +" + n; }
-    else if (n === 0) { f.face.outerHTML = f.face0; f.face = f.g.querySelector(".av"); f.b.textContent = f.name; }
+    if (n < 0) return;
+    f.face.outerHTML = n > 0 ? '<i class="av grp">' + (n + 1) + '</i>' : f.face0;
+    f.face = f.g.querySelector(".av");
+    f.b.textContent = n > 0 ? f.name + " +" + n : f.name;
   });
   return leads;
 }

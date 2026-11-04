@@ -49,6 +49,10 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   earned in muted colours, and the first three places are coloured.
 - On the map, answers too close to tell apart group into one marker: the
   best of them with a count. A tap zooms in until the group comes apart.
+- The others' markers stay put when an answer comes in: a new answer adds
+  its own, and at the reveal the names fill the same markers. Before, every
+  new answer rebuilt them all, which made them flicker and could cut off a
+  pinch that started on one.
 - The colour legend and the "what if" line under the table moved behind an
   (i) button: it explains the points for the distance, each bonus and the
   speed bonus, and what the same distance would have made with more
