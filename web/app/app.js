@@ -19,6 +19,9 @@ const PIN_PATH = "M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1
 const PIN = '<svg class="pin" viewBox="150 119 340 402"><path fill="#1A412B" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="miter" paint-order="stroke" fill-rule="evenodd" d="' + PIN_PATH + '"/></svg>';
 // A chevron pointing down: the plate folds away to the bottom edge.
 const FOLD = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+// The group's mark by a face in the world's table: two heads.
+const GROUP = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="4.3" cy="3.9" r="2"/><circle cx="8.6" cy="4.5" r="1.6"/>' +
+  '<path d="M.6 10.8c0-2.2 1.6-3.6 3.7-3.6s3.7 1.4 3.7 3.6zM8.9 10.8c0-1.4-.4-2.5-1.2-3.2.3-.1.6-.1.9-.1 1.7 0 2.9 1.2 2.9 3.3z"/></svg>';
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 // A Telegram photo comes as a data: URL of a JPEG maply encoded; anything else keeps the letter.
 const PHOTO = /^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/;
@@ -461,10 +464,10 @@ map.on("resize", layoutMarks);
 // then the dashed missed part.
 const T_KM = .25, T_B = (k) => .75 + k * .3, ROWS = 5;
 const pct = (x) => (x * 100 / (5000 + SPEED_MAX)).toFixed(2) + "%";
-// rows: { who, d (km), pts, lvl, sp, me, anon } from /api/result. The grey part of a bar is the points for the distance,
-// the gold one after the bonuses is for speed. Before the reveal the others are anonymous: a question mark, no name, and
-// one bar for all their points, since their bonuses would say which country they picked. fresh holds the rows that came
-// in since the last paint; they slide in, the rest stay as they are.
+// rows: { who, d (km), pts, lvl, sp, me, grp, anon, rank } from the world's table in /api/result. The grey part of a bar
+// is the points for the distance, the gold one after the bonuses is for speed. Before the reveal the others are a
+// question mark without a name; the players of this group carry its mark by the face. fresh holds the rows that came in
+// since the last paint; they slide in, the rest stay as they are.
 // One row: place, face, name, the bar and the points. Your own row has every part in full colour and the bonuses you
 // missed as dashed outlines; the others show only what they earned, in muted colours, so the eye finds yours first.
 function boardRow(r, i, cls, count) {
@@ -477,21 +480,24 @@ function boardRow(r, i, cls, count) {
   if (r.me) BONUS.forEach((x, k) => {
     if (k >= r.lvl) segs.push('<i class="if" data-tip="' + esc(T("bonus_missed", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
   });
-  const face = r.anon ? '<i class="av">?</i>' : av(r.who, r.me, r.photo), label = r.anon ? ' aria-label="' + esc(T("anon_row") + ", " + kmT(r.d) + ", " + fmt(r.pts)) + '"' : "";
-  return '<div class="r' + (r.me ? " me" : "") + (r.anon ? " anon" : "") + cls + '"' + label + '><em' + (i < 3 ? ' class="m' + (i + 1) + '"' : "") + '>' + (i + 1) + '</em>' + face +
+  const n = r.rank || i + 1, grp = r.grp ? '<b class="gi" title="' + esc(T("in_group")) + '">' + GROUP + '</b>' : "";
+  const face = '<i class="fc">' + (r.anon ? '<i class="av">?</i>' : av(r.who, r.me, r.photo)) + grp + '</i>';
+  const label = r.anon ? ' aria-label="' + esc([T("anon_row"), r.grp ? T("in_group") : "", kmT(r.d), fmt(r.pts)].filter(Boolean).join(", ")) + '"' : "";
+  return '<div class="r' + (r.me ? " me" : "") + (r.anon ? " anon" : "") + cls + '"' + label + '><em' + (n <= 3 ? ' class="m' + n + '"' : "") + '>' + n + '</em>' + face +
     '<span>' + (r.anon ? "•••" : esc(r.who)) + '</span>' +
     '<span class="hit" data-rest="' + esc(r.anon ? T("anon_row") : T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
     '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '" data-sp="' + r.sp + '">' + v(r.pts) + '</b><span class="k">' + kmT(r.d) + '</span></div>';
 }
-// Under the map the top five show, yours among them (the fifth gives way if you are lower), so the height does not change. "N more"
-// opens every answer in a window of its own.
-let boardRows = [];
-function paintBoard(rows, fresh) {
-  boardRows = rows;
+// Under the map the world's top five show, yours among them (the fifth gives way if you are lower), so the height does not
+// change. "N more" opens every answer in a window of its own. Folded, the table keeps your row alone.
+let boardRows = [], boardTotal = 0;
+function paintBoard(rows, total, fresh) {
+  boardRows = rows; boardTotal = Math.max(total || 0, rows.length);
   const meAt = rows.findIndex((r) => r.me), top = meAt >= ROWS ? ROWS - 1 : ROWS, IF = [T("what_continent"), T("what_country"), T("what_city")];
   // Segment tooltips sit in data-tip, not data-t: data-t marks the static lines loadTexts fills.
-  $("lb").innerHTML = rows.map((r, i) => boardRow(r, i, (i >= top && !r.me ? " x" : "") + (fresh && fresh.has(r.key) ? " new" : ""), true)).join("");
-  const hidden = rows.length - Math.min(rows.length, top + (meAt >= top ? 1 : 0));
+  $("lb").innerHTML = rows.map((r, i) => boardRow(r, i, (i >= top && !r.me ? " x" : "") + (r.me || (meAt < 0 && !i) ? " keep" : "") +
+    (fresh && fresh.has(r.key) ? " new" : ""), true)).join("");
+  const hidden = boardTotal - Math.min(rows.length, top + (meAt >= top ? 1 : 0));
   $("more").classList.toggle("hidden", hidden <= 0);
   $("more").textContent = T("more", { n: hidden }) + " →";
   if ($("sheet").dataset.kind === "board" && $("sheet").classList.contains("on")) fillBoard();
@@ -500,6 +506,8 @@ function paintBoard(rows, fresh) {
   const me = rows[meAt], line = (c, h) => '<p><i class="' + c + '"></i><span>' + h + '</span></p>';
   $("none").classList.toggle("hidden", rows.length > 0);
   $("rulesBtn").classList.toggle("hidden", !rows.length);
+  $("foldBtn").classList.toggle("hidden", rows.length < 2);
+  foldBoard($("lb").classList.contains("min"), false);
   let h = line("km", esc(T("rules_km", { n: fmt(3500) }))) + line("", esc(T("rules_bonus", { a: BONUS[0], b: BONUS[1], c: BONUS[2] }))) +
     line("sp", esc(T("rules_speed", { n: SPEED_MAX })));
   if (me) {
@@ -515,24 +523,37 @@ function showRules(on) {
   $("rulesBtn").setAttribute("aria-expanded", on);
 }
 $("rulesBtn").addEventListener("click", () => { hideTip(); showRules($("rules").classList.contains("hidden")); });
+// The fold keeps your own row only, and the choice stays for the next days.
+const FOLDED = "maply.board.folded";
+function foldBoard(on, save) {
+  $("lb").classList.toggle("min", on);
+  $("foldBtn").setAttribute("aria-expanded", !on);
+  $("foldBtn").setAttribute("aria-label", T(on ? "board_unfold" : "board_fold"));
+  if (save) try { localStorage.setItem(FOLDED, on ? "1" : ""); } catch {}
+}
+$("foldBtn").addEventListener("click", () => { hideTip(); showRules(false); haptic("light"); foldBoard(!$("lb").classList.contains("min"), true); });
+foldBoard((() => { try { return !!localStorage.getItem(FOLDED); } catch { return false; } })(), false);
 document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#rules, #rulesBtn")) showRules(false); });
 // Every answer, in a window over the app; a new answer while it is open joins the list where it stands.
 function openBoard() {
   if (!boardRows.length) return;
-  haptic("light"); hideTip();
+  haptic("light"); hideTip(); showRules(false);
   sheet('<span id="boardH"></span>', '<div class="lb all" id="lbAll"></div>');
   $("sheet").dataset.kind = "board";
   fillBoard();
 }
 function fillBoard() {
-  $("boardH").textContent = T("all_answers", { n: boardRows.length });
+  $("boardH").textContent = T("all_answers", { n: boardTotal });
   $("lbAll").innerHTML = boardRows.map((r, i) => boardRow(r, i, "", false)).join("");
 }
 $("more").addEventListener("click", openBoard);
 // The plates over the map stay under the table and move down as it expands.
 const ovUnderBoard = () => { $("ovTop").style.top = $("prog").getBoundingClientRect().top + $("prog").offsetHeight + 10 + "px"; };
 new ResizeObserver(() => { if (state === "reveal") ovUnderBoard(); }).observe($("prog"));
-$("lb").addEventListener("click", (e) => { if (!e.target.closest(".hit") && !$("more").classList.contains("hidden")) openBoard(); });
+$("lb").addEventListener("click", (e) => {
+  if (e.target.closest(".hit")) return;
+  if ($("lb").classList.contains("min")) { haptic("light"); foldBoard(false, true); } else if (!$("more").classList.contains("hidden")) openBoard();
+});
 // Tooltip above the bar: which segment is under the finger or cursor. We look the segment up by x so it is easy to hit.
 function showTip(e) {
   const hit = e.target.closest(".hit");
@@ -575,7 +596,7 @@ const regionName = (iso) => { try { return new Intl.DisplayNames([LANG], { type:
 let resultLoading = false;
 // PHASE is "live" from the answer until this chat's reveal, with the others unnamed, then "final". VERSION changes when
 // someone answers, so a poll that brings nothing new redraws nothing.
-let PHASE = "", VERSION = "", seen = new Set();
+let PHASE = "", VERSION = "", seen = new Set(), seenB = new Set();
 async function loadResult() {
   if (resultLoading || (state === "reveal" && PHASE !== "live")) return;
   resultLoading = true;
@@ -600,14 +621,17 @@ const polling = () => (state === "reveal" && PHASE === "live") || (state === "wa
 setInterval(() => { if (shown() && polling()) loadResult(); }, 5000);
 document.addEventListener("visibilitychange", () => { if (shown() && polling()) loadResult(); });
 if (inTg && tg.onEvent) tg.onEvent("activated", () => { if (polling()) loadResult(); });
-// A row's key is its pin: it stays the same when the names open, so only answers that are really new slide in.
+// The chat's answers, for the markers on the map. A marker's key is its pin: it stays the same when the names open, so only
+// answers that are really new pop in.
 const rowsOf = (res) => res.table.map((r) => {
   const anon = res.phase === "live" && !r.me;
   return { who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0,
     me: !!r.me, photo: r.photo, anon, key: r.lat.toFixed(5) + "," + r.lon.toFixed(5) };
-}).sort((a, b) => rankPts(b, res) - rankPts(a, res) || a.d - b.d);
-// While the names are hidden the others' points come without the speed part, so yours is ranked without it too.
-const rankPts = (r, res) => res.phase === "live" ? r.pts - r.sp : r.pts;
+}).sort((a, b) => b.pts - a.pts || a.d - b.d);
+// The world's table, best first: everyone scored so far today, in the DM too. The server's key tells the rows apart
+// between polls without saying whose they are.
+const boardOf = (res) => (res.board || []).map((r) => ({ who: r.me ? T("you") : r.name || "", d: r.km || 0, pts: r.points || 0,
+  lvl: levelOf(r.bonus), sp: r.speed || 0, me: !!r.me, grp: !!r.group, photo: r.photo, anon: !r.me && !r.name, key: r.key, rank: r.rank }));
 // The plate under the table: where you stand in the world so far. The header counts down to the names.
 function livePlate(res) {
   const w = res.world, parts = [];
@@ -697,15 +721,17 @@ function repaint(res) {
   const was = PHASE;
   if (res.opens_at) TODAY.reveal = res.opens_at;
   if (res.version && res.version === VERSION) return;
-  // The version is "group answers.world players.phase": when only the world moved, the table and markers stay.
+  // The version is "group answers.world players.phase": the table follows the world, the markers only this chat.
   const [g0, , p0] = VERSION.split("."), [g1, , p1] = (res.version || "").split(".");
-  if (res.version && g0 === g1 && p0 === p1) { drawWorld(res.world); setLive(res); return; }
+  const board = boardOf(res), freshB = new Set(board.filter((r) => !seenB.has(r.key)).map((r) => r.key));
+  board.forEach((r) => seenB.add(r.key));
+  paintBoard(board, res.players, freshB); countUp(freshB);
+  drawWorld(res.world);
+  if (res.version && g0 === g1 && p0 === p1) { setLive(res); return; }
   const rows = rowsOf(res), fresh = new Set(rows.filter((r) => !seen.has(r.key)).map((r) => r.key));
   rows.forEach((r) => seen.add(r.key));
   mine = rows.find((r) => r.me) || mine;
-  paintBoard(rows, fresh); countUp(fresh);
   drawFriends(rows.filter((r) => !r.me), fresh);
-  drawWorld(res.world);
   setLive(res);
   if (was === "live" && PHASE === "final") { toast(T("names_open")); haptic("success"); }
   else if (fresh.size) haptic("light");
@@ -724,8 +750,9 @@ function toReveal(res) {
   if (marker && guess) marker.setLngLat(guess);
   if (guess && !marker) marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat(guess).addTo(map);
   if (marker) marker.setDraggable(false);
-  const friends = rows.filter((r) => !r.me);
-  paintBoard(rows);
+  const friends = rows.filter((r) => !r.me), board = boardOf(res);
+  seenB = new Set(board.map((r) => r.key));
+  paintBoard(board, res.players);
   $("lb").offsetWidth; // the bar and avatars must catch the closed state, otherwise there will be no animation
   document.body.classList.add("is-reveal");
   ovUnderBoard();

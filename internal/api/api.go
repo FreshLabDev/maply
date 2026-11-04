@@ -13,7 +13,11 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -471,8 +475,8 @@ type placeView struct {
 	Source  string  `json:"source"`
 }
 
-// line is one answer in the table. Before the reveal another player's line
-// has the pin, the distance and the points only.
+// line is one answer of the chat, for its marker on the map. Before the
+// reveal another player's line has no name.
 type line struct {
 	Name   string   `json:"name"`
 	Lat    float64  `json:"lat"`
@@ -480,7 +484,7 @@ type line struct {
 	Km     *float64 `json:"km"`
 	Points *int     `json:"points"`
 	Bonus  *int     `json:"bonus"`
-	// Speed is the bonus for answering early; the site's anonymous check has none.
+	// Speed is the bonus for answering early, inside Points.
 	Speed int  `json:"speed,omitempty"`
 	Me    bool `json:"me,omitempty"`
 	// Photo is a data: URL of the profile photo, for the mark on the map.
@@ -495,6 +499,40 @@ type worldNow struct {
 	Pins    []pin `json:"pins"`
 }
 
+// boardLine is one row of the world's table under the map. Before the
+// reveal only your own row has a name. Group marks the players of the chat the
+// app was opened from.
+type boardLine struct {
+	// Key tells the rows apart from one poll to the next without saying whose
+	// they are: it is keyed by a secret the process makes at start.
+	Key    string  `json:"key"`
+	Rank   int     `json:"rank"`
+	Name   string  `json:"name,omitempty"`
+	Km     float64 `json:"km"`
+	Points int     `json:"points"`
+	Bonus  int     `json:"bonus"`
+	Speed  int     `json:"speed,omitempty"`
+	Me     bool    `json:"me,omitempty"`
+	Group  bool    `json:"group,omitempty"`
+	Photo  string  `json:"photo,omitempty"`
+}
+
+// boardShown is how many of the world's best rows go to the app. Your own row
+// and your group's come on top of them wherever they stand.
+const boardShown = 200
+
+var boardSecret = func() []byte {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return b
+}()
+
+func boardKey(d round.Date, e db.Entry) string {
+	m := hmac.New(sha256.New, boardSecret)
+	m.Write([]byte(d.String() + "|" + strconv.FormatInt(e.UserID, 10) + "|" + e.Player))
+	return hex.EncodeToString(m.Sum(nil)[:6])
+}
+
 type resultResponse struct {
 	Date  string    `json:"date"`
 	Day   int       `json:"day"`
@@ -506,6 +544,10 @@ type resultResponse struct {
 	// OpensAt is when the names open, in the live phase.
 	OpensAt *time.Time `json:"opens_at,omitempty"`
 	World   *worldNow  `json:"world,omitempty"`
+	// Board is the world's table: everyone scored so far today, of whom
+	// Players in all.
+	Board   []boardLine `json:"board"`
+	Players int         `json:"players"`
 	// Version changes when someone answers, so the app redraws only then.
 	Version string `json:"version,omitempty"`
 }
@@ -612,45 +654,35 @@ func (s *Server) buildResult(ctx context.Context, p play, now time.Time) (result
 		l := line{Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Me: me}
 		if g.PtsKm != nil && g.PtsBonus != nil {
 			total := g.Total()
-			// The speed part grows with how early the answer came, so it
-			// would date someone else's answer. Until the names open, their
-			// points leave it out.
-			if live && !me {
-				total -= g.Speed()
-			}
-			l.Points = &total
-			// The bonus follows from the distance and the points anyway,
-			// and it is what the table draws.
-			l.Bonus = g.PtsBonus
+			l.Points, l.Bonus, l.Speed = &total, g.PtsBonus, g.Speed()
 		}
 		if me || !live {
-			l.Name, l.Speed = g.FirstName, g.Speed()
+			l.Name = g.FirstName
 		}
 		if b := photos[g.UserID]; b != nil {
 			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
 		}
 		resp.Table = append(resp.Table, l)
 	}
+	world, err := s.Store.World(ctx, p.date)
+	if err != nil {
+		return resultResponse{}, err
+	}
 	if answered {
-		if resp.World, err = s.worldNow(ctx, p); err != nil {
+		if resp.World, err = s.worldNow(ctx, p, world); err != nil {
 			return resultResponse{}, err
 		}
 	}
-	players := 0
-	if resp.World != nil {
-		players = resp.World.Players
-	}
+	resp.Board = board(p, world, guesses, photos, live)
+	players := world.Players()
+	resp.Players = players
 	resp.Version = strconv.Itoa(len(guesses)) + "." + strconv.Itoa(players) + "." + resp.Phase
 	return resp, nil
 }
 
 // worldNow is the person's place among everyone scored so far today, and a
 // sample of everyone's pins.
-func (s *Server) worldNow(ctx context.Context, p play) (*worldNow, error) {
-	w, err := s.Store.World(ctx, p.date)
-	if err != nil {
-		return nil, err
-	}
+func (s *Server) worldNow(ctx context.Context, p play, w db.World) (*worldNow, error) {
 	pins, err := s.Store.DayPins(ctx, p.date)
 	if err != nil {
 		return nil, err
@@ -664,6 +696,35 @@ func (s *Server) worldNow(ctx context.Context, p play) (*worldNow, error) {
 		out.Pins = append(out.Pins, pin{Lat: pins[i][0], Lon: pins[i][1]})
 	}
 	return out, nil
+}
+
+// board is the world's table as this person may see it: the best rows, and
+// theirs and their group's wherever they stand. Until the reveal the others
+// have no names.
+func board(p play, w db.World, guesses []db.Guess, photos map[int64][]byte, live bool) []boardLine {
+	group := map[int64]bool{}
+	if p.kind == "group" {
+		for _, g := range guesses {
+			group[g.UserID] = true
+		}
+	}
+	out := make([]boardLine, 0, min(len(w.Entries), boardShown+len(group)+1))
+	for i, e := range w.Entries {
+		me := e.UserID != 0 && e.UserID == p.user.ID
+		inGroup := e.UserID != 0 && group[e.UserID]
+		if i >= boardShown && !me && !inGroup {
+			continue
+		}
+		l := boardLine{Key: boardKey(p.date, e), Rank: e.Rank, Km: e.Km, Points: e.Points, Bonus: e.Bonus, Speed: e.Speed, Me: me, Group: inGroup && !me}
+		if me || !live {
+			l.Name = e.Name
+		}
+		if b := photos[e.UserID]; b != nil && e.UserID != 0 {
+			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 // scoreDay scores the day's answers that have no score yet: every Telegram

@@ -11,6 +11,22 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Changed
+
+- The table under the map is the world's, in a group and in a DM alike:
+  every answer scored so far today, numbered by world place. The group's
+  own players carry a small group mark by the face; their answers are still
+  the ones on the map. Points include the speed bonus for everyone, so the
+  order matches the world place.
+- The table folds to your own row and remembers that. How the points add up
+  is a small (i) that opens a card over the map instead of pushing the table
+  down.
+
+### Fixed
+
+- In your own row the empty rest of the bar no longer blends into the
+  highlighted band, so the bar reads as a whole.
+
 ## v0.0.1-alpha.12 - 2026-11-04
 
 Group posts read more clearly: the pin lists every distance, the 20:00

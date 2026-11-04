@@ -77,10 +77,13 @@ the diff looks like.
   contexts: the DM and every group `core.presence` has seen them in.
 - In Telegram (DM and group) a guess is scored the moment it comes in, and the
   person sees the place, their distance and their score right away. Before the
-  chat's reveal they also see everyone else's answers in that chat, but only as
-  distance, points without the speed part, and a point on the map: no name,
-  photo, user ID, speed or answer time, and nothing ordered by answer time. The
-  server strips these; the client never receives them.
+  chat's reveal they also see the world's table and the chat's pins, but
+  without names: distance, points with their parts, the world place, a mark
+  for the chat's own players, and a point on the map for the chat. No name,
+  photo, user ID or answer time. The server strips these; the client never
+  receives them. This is light hiding for the evening's intrigue, not a
+  privacy promise: the points include the speed bonus, which roughly dates an
+  answer.
 - Nobody sees the place without having answered. Before the reveal
   `/api/result` and `/api/share` answer a person with no answer `403
   not_answered`, and nothing else. This is the invariant that keeps the live

@@ -283,9 +283,30 @@ func TestADayAcrossZones(t *testing.T) {
 		if l.Me != (l.Name == "Ivan") || l.Km == nil || l.Points == nil {
 			t.Fatalf("line = %+v", l)
 		}
-		if !l.Me && (l.Name != "" || l.Photo != "" || l.Bonus == nil || l.Speed != 0) {
+		if !l.Me && (l.Name != "" || l.Photo != "" || l.Bonus == nil) {
 			t.Fatalf("Pavel is named before the reveal: %+v", l)
 		}
+	}
+	// The table under the map is the world's: Ivan, Pavel from his group with
+	// its mark, and Dmitry from elsewhere, the others without names.
+	if live.Players != 3 || len(live.Board) != 3 {
+		t.Fatalf("Ivan's board = %+v", live.Board)
+	}
+	keys := map[string]bool{}
+	for i, l := range live.Board {
+		keys[l.Key] = true
+		if l.Rank != i+1 || l.Key == "" || l.Me != (l.Name == "Ivan") || (!l.Me && l.Name != "") || l.Points <= 0 {
+			t.Fatalf("board row %d = %+v", i, l)
+		}
+	}
+	groupRows := 0
+	for _, l := range live.Board {
+		if l.Group {
+			groupRows++
+		}
+	}
+	if len(keys) != 3 || groupRows != 1 {
+		t.Fatalf("board keys %v, group rows %d", keys, groupRows)
 	}
 	if strings.Contains(got, "Pavel") {
 		t.Fatalf("Ivan's live result names Pavel: %s", got)
@@ -336,6 +357,19 @@ func TestADayAcrossZones(t *testing.T) {
 	}
 	if rr.Phase != "final" || rr.Place.Lat != placeLat || rr.Place.City != "Львов" || len(rr.Table) != 2 || !strings.Contains(res, "Pavel") {
 		t.Fatalf("Moscow result = %s", res)
+	}
+	// At the reveal the world's rows have names, and keep their keys.
+	kept := 0
+	for _, l := range rr.Board {
+		if keys[l.Key] {
+			kept++
+		}
+		if l.Name == "" || l.Group != (l.Name == "Pavel") {
+			t.Fatalf("board row after the reveal = %+v", l)
+		}
+	}
+	if kept != len(keys) {
+		t.Fatalf("the board's keys changed at the reveal: %+v", rr.Board)
 	}
 	ivanLine := rr.Table[0]
 	if !ivanLine.Me {

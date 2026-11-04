@@ -26,6 +26,10 @@ type Entry struct {
 	Name   string
 	Km     float64
 	Points int
+	// Bonus is the ladder bonus and Speed the bonus for answering early;
+	// both are inside Points.
+	Bonus int
+	Speed int
 }
 
 // Site reports whether the answer came from the site.
@@ -78,7 +82,7 @@ func (s *Store) World(ctx context.Context, d round.Date) (World, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT row_number() OVER (ORDER BY ds.points DESC, ds.km, ds.answered_at, ds.user_id, ds.player),
 		       COALESCE(ds.user_id, 0), COALESCE(ds.player::text, ''),
-		       COALESCE(pe.first_name, sp.name, ''), ds.km, ds.points
+		       COALESCE(pe.first_name, sp.name, ''), ds.km, ds.points, ds.pts_bonus, ds.pts_speed
 		  FROM day_score ds
 		  LEFT JOIN core.person pe ON pe.telegram_user_id = ds.user_id
 		  LEFT JOIN site_player sp ON sp.id = ds.player
@@ -89,7 +93,7 @@ func (s *Store) World(ctx context.Context, d round.Date) (World, error) {
 	}
 	entries, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Entry, error) {
 		var e Entry
-		err := row.Scan(&e.Rank, &e.UserID, &e.Player, &e.Name, &e.Km, &e.Points)
+		err := row.Scan(&e.Rank, &e.UserID, &e.Player, &e.Name, &e.Km, &e.Points, &e.Bonus, &e.Speed)
 		return e, err
 	})
 	if err != nil {
