@@ -29,7 +29,7 @@ func TestComparedFindsARecordOrTheUsualMiss(t *testing.T) {
 	ptr := func(n int) *int { return &n }
 	day := func(points int) db.Guess { return db.Guess{PtsKm: ptr(points), PtsBonus: ptr(0)} }
 	past := []db.Scored{{Km: 2728, Points: 863}, {Km: 222, Points: 4067}, {Km: 365, Points: 3651}}
-	if got := compared("en", day(5040), past); got != "Your best day yet; the old record was 4,067." {
+	if got := compared("en", day(5040), past); got != "A new record. The old one was 4,067." {
 		t.Errorf("record = %q", got)
 	}
 	if got := compared("en", day(1000), past); got != "You usually miss by 365 km." {

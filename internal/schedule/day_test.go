@@ -3,6 +3,7 @@
 package schedule
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,12 +39,12 @@ func scored(id int64, name string, km float64, pts int) db.Guess {
 }
 
 // The post names who answered in the alphabet's order, never the answers',
-// and the best distances without names.
+// and every distance, closest first, without names.
 func TestAnsweredBlockHidesWhoIsWho(t *testing.T) {
 	got := answeredBlock("ru", []db.Guess{
 		scored(1, "Вика", 501, 1000), scored(2, "аня", 276, 3000), scored(3, "Боря", 290, 2900), scored(4, "Гена", 1200, 500),
 	})
-	want := "<b>Ответили · 4</b>\nаня, Боря, Вика, Гена\n<b>Лучшие пока</b>\n276 км · 290 км · 501 км"
+	want := "<b>Ответили · 4</b>\nаня, Боря, Вика, Гена\n<b>Расстояния</b>\n276 км · 290 км · 501 км · 1\u00a0200 км"
 	if got != want {
 		t.Fatalf("block = %q, want %q", got, want)
 	}
@@ -53,6 +54,28 @@ func TestAnsweredBlockHidesWhoIsWho(t *testing.T) {
 	}
 	if got := answeredBlock("en", many); !strings.Contains(got, "+5") || strings.Contains(got, "<b>Best") {
 		t.Fatalf("answered = %q", got)
+	}
+	// Thirty long names would not fit a caption: the list stops by length,
+	// and the whole post, with yesterday, stays within Telegram's limit.
+	var long []db.Guess
+	for i := 0; i < nameLimit; i++ {
+		km := float64(100 + i)
+		long = append(long, db.Guess{UserID: int64(i), FirstName: strings.Repeat("Я", 30) + strconv.Itoa(i), Km: &km})
+	}
+	block := answeredBlock("ru", long)
+	if !strings.Contains(block, "+") {
+		t.Fatalf("long names = %q", block)
+	}
+	if post := postCaption("ru", 3, strings.Repeat("вчера ", 100), block, true); visibleLen(post) > captionLimit || !strings.Contains(post, "Расстояния") || !strings.Contains(block, "100 км · 101 км") {
+		t.Fatalf("post is %d long: %q", visibleLen(post), post)
+	}
+	// Many distances stop by length too, with how many are left.
+	var crowd []db.Guess
+	for i := 0; i < 60; i++ {
+		crowd = append(crowd, scored(int64(i), "A", float64(1000+i), 100))
+	}
+	if got := answeredBlock("en", crowd); !strings.HasPrefix(got[strings.Index(got, "<b>Distances</b>"):], "<b>Distances</b>\n1,000 km · 1,001 km") || !strings.HasSuffix(got, " · +"+strconv.Itoa(60-strings.Count(got[strings.Index(got, "<b>Distances</b>"):], " km"))) {
+		t.Fatalf("crowd = %q", got)
 	}
 	if got := answeredBlock("ru", nil); got != "Ответов пока нет." {
 		t.Fatalf("nobody = %q", got)
@@ -71,7 +94,7 @@ func TestPostCaptionSetsYesterdayApart(t *testing.T) {
 
 func TestTableEscapesNamesAndShowsMedalsAndStreaks(t *testing.T) {
 	lines := table("en", []db.Guess{scored(1, "<i>x", 12.4, 3500), scored(2, "Bo", 40, 3000), scored(3, "Cy", 90, 2000), scored(4, "Di", 900, 900), {UserID: 5, FirstName: "Ed"}}, map[int64]int{1: 4})
-	want := []string{"🥇 &lt;i&gt;x · 12 km · 3,500 🔥4", "🥈 Bo · 40 km · 3,000", "🥉 Cy · 90 km · 2,000", "4. Di · 900 km · 900", "5. Ed · …"}
+	want := []string{"🥇 &lt;i&gt;x · 12 km · <b>3,500</b> 🔥4", "🥈 Bo · 40 km · <b>3,000</b>", "🥉 Cy · 90 km · <b>2,000</b>", "4. Di · 900 km · <b>900</b>", "5. Ed · …"}
 	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("table = %q", lines)
 	}
@@ -82,10 +105,10 @@ func TestTableEscapesNamesAndShowsMedalsAndStreaks(t *testing.T) {
 func TestWorldGroupLine(t *testing.T) {
 	w := db.World{Entries: []db.Entry{{UserID: 9, Name: "Kim", Km: 12, Rank: 1}, {UserID: 2, Rank: 2}, {UserID: 7, Rank: 3}, {UserID: 1, Rank: 4}}}
 	guesses := []db.Guess{scored(1, "Аня", 300, 2000), scored(2, "Боря", 50, 3000), {UserID: 3, FirstName: "Вика"}}
-	if got := worldGroupLine("ru", w, guesses, false); got != "🌍 В мире сейчас: Боря #2, Аня #4 из 4." {
+	if got := worldGroupLine("ru", w, guesses, false); got != "<b>🌍 Места в мире из 4</b>\nБоря #2 · Аня #4" {
 		t.Fatalf("now = %q", got)
 	}
-	if got := worldGroupLine("ru", w, guesses, true); got != "🌍 Итог дня в мире: Боря #2, Аня #4 из 4. Первое место: Kim, 12 км." {
+	if got := worldGroupLine("ru", w, guesses, true); got != "<b>🌍 Итоговые места в мире из 4</b>\nБоря #2 · Аня #4\nПервое место в мире: Kim, 12 км." {
 		t.Fatalf("final = %q", got)
 	}
 	if got := worldGroupLine("ru", w, []db.Guess{scored(9, "Kim", 12, 3400)}, true); strings.Contains(got, "Первое место") {

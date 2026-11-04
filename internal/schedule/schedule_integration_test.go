@@ -301,7 +301,7 @@ func TestOneDay(t *testing.T) {
 		t.Errorf("DM button = %+v, want the Mini App", b)
 	}
 	result := fake.last("photo", group).text
-	for _, want := range []string{"Lisbon", "Portugal", "Built on seven hills.", "🥇 Pin", "Worldwide so far: Pin #1 of 1."} {
+	for _, want := range []string{"Lisbon", "Portugal", "Built on seven hills.", "🥇 Pin", "<b>🌍 Places in the world, of 1</b>\nPin #1"} {
 		if !strings.Contains(result, want) {
 			t.Errorf("group result %q lacks %q", result, want)
 		}
@@ -317,7 +317,7 @@ func TestOneDay(t *testing.T) {
 	messages := len(fake.log)
 	clock = zones.LastReveal(d).Add(3 * time.Minute)
 	s.Step(ctx)
-	if edit := fake.last("edit", group); !strings.Contains(edit.text, "The day worldwide: Pin #1 of 1.") || !strings.Contains(edit.text, "🥇 Pin") {
+	if edit := fake.last("edit", group); !strings.Contains(edit.text, "<b>🌍 Final places in the world, of 1</b>\nPin #1") || !strings.Contains(edit.text, "🥇 Pin") {
 		t.Errorf("final world edit = %q", edit.text)
 	}
 	if got := fake.count("photo", group) + fake.count("text", group); got != 3 {

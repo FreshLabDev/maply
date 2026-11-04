@@ -4,7 +4,6 @@ package schedule
 
 import (
 	"context"
-	"fmt"
 	"html"
 	"math"
 	"strconv"
@@ -21,7 +20,7 @@ import (
 // once, the day after: in the morning post when yesterday has closed
 // everywhere by then, else in that evening's result.
 
-// groupPlaces is how many of a group's members the look back names.
+// groupPlaces is how many of a group's members the world line names.
 const groupPlaces = 10
 
 // A median of two players or "ahead of 0%" says nothing: the day's typical
@@ -55,9 +54,8 @@ func betterPct(rank, n int) int {
 }
 
 // lookBack is what a chat hears about the world for d, which must be final:
-// how many played and who came first, how close the day came, and the
-// person's place for a DM or the members' places for a group. Empty when
-// nobody was scored.
+// who came first, how close the day came, and the person's place for a DM.
+// Empty when nobody was scored.
 func (s *Scheduler) lookBack(ctx context.Context, lang string, d round.Date, c db.Chat) (string, error) {
 	w, err := s.Store.World(ctx, d)
 	if err != nil || w.Players() == 0 {
@@ -65,39 +63,20 @@ func (s *Scheduler) lookBack(ctx context.Context, lang string, d round.Date, c d
 	}
 	n := i18n.FormatNumber(lang, w.Players())
 	first := w.Entries[0]
-	lines := []string{i18n.T(lang, "world.first", "name", entryName(lang, first), "km", kmText(lang, first.Km))}
+	// A heading and one fact a line: in a long caption Telegram folds the
+	// end, and a run-on sentence there reads as noise.
+	lines := []string{"<b>" + i18n.T(lang, "world.yesterday") + "</b>", "🥇 " + entryName(lang, first) + " · " + kmText(lang, first.Km)}
 	if w.MedianKm != nil && w.Players() >= worldDayFrom {
-		lines[0] += " " + i18n.T(lang, "world.day", "km", kmText(lang, *w.MedianKm), "pct", strconv.Itoa(w.CountryPct))
+		lines = append(lines, i18n.T(lang, "world.day", "km", kmText(lang, *w.MedianKm), "pct", strconv.Itoa(w.CountryPct)))
 	}
-	if c.Kind == "dm" {
-		if rank := w.RankOf(c.ID); rank > 0 {
-			pct := betterPct(rank, w.Players())
-			if w.Players() >= worldAheadFrom && pct > 0 {
-				lines = append(lines, i18n.T(lang, "world.you_ahead", "rank", strconv.Itoa(rank), "n", n, "pct", strconv.Itoa(pct)))
-			} else {
-				lines = append(lines, i18n.T(lang, "world.you", "rank", strconv.Itoa(rank), "n", n))
-			}
+	// A group's own places are in its result, which the world job made final.
+	if rank := w.RankOf(c.ID); c.Kind == "dm" && rank > 0 {
+		pct := betterPct(rank, w.Players())
+		if w.Players() >= worldAheadFrom && pct > 0 {
+			lines = append(lines, i18n.T(lang, "world.you_ahead", "rank", strconv.Itoa(rank), "n", n, "pct", strconv.Itoa(pct)))
+		} else {
+			lines = append(lines, i18n.T(lang, "world.you", "rank", strconv.Itoa(rank), "n", n))
 		}
-		return strings.Join(lines, "\n"), nil
-	}
-	guesses, err := s.Store.ChatGuesses(ctx, d, c.ID)
-	if err != nil {
-		return "", err
-	}
-	var places []string
-	for _, g := range guesses {
-		rank := w.RankOf(g.UserID)
-		if rank == 0 {
-			continue
-		}
-		if len(places) == groupPlaces {
-			places = append(places, "…")
-			break
-		}
-		places = append(places, fmt.Sprintf("%s #%d", displayName(g.FirstName), rank))
-	}
-	if len(places) > 0 {
-		lines = append(lines, i18n.T(lang, "world.group", "n", n, "places", strings.Join(places, ", ")))
 	}
 	return strings.Join(lines, "\n"), nil
 }

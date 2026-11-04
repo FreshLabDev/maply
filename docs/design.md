@@ -28,7 +28,7 @@ Zones come from tzdata and offsets are not hard-coded: Ukraine's daylight saving
 | Time | Group | DM |
 |:--|:--|:--|
 | 07:00 | Photo of the day, "Guess" button, silent pin | Photo of the day and "Guess" button |
-| 07:00–20:00 | The bot edits the pin: who has already answered, alphabetically, and the three best distances without names | none |
+| 07:00–20:00 | The bot edits the pin: who has already answered, alphabetically, and every distance so far, closest first, without names; it looks every few seconds and edits at most every 15 s | none |
 | Right after answering | The Mini App shows the place, the person's score and the group's answers without names, updating live | The place and the person's score |
 | Random time in 16:00–18:00 | One intrigue message, if not everyone has answered | One intrigue reminder, if the person has not answered |
 | 20:00 | Unpin, publish the result | The result, if the person is not in any group with maply |
@@ -74,7 +74,7 @@ Whoever answered before the intrigue and without hints gets a "clean" mark and +
 
 1. **One answer per person per day.** The answer is shared across the DM, all groups and the site (when signed in through Telegram). A person's pin appears on the maps of all their groups.
 2. **The answer window closes at the earliest reveal.** For each person, accepting answers ends at the earliest reveal among their contexts: the DM and all groups where the bot has seen them (presence in `core`). Example: a person in a Ukrainian group who is also in a Russian one must answer before 20:00 Moscow time in winter, not Kyiv time.
-3. **Your answer opens the place, the reveal opens the names.** In Telegram an answer is scored the moment it comes in. The person sees the place, their distance and their score right away, and the chat's other answers without names: distance, score and a point on the map, updating live. The server strips names, photos, IDs, bonuses, speed and answer times; the client never gets them. Names appear at the chat's reveal (20:00 in its zone). In a DM that is the latest reveal among the person's contexts. Before the reveal, sharing sends the line "maply #142 · 312 km · 4,057" with no picture.
+3. **Your answer opens the place, the reveal opens the names.** In Telegram an answer is scored the moment it comes in. The person sees the place, their distance and their score right away, and the chat's other answers without names: distance, points without the speed part (it would date the answer) and a point on the map, updating live. The server strips names, photos, IDs, speed and answer times; the client never gets them. Names appear at the chat's reveal (20:00 in its zone). In a DM that is the latest reveal among the person's contexts. Before the reveal, sharing sends the line "maply #142 · 312 km · 4,057" with no picture.
 4. **Nobody sees the place without answering.** Before the reveal, `/api/result` and `/api/share` answer someone who has not answered with 403 `not_answered` and nothing else.
 5. **The site does not spoil.** Today's place on the site is revealed only after the latest reveal across all languages, and the site shows no one else's answers before then: a guest could answer at random, look where the dots cluster, then answer precisely in Telegram.
 6. **The source does not leak.** The photo is re-uploaded under a random name and without EXIF. Neither Mapillary IDs nor Panoramax links go out: given a Mapillary ID, the API immediately returns coordinates, and Panoramax HD frames contain GPS in EXIF (checked). Panoramas are shown by our own viewer (Photo Sphere Viewer), not MapillaryJS.
@@ -93,16 +93,16 @@ At 20:00 the group gets one message:
 
 Everyone who answered a day stands in one list, whether they played in a group, in a DM or on the site. Groups are not ranked against each other: the owner decided on 23 October that groups will compare by forwarding their results, and that the day's statistics matter more.
 
-A day is final only after the last zone's reveal, 20:00 in Los Angeles, which is 06:00 in Kyiv. Before that the world is shown only as "so far": on the live screen after answering ("Worldwide so far: 12 of 120", with everyone's points as grey dots) and in the group's 20:00 result, whose world line is edited when the day closes. The day after:
+A day is final only after the last zone's reveal, 20:00 in Los Angeles, which is 06:00 in Kyiv. Before that the world is shown only as "so far": on the live screen after answering ("Place in the world: 12 of 120", with everyone's points as grey dots) and in the group's 20:00 result, whose world line is edited when the day closes. The day after:
 
-- the morning post carries yesterday's line: how many played, first place with the distance, the median distance and the share who found the country;
-- in a DM it adds the person's place: "Your place: 12 of 348, ahead of 97% of players";
-- in a group it adds each member's place in the world;
+- the morning post carries yesterday's lines under a heading: first place with the distance, then the median distance and the share who found the country;
+- in a DM it adds the person's place: "Your place in the world: 12 of 348, ahead of 97% of players";
+- a group gets no member places there: its 20:00 result already has them, made final by the world job;
 - a chat whose morning comes before the day has closed everywhere (Dubai and east) gets the same lines with that evening's result instead.
 
-Ties go to the earlier answer, then the closer pin.
+Ties go to the closer pin, then the earlier answer, in the world and in a group's table alike.
 
-A line for forwarding without spoilers: `maply #142 · 312 km · 4,057 · 🔥7`.
+A line for forwarding: `maply #142`, then the distance and the points on lines of their own, each with its label.
 
 ### Animated posts
 
@@ -110,7 +110,7 @@ The posts are short seamless loops, sent as MP4 without sound, which Telegram pl
 
 - morning: the logo's pin lands on its globe, the day's panorama opens around it as a little planet, unrolls into the street, pans, and rolls back into the globe;
 - intrigue: the time there on a dial of the day, dark or light as it is there, with the weather and the dots left until the answer;
-- the group's result: the camera flies to the group's pins, the place comes out with a ripple, dashed lines run to every pin along the great circle, and the three closest stand on a podium;
+- the group's result: the camera flies to the group's pins, the place comes out with a ripple, dashed lines run to every pin along the great circle, each pin gets a chip with the name and distance, and the three closest stand on a podium. When the pins are spread over the world, the view centres on the place, a pin round the globe stands where its line goes over the edge, and the globe turns east and west to show them;
 - the world: everyone's pins rain onto one globe and take the colour of how close they came, and the world's first three stand on a podium. It is the same picture in every chat; a person's own place goes in the caption.
 
 They were designed in a browser canvas; `internal/anim` draws the same frames in Go on the CPU, with no browser or GPU:

@@ -369,8 +369,9 @@ func (s *Store) Streaks(ctx context.Context, userIDs []int64, d round.Date) (map
 }
 
 // DayPins are every answer of d, for the "world against you" intrigue.
+// Ordered by place, not by when they came: the order must not tell who answered first.
 func (s *Store) DayPins(ctx context.Context, d round.Date) ([][2]float64, error) {
-	rows, err := s.pool.Query(ctx, `SELECT lat, lon FROM guess WHERE date = $1`, d.Time())
+	rows, err := s.pool.Query(ctx, `SELECT lat, lon FROM guess WHERE date = $1 ORDER BY lat, lon`, d.Time())
 	if err != nil {
 		return nil, fmt.Errorf("day pins: %w", err)
 	}

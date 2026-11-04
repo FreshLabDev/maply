@@ -106,3 +106,12 @@ func Deadline(d Date, zones []*time.Location) (time.Time, error) {
 	}
 	return deadline, nil
 }
+
+// Reopens reports whether moving a chat from one zone to another at now would
+// let it answer a day whose place it could already see: the day still open in
+// the new zone was revealed in the old one. Earlier days have closed in the
+// new zone by its midnight, so only its current date matters.
+func Reopens(from, to *time.Location, now time.Time) bool {
+	d := DateIn(now, to)
+	return !now.Before(d.Reveal(from)) && now.Before(d.Reveal(to))
+}

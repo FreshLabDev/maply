@@ -105,6 +105,7 @@ type Server struct {
 	userLimit  *limiter
 	shareLimit *limiter
 	logLimit   *limiter
+	logAll     *limiter
 }
 
 func (s *Server) Handler() http.Handler {
@@ -116,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 	// A share draws a picture, which is the most expensive thing here.
 	s.shareLimit = newLimiter(5, time.Minute)
 	s.logLimit = newLimiter(10, time.Minute)
+	s.logAll = newLimiter(120, time.Minute)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/today", s.today)
 	mux.HandleFunc("POST /api/guess", s.guess)
@@ -140,7 +142,8 @@ type play struct {
 	date   round.Date
 	// zone is the context's: the group's for a group, the person's for the DM.
 	zone *time.Location
-	// lang is what the person reads the app in, the same in every context.
+	// lang is what the app speaks: the group's language when opened from a
+	// group that has one, else the person's.
 	lang string
 }
 
@@ -229,9 +232,14 @@ func (s *Server) resolve(r *http.Request) (play, error) {
 	if err != nil {
 		return play{}, err
 	}
-	lang, err := s.personLang(ctx, data.User)
-	if err != nil {
-		return play{}, err
+	// Opened from a group, the app speaks the group's language, the one the
+	// bot posts there in: what a player shares from it lands next to those
+	// posts. Their own language is only for a group that has none.
+	lang := chatLang
+	if lang == "" {
+		if lang, err = s.personLang(ctx, data.User); err != nil {
+			return play{}, err
+		}
 	}
 	p.kind, p.chatID, p.date, p.lang = "group", payload.ChatID, payload.Date, i18n.Resolve(lang)
 	p.zone = s.Zones.For(zone, chatLang)
@@ -378,6 +386,12 @@ func (s *Server) adoptZone(ctx context.Context, r *http.Request, p *play) (strin
 	}
 	zone := s.Zones.Match(r.URL.Query().Get("tz"), s.Now())
 	if zone == "" {
+		return "", nil
+	}
+	// After the DM's reveal the person may have seen the place without
+	// answering; a zone further west would give them the evening to answer
+	// it. The phone's zone waits for a day it cannot reopen.
+	if round.Reopens(p.zone, s.Zones.For(zone, ""), s.Now()) {
 		return "", nil
 	}
 	set, err := s.Store.AdoptDMZone(ctx, p.user.ID, zone)
@@ -598,6 +612,12 @@ func (s *Server) buildResult(ctx context.Context, p play, now time.Time) (result
 		l := line{Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Me: me}
 		if g.PtsKm != nil && g.PtsBonus != nil {
 			total := g.Total()
+			// The speed part grows with how early the answer came, so it
+			// would date someone else's answer. Until the names open, their
+			// points leave it out.
+			if live && !me {
+				total -= g.Speed()
+			}
 			l.Points = &total
 		}
 		if me || !live {
@@ -690,6 +710,25 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 	if p.kind == "dm" {
 		chat = p.user.ID
 	}
+	rd, ok, err := s.Store.RoundOn(ctx, p.date)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !ok {
+		s.fail(w, r, errNoRound)
+		return
+	}
+	answer, err := s.Store.Answer(ctx, rd.PlaceID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// An answer sent as a location in the DM comes in unscored.
+	if err := s.scoreDay(ctx, p.date, answer, now); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	if now.Before(opens) {
 		// Before the reveal the share is the score alone: whoever gets it may
 		// not have answered yet.
@@ -709,24 +748,6 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"id": id})
-		return
-	}
-	rd, ok, err := s.Store.RoundOn(ctx, p.date)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	if !ok {
-		s.fail(w, r, errNoRound)
-		return
-	}
-	answer, err := s.Store.Answer(ctx, rd.PlaceID)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	if err := s.scoreDay(ctx, p.date, answer, now); err != nil {
-		s.fail(w, r, err)
 		return
 	}
 	id, err := s.Shares.Prepare(ctx, card.Share{UserID: p.user.ID, ChatID: chat, Date: p.date})

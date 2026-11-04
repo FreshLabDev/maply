@@ -31,7 +31,7 @@ import (
 func main() {
 	pano := flag.String("pano", "", "the day's equirectangular panorama, JPEG (needed for the morning post)")
 	out := flag.String("o", ".", "output folder")
-	scenes := flag.String("scenes", "results,morning,world,intrigue", "which posts, comma-separated")
+	scenes := flag.String("scenes", "results,morning,world,intrigue", "which posts, comma-separated (also results-spread)")
 	still := flag.Float64("still", -1, "write a PNG of the frame at this second instead of the video")
 	workers := flag.Int("workers", 0, "frames drawn at once; 0 is one per CPU")
 	faces := flag.String("faces", "", "a folder of JPEG profile photos, given to the sample players in name order")
@@ -130,6 +130,21 @@ func scene(name, pano string) (anim.Scene, error) {
 			}
 		}
 		return anim.NewResults(1, place, players, "км", "м", "ru"), nil
+	case "results-spread":
+		// A group that is all over the world: some pins are round the globe.
+		place := zanzibar
+		players := []anim.Player{
+			{Name: "Tochka! 🍂", Lat: -1.29, Lon: 36.82},
+			{Name: "🦛", Lat: 55.75, Lon: 37.62},
+			{Name: "_amti", Lat: 50.45, Lon: 30.52},
+			{Name: "Lucía", Lat: -34.6, Lon: -58.38},
+			{Name: "Kenji", Lat: 35.68, Lon: 139.69},
+			{Name: "Tom", Lat: 34.05, Lon: -118.24},
+			{Name: "Mia", Lat: -33.87, Lon: 151.21},
+			{Name: "Ari", Lat: 64.15, Lon: -21.94},
+		}
+		rank(place, players)
+		return anim.NewResults(13, place, players, "км", "м", "ru"), nil
 	case "morning":
 		if pano == "" {
 			return nil, fmt.Errorf("the morning post needs -pano")

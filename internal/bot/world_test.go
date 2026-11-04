@@ -40,7 +40,7 @@ func TestRefreshWorld(t *testing.T) {
 	}{
 		{"drawing", schedule.RefreshDrawing, press(tg.Chat{ID: 9, Type: "private"}, 9), 1, "Drawing the map with the new answers, this takes up to a minute."},
 		{"nothing new", schedule.RefreshSame, press(tg.Chat{ID: 9, Type: "private"}, 9), 1, "No new answers yet."},
-		{"final", schedule.RefreshFinal, press(tg.Chat{ID: 9, Type: "private"}, 9), 1, "The day's ranking is final."},
+		{"final", schedule.RefreshFinal, press(tg.Chat{ID: 9, Type: "private"}, 9), 1, "World places are final now."},
 		{"gone", schedule.RefreshGone, press(tg.Chat{ID: 9, Type: "private"}, 9), 1, ""},
 		{"in a group", schedule.RefreshDrawing, press(tg.Chat{ID: -100, Type: "supergroup"}, 9), 0, ""},
 	} {

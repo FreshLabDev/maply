@@ -155,7 +155,7 @@ func (s *Service) Prepare(ctx context.Context, sh Share) (string, error) {
 	if g, answered, err := s.Store.GuessOf(ctx, sh.Date, sh.UserID); err != nil {
 		return "", err
 	} else if answered && g.Km != nil {
-		caption += "\n" + i18n.T(lang, "result.your", "dist", i18n.FormatDistance(lang, *g.Km), "points", i18n.FormatNumber(lang, g.Total()))
+		caption += "\n" + Score(lang, *g.Km, g.Total())
 	}
 	markup := telegram.Markup{{{Text: i18n.T(lang, "btn.play"), URL: "https://t.me/" + s.Username + "/play"}}}
 	if fileID, err := s.Store.ResultAnimation(ctx, sh.ChatID, sh.Date); err != nil {
@@ -217,7 +217,7 @@ func (s *Service) PrepareScore(ctx context.Context, sh Share) (string, error) {
 	}
 	msg, err := s.TG.SavePreparedText(ctx, sh.UserID, telegram.PreparedText{
 		ID: id, Title: head, Description: score,
-		Text:   "<b>" + head + "</b>\n" + i18n.T(lang, "share.score", "score", score),
+		Text:   "<b>" + head + "</b>\n" + Score(lang, *g.Km, g.Total()) + "\n\n" + i18n.T(lang, "share.ask"),
 		Markup: telegram.Markup{{{Text: i18n.T(lang, "btn.play"), URL: "https://t.me/" + s.Username + "/play"}}},
 	})
 	if err != nil {

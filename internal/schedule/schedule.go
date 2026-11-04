@@ -145,8 +145,11 @@ const (
 	lease       = 2 * time.Minute
 	maxAttempts = 5
 	// A redraw of the who-answered line waits at least this long after the
-	// previous one, so a busy group does not hit Telegram's edit limits.
-	redrawEvery = time.Minute
+	// previous one, so a busy group does not hit Telegram's edit limits
+	// (about 20 a minute in a group). The posts are looked at every
+	// redrawTick, apart from the slower planning step.
+	redrawEvery = 15 * time.Second
+	redrawTick  = 5 * time.Second
 )
 
 func (s *Scheduler) now() time.Time {
@@ -164,12 +167,22 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 	t := time.NewTicker(tick)
 	defer t.Stop()
+	r := time.NewTicker(redrawTick)
+	defer r.Stop()
 	for {
 		s.Step(ctx)
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-t.C:
+	wait:
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-t.C:
+				break wait
+			case <-r.C:
+				if err := s.redraw(ctx); err != nil {
+					s.Log.Error("post redraw failed", "error", err)
+				}
+			}
 		}
 	}
 }

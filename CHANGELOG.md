@@ -11,6 +11,88 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Changed
+
+- Zooming the map stops where the hand stops. The app no longer finishes a
+  gesture on its own toward the globe or the flat map, and a pinch has no
+  zoom inertia. Far out, a wheel click or a trackpad swipe covers more zoom
+  than up close, so getting from the globe to a city takes fewer moves.
+- A shared result puts the distance and the points on lines of their own, in
+  bold, with labels, so neither is read as the other.
+- The Mini App opened from a group speaks the group's language, the one the
+  bot posts there in, instead of the language of the player's Telegram app.
+  What a player shares from it is in that language too.
+- The place plate on the result opens with the fact. Its button folds it
+  into a small tab and back; the step that showed the name without the fact
+  is gone.
+- World lines say "Place in the world: 3 of 120" instead of "Worldwide so
+  far", and the group's line puts the total first so it reads for everyone
+  in the list. The world's first place says "worldwide".
+- The group's pinned post lists every distance so far, closest first, not
+  only the best three, and catches up with new answers within about 20
+  seconds instead of a minute or more.
+- The group's 20:00 result sets the world apart: a bold heading with the
+  number of players, the members' places on the next line, and the world's
+  first place on a line of its own. Points in the table are bold.
+- The morning look back is a heading and one fact a line. A group no longer
+  gets its members' world places there, since its result already has them.
+- A DM's result shows the distance and the points on lines of their own,
+  like a shared result.
+- On equal points the closer pin ranks first, then the earlier answer, in
+  the group's table, the live table and the world ranking alike. Before,
+  the earlier answer came first in the world and the table could put a
+  closer pin below a farther one.
+- The result table under the map shows the first six rows, yours always
+  among them, and "N more" opens every answer in a window of its own, which
+  keeps up with new answers while it is open.
+- The colour legend and the "what if" line under the table moved behind an
+  (i) button: it explains the points for the distance, each bonus and the
+  speed bonus, and what the same distance would have made with more
+  bonuses.
+- The live plate shows only the place in the world; the "names at 20:00"
+  line with the blinking square is gone, since the header already counts
+  down to the names.
+- The result animation: every pin has a chip with the name and the distance,
+  and chips move to another side of their pin rather than cover each other.
+  When the group is spread over the world, the view centres on the place, a
+  pin round the globe stands where its line goes over the edge, and the
+  globe turns east and west to show those pins where they are.
+- Russian, Ukrainian and English texts were gone over: the bot's
+  description, the home message and the help said the place shows at 20:00,
+  when it shows right after the answer (fixed in every language); one word
+  for a miss, the world place said as such, Ukrainian compass letters that
+  no longer read as Russian, and plurals that agree with any number.
+
+### Fixed
+
+- The map could stop working after "Walk there" on some phones: a frame
+  stamped slightly before the animation's start turned the camera's padding
+  negative, and MapLibre threw on every frame after that.
+- Errors inside Telegram's own script, which the browser reports only as
+  "Script error.", are no longer sent to the server log.
+- Changing a DM's time zone, from the settings or from the phone, could
+  move the day back before its reveal for somebody who had already seen the
+  place, and let them answer again. A zone that would reopen the day now
+  waits until tomorrow.
+- The others' points in the live table no longer include the speed bonus,
+  which gave away when they answered.
+- A pinch on the map no longer resets when Telegram resizes the view: the
+  camera waits until the finger is up and the map stands still.
+- An app reopened after answering no longer lets a tap move the sent pin
+  while the result loads, retries the result if it failed, and polls only
+  while Telegram shows the app.
+- A group result sent after the day closed everywhere carries the final
+  world line itself.
+- Long names no longer push the pinned post past Telegram's caption limit,
+  and yesterday's lines give way first.
+- The world's sample pins come in a fixed order rather than by answer time.
+- /api/log takes only JSON, has a global limit as well as one per address,
+  and drops empty reports.
+- Sharing before the reveal scores a location answer first, so the line has
+  its points.
+- Toasts are announced by screen readers; unnamed rows and the collapse
+  button say what they are.
+
 ## v0.0.1-alpha.11 - 2026-11-02
 
 Players in Telegram see the place and their score as soon as they answer,

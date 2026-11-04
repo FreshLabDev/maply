@@ -3,6 +3,7 @@ package api
 
 import (
 	"encoding/json"
+	"mime"
 	"net/http"
 	"regexp"
 	"strings"
@@ -26,13 +27,25 @@ type clientReport struct {
 // field is cut short, and a URL loses its fragment, which in the Mini App is
 // Telegram's signed launch data.
 func (s *Server) clientLog(w http.ResponseWriter, r *http.Request) {
-	if !s.logLimit.allowIP(clientIP(r)) {
+	// JSON only: a page elsewhere can post plain text here without asking,
+	// but not JSON, which needs a CORS preflight this endpoint never grants.
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		return
+	}
+	// Per address, and a ceiling for all of them: a phone's IPv6 addresses
+	// change too easily to be the only key.
+	if !s.logLimit.allowIP(clientIP(r)) || !s.logAll.allowKey("all") {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	var rep clientReport
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&rep); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(rep.Message) == "" {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	s.Log.Warn("client error",

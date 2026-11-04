@@ -57,6 +57,14 @@ func Quoted(lang string, dayNo int, a db.Answer) string {
 	return head
 }
 
+// Score is a person's day for a forwarded message: the distance and the
+// points each on a line of its own and in bold, so neither is mistaken for
+// the other. Labels instead of units keep "points" out of plural forms.
+func Score(lang string, km float64, points int) string {
+	return "📍 " + i18n.T(lang, "share.distance", "km", "<b>"+i18n.FormatDistance(lang, km)+"</b>") +
+		"\n⭐ " + i18n.T(lang, "share.points", "points", "<b>"+i18n.FormatNumber(lang, points)+"</b>")
+}
+
 // City is the place's city in lang, or in the default language.
 func City(lang string, a db.Answer) string { return localized(a.City, lang) }
 

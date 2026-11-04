@@ -33,6 +33,9 @@ const (
 	captionLimit = 1024
 	tableRows    = 10
 	nameLimit    = 30
+	namesRoom    = 420
+	// The post lists every distance so far, up to this many characters.
+	kmRoom = 240
 )
 
 func revealText() string { return fmt.Sprintf("%02d:00", round.RevealHour) }
@@ -289,7 +292,10 @@ func (s *Scheduler) groupResult(ctx context.Context, c db.Chat, rd db.Round, cr 
 			s.Log.Info("post not unpinned", "chat", c.ID, "error", err)
 		}
 	}
-	gr, err := s.groupCaption(ctx, c, rd, cr, answer, lang, false)
+	// A result that goes out late, after the day has closed everywhere,
+	// would miss the world job's edit: it carries the final line itself.
+	final := !s.now().Before(s.Zones.LastReveal(rd.Date))
+	gr, err := s.groupCaption(ctx, c, rd, cr, answer, lang, final)
 	if err != nil {
 		return err
 	}
@@ -337,7 +343,7 @@ func (s *Scheduler) groupCaption(ctx context.Context, c db.Chat, rd db.Round, cr
 			return groupDay{}, err
 		}
 		if line := worldGroupLine(lang, w, guesses, final); line != "" {
-			lines = append(lines, line)
+			lines = append(lines, "", line)
 		}
 	}
 	back, err := s.lateLookBack(ctx, lang, rd.Date, c, cr)
@@ -419,7 +425,7 @@ func table(lang string, guesses []db.Guess, streaks map[int64]int) []string {
 		}
 		score := "…"
 		if g.Km != nil {
-			score = i18n.FormatDistance(lang, *g.Km) + " · " + i18n.FormatNumber(lang, g.Total())
+			score = i18n.FormatDistance(lang, *g.Km) + " · <b>" + i18n.FormatNumber(lang, g.Total()) + "</b>"
 		}
 		place := fmt.Sprintf("%d.", i+1)
 		if i < len(medals) && g.Km != nil {
@@ -471,9 +477,6 @@ func visibleLen(s string) int {
 
 var medals = []string{"🥇", "🥈", "🥉"}
 
-// bestShown is how many of the best distances the group's post shows.
-const bestShown = 3
-
 // postCaption is the morning post: the day and the question, in a group who
 // has answered and the best distances so far, and the look back at yesterday
 // when it is final, set apart in a quote.
@@ -482,15 +485,18 @@ func postCaption(lang string, dayNo int, yesterday, block string, group bool) st
 	if group {
 		text += "\n\n" + block
 	}
+	// Yesterday is the first to go when the caption would not fit.
 	if yesterday != "" {
-		text += "\n\n<blockquote>" + yesterday + "</blockquote>"
+		if with := text + "\n\n<blockquote>" + yesterday + "</blockquote>"; visibleLen(with) <= captionLimit {
+			return with
+		}
 	}
 	return text
 }
 
 // answeredBlock is the group post's live part: who has answered, in the
-// alphabet's order rather than the answers', and the best distances so far
-// without names. The Mini App shows the same answers unnamed; listing names
+// alphabet's order rather than the answers', and every distance so far,
+// closest first and without names. The Mini App shows the same answers unnamed; listing names
 // in the order they came would tell who is who.
 func answeredBlock(lang string, guesses []db.Guess) string {
 	if len(guesses) == 0 {
@@ -508,15 +514,31 @@ func answeredBlock(lang string, guesses []db.Guess) string {
 	for i, n := range names {
 		names[i] = displayName(n)
 	}
-	if len(names) > nameLimit {
-		names = append(names[:nameLimit:nameLimit], fmt.Sprintf("+%d", len(names)-nameLimit))
+	// At most nameLimit names and namesRoom characters of them: long names
+	// would otherwise push the caption past Telegram's limit.
+	shown, room := 0, 0
+	for shown < len(names) && shown < nameLimit {
+		room += visibleLen(names[shown]) + 2
+		if room > namesRoom && shown > 0 {
+			break
+		}
+		shown++
+	}
+	if shown < len(names) {
+		names = append(names[:shown:shown], fmt.Sprintf("+%d", len(names)-shown))
 	}
 	text := "<b>" + i18n.T(lang, "post.answered", "n", strconv.Itoa(len(guesses))) + "</b>\n" + strings.Join(names, ", ")
 	if len(kms) > 0 {
 		sort.Float64s(kms)
-		best := make([]string, 0, bestShown)
-		for _, km := range kms[:min(len(kms), bestShown)] {
-			best = append(best, i18n.FormatDistance(lang, km))
+		var best []string
+		room := 0
+		for i, km := range kms {
+			d := i18n.FormatDistance(lang, km)
+			if room += visibleLen(d) + 3; room > kmRoom && i > 0 {
+				best = append(best, fmt.Sprintf("+%d", len(kms)-i))
+				break
+			}
+			best = append(best, d)
 		}
 		text += "\n<b>" + i18n.T(lang, "post.best") + "</b>\n" + strings.Join(best, " · ")
 	}
@@ -550,13 +572,13 @@ func worldGroupLine(lang string, w db.World, guesses []db.Guess, final bool) str
 	}
 	n := i18n.FormatNumber(lang, w.Players())
 	if !final {
-		return i18n.T(lang, "result.world_group_now", "places", strings.Join(places, ", "), "n", n)
+		return i18n.T(lang, "result.world_group_now", "places", strings.Join(places, " · "), "n", n)
 	}
-	line := i18n.T(lang, "result.world_group_final", "places", strings.Join(places, ", "), "n", n)
+	line := i18n.T(lang, "result.world_group_final", "places", strings.Join(places, " · "), "n", n)
 	// The world's first, unless they are in this group and named already.
 	if list[0].rank != 1 {
 		first := w.Entries[0]
-		line += " " + i18n.T(lang, "result.world_first", "name", entryName(lang, first), "km", kmText(lang, first.Km))
+		line += "\n" + i18n.T(lang, "result.world_first", "name", entryName(lang, first), "km", kmText(lang, first.Km))
 	}
 	return line
 }

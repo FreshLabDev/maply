@@ -160,14 +160,14 @@ func (s *Store) GuessOf(ctx context.Context, d round.Date, userID int64) (Guess,
 }
 
 // ChatGuesses is the day's table for a group: the answers of everyone core has
-// seen there with maply, wherever they answered from. Best score first, the
-// earlier answer first on a tie.
+// seen there with maply, wherever they answered from. Best score first; on a
+// tie the closer pin, then the earlier answer.
 func (s *Store) ChatGuesses(ctx context.Context, d round.Date, chatID int64) ([]Guess, error) {
 	rows, err := s.pool.Query(ctx, guessSelect+`
 		 WHERE g.date = $1
 		   AND EXISTS (SELECT 1 FROM core.maply_presence p
 		                WHERE p.telegram_user_id = g.user_id AND p.chat_id = $2)
-		 ORDER BY COALESCE(g.pts_km + g.pts_bonus + COALESCE(g.pts_speed, 0), -1) DESC, g.answered_at`, d.Time(), chatID)
+		 ORDER BY COALESCE(g.pts_km + g.pts_bonus + COALESCE(g.pts_speed, 0), -1) DESC, g.km NULLS LAST, g.answered_at`, d.Time(), chatID)
 	if err != nil {
 		return nil, fmt.Errorf("chat guesses %d: %w", chatID, err)
 	}

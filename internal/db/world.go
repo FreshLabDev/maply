@@ -68,15 +68,15 @@ func (w World) PlaceOf(player string) int {
 	return 0
 }
 
-// A day's ranking: more points first, then the earlier answer, then the
-// closer pin; the ids only make a full tie come out the same every time.
+// A day's ranking: more points first, then the closer pin, then the
+// earlier answer; the ids only make a full tie come out the same every time.
 
 // World ranks every scored answer of d. The whole day comes back: at the
 // size maply is now that is a few hundred rows, and every caller needs some
 // of them by person.
 func (s *Store) World(ctx context.Context, d round.Date) (World, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT row_number() OVER (ORDER BY ds.points DESC, ds.answered_at, ds.km, ds.user_id, ds.player),
+		SELECT row_number() OVER (ORDER BY ds.points DESC, ds.km, ds.answered_at, ds.user_id, ds.player),
 		       COALESCE(ds.user_id, 0), COALESCE(ds.player::text, ''),
 		       COALESCE(pe.first_name, sp.name, ''), ds.km, ds.points
 		  FROM day_score ds
@@ -176,9 +176,9 @@ func (s *Store) ChatDays(ctx context.Context, chatID int64, days []Day) (map[rou
 		SELECT d.date,
 		       (SELECT count(*) FROM m),
 		       count(g.user_id),
-		       (array_agg(COALESCE(pe.first_name, '') ORDER BY ds.points DESC, ds.answered_at, ds.km, ds.user_id)
+		       (array_agg(COALESCE(pe.first_name, '') ORDER BY ds.points DESC, ds.km, ds.answered_at, ds.user_id)
 		          FILTER (WHERE ds.points IS NOT NULL))[1],
-		       (array_agg(ds.km ORDER BY ds.points DESC, ds.answered_at, ds.km, ds.user_id)
+		       (array_agg(ds.km ORDER BY ds.points DESC, ds.km, ds.answered_at, ds.user_id)
 		          FILTER (WHERE ds.points IS NOT NULL))[1]
 		  FROM unnest($2::date[]) AS d(date)
 		  LEFT JOIN guess g ON g.date = d.date AND g.user_id IN (SELECT id FROM m)
@@ -236,7 +236,7 @@ func (s *Store) myDays(ctx context.Context, who string, id any, days []Day) (map
 	rows, err := s.pool.Query(ctx, `
 		SELECT date, km, points, rank FROM (
 		  SELECT date, user_id, player, km, points,
-		         row_number() OVER (PARTITION BY date ORDER BY points DESC, answered_at, km, user_id, player) AS rank
+		         row_number() OVER (PARTITION BY date ORDER BY points DESC, km, answered_at, user_id, player) AS rank
 		    FROM day_score WHERE date = ANY($2::date[])) r
 		 WHERE `+who, id, dates)
 	if err != nil {

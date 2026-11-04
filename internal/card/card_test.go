@@ -321,7 +321,7 @@ func TestPrepareSavesAJPEGMessageTelegramCanFetch(t *testing.T) {
 	if want := "https://maply.example/card/img/" + p.ID; p.PhotoURL != want+".jpg" || p.ThumbURL != want+".t.jpg" {
 		t.Fatalf("urls = %q, %q", p.PhotoURL, p.ThumbURL)
 	}
-	for _, want := range []string{"<b>maply #12</b>\n<blockquote>Лиссабон, Португалия", "</blockquote>\nТвой итог: 100 км · 3\u00a0400"} {
+	for _, want := range []string{"<b>maply #12</b>\n<blockquote>Лиссабон, Португалия", "</blockquote>\n📍 Расстояние: <b>100 км</b>\n⭐ Очки: <b>3\u00a0400</b>"} {
 		if !strings.Contains(p.Caption, want) {
 			t.Errorf("caption lacks %q: %q", want, p.Caption)
 		}
@@ -382,7 +382,7 @@ func TestPrepareSharesTheResultAnimation(t *testing.T) {
 	if a.FileID != "anim-file" || id != a.ID || len(a.ID) != 22 || saver.user != person {
 		t.Fatalf("saved %+v for %d, returned %q", a, saver.user, id)
 	}
-	if !strings.Contains(a.Caption, "Твой итог: 100 км") || len(a.Markup) != 1 || a.Markup[0][0].Text != "Играть" {
+	if !strings.Contains(a.Caption, "📍 Расстояние: <b>100 км</b>") || len(a.Markup) != 1 || a.Markup[0][0].Text != "Играть" {
 		t.Fatalf("caption %q, markup %+v", a.Caption, a.Markup)
 	}
 
@@ -505,5 +505,28 @@ func TestEveryResourceThePageNamesIsServed(t *testing.T) {
 		if rec := get(app, "/"+m[1]); rec.Code != http.StatusOK {
 			t.Errorf("/%s: %d", m[1], rec.Code)
 		}
+	}
+}
+
+// Before the reveal the share is text: the distance and the points on lines
+// of their own, nothing about the place.
+func TestPrepareScoreSetsDistanceAndPointsApart(t *testing.T) {
+	st := &fakeStore{lang: "ru", guesses: []db.Guess{guess(person, "Mia", 1)}}
+	saver := &fakeSaver{}
+	s := service(t, st, &fakeShot{}, afterReveal)
+	s.TG = saver
+	id, err := s.PrepareScore(context.Background(), Share{UserID: person, ChatID: group, Date: day})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saver.text) != 1 || saver.text[0].ID != id {
+		t.Fatalf("saved %+v, returned %q", saver.text, id)
+	}
+	want := "<b>maply #12</b>\n📍 Расстояние: <b>100 км</b>\n⭐ Очки: <b>3 400</b>\n\nУгадаешь ближе?"
+	if got := saver.text[0].Text; got != want {
+		t.Fatalf("text %q, want %q", got, want)
+	}
+	if strings.Contains(saver.text[0].Text, "Лиссабон") {
+		t.Fatal("the score share names the place")
 	}
 }

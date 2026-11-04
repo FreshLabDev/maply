@@ -60,7 +60,9 @@ player, and production-minded.
   missing in one language is a bug.
 - The interface language is core's, shared with every bot in the family:
   `core.set_language` with `manual`, `core.clear_language` for "Follow
-  Telegram". maply keeps no copy of it.
+  Telegram". maply keeps no copy of it. Opened from a group that has a
+  language, the Mini App speaks the group's, so what a player shares from it
+  matches the bot's posts there.
 - Panels look like voicy's and quoto's: `m:<owner>:<action>` callbacks, a
   bold title, an italic hint, the substance in a quote, `◉`/`◎` on choices,
   Success on the current one, Back, and Close only in a group.
@@ -76,8 +78,9 @@ the diff looks like.
 - In Telegram (DM and group) a guess is scored the moment it comes in, and the
   person sees the place, their distance and their score right away. Before the
   chat's reveal they also see everyone else's answers in that chat, but only as
-  distance, score and a point on the map: no name, photo, user ID, bonus, speed
-  or answer time. The server strips these; the client never receives them.
+  distance, points without the speed part, and a point on the map: no name,
+  photo, user ID, speed or answer time, and nothing ordered by answer time. The
+  server strips these; the client never receives them.
 - Nobody sees the place without having answered. Before the reveal
   `/api/result` and `/api/share` answer a person with no answer `403
   not_answered`, and nothing else. This is the invariant that keeps the live

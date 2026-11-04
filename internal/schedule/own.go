@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/FreshLabDev/maply/internal/card"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/i18n"
 	"github.com/FreshLabDev/maply/internal/round"
@@ -27,7 +28,7 @@ const usualFrom = 3
 // from, how the day compares with the person's others, the streak, and their
 // place in each group they play in.
 func (s *Scheduler) ownLines(ctx context.Context, lang string, d round.Date, g db.Guess) ([]string, error) {
-	lines := []string{i18n.T(lang, "result.your", "dist", i18n.FormatDistance(lang, *g.Km), "points", i18n.FormatNumber(lang, g.Total()))}
+	lines := []string{card.Score(lang, *g.Km, g.Total())}
 	if g.PtsKm != nil && g.PtsBonus != nil {
 		lines = append(lines, pointsLine(lang, *g.PtsKm, *g.PtsBonus, g.Speed()))
 	}

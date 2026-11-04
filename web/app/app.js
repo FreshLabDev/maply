@@ -3,6 +3,9 @@ let TODAY = null;
 // A script error on someone's phone would otherwise stay there: the first few of a session go to the server's log.
 let reported = 0;
 function report(message, source, line, column, stack) {
+  // "Script error." with no source is an error inside a cross-origin script (Telegram's own): the browser hides
+  // everything about it, so it tells us nothing and only uses up the session's five reports.
+  if (!message || (/^Script error\.?$/.test(String(message)) && !source)) return;
   if (reported++ >= 5) return;
   const body = JSON.stringify({ message: String(message || ""), source: String(source || ""), line: line || 0, column: column || 0,
     stack: String(stack || ""), version: (window.Telegram && Telegram.WebApp && Telegram.WebApp.version) || "", page: window.Telegram && Telegram.WebApp && Telegram.WebApp.initData ? "tg" : "site" });
@@ -14,6 +17,8 @@ const $ = (id) => document.getElementById(id);
 const PIN_PATH = "M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1 0 320 349 A60 60 0 1 0 320 229 Z";
 // On the map, markers are dark with a white outline: visible on both light land and green water.
 const PIN = '<svg class="pin" viewBox="150 119 340 402"><path fill="#1A412B" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="miter" paint-order="stroke" fill-rule="evenodd" d="' + PIN_PATH + '"/></svg>';
+// A chevron pointing down: the plate folds away to the bottom edge.
+const FOLD = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 // A Telegram photo comes as a data: URL of a JPEG maply encoded; anything else keeps the letter.
 const PHOTO = /^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/;
@@ -288,12 +293,14 @@ let tween = 0;
 function glideToMini(ms) {
   cancelAnimationFrame(tween); map.stop();
   const z0 = map.getZoom(), c0 = map.getCenter(), p0 = map.getPadding(), t0 = performance.now();
-  const c1 = guess || c0, dl = ((c1.lng - c0.lng + 540) % 360) - 180, mix = (a, b, e) => a + (b - a) * e;
+  const c1 = guess || c0, dl = ((c1.lng - c0.lng + 540) % 360) - 180, mix = (a, b, e) => a + (b - a) * e, pad = (a, b, e) => Math.max(0, mix(a, b, e));
   const step = (now) => {
     if (view !== "photo") return;
-    const k = Math.min(1, (now - t0) / ms), e = easeOut(k), cam = miniCam(), p = cam.padding;
+    // A frame's timestamp can be a little earlier than t0. Unclamped, k goes negative, the padding below zero,
+    // and MapLibre throws on every frame after that.
+    const k = Math.min(1, Math.max(0, (now - t0) / ms)), e = easeOut(k), cam = miniCam(), p = cam.padding;
     map.jumpTo({ zoom: mix(z0, cam.zoom, e), center: [c0.lng + dl * e, mix(c0.lat, c1.lat, e)],
-      padding: { left: mix(p0.left, p.left, e), top: mix(p0.top, p.top, e), right: mix(p0.right, p.right, e), bottom: mix(p0.bottom, p.bottom, e) } });
+      padding: { left: pad(p0.left, p.left, e), top: pad(p0.top, p.top, e), right: pad(p0.right, p.right, e), bottom: pad(p0.bottom, p.bottom, e) } });
     // The last frame may have landed on the flat projection, so we finish with a couple more frames.
     if (k < 1 || (Math.abs(map.getZoom() - cam.zoom) > .01 && now - t0 < ms + 500)) tween = requestAnimationFrame(step);
   };
@@ -307,12 +314,25 @@ if (tgAt("6.1")) tg.BackButton.onClick(() => document.body.classList.contains("i
 // The left button label depends on the stage: before the answer it invites a closer look, after the answer simply to enjoy.
 const LOOK = { guess: ["look_more", "look"], wait: ["admire", "admire"], reveal: ["walk", "walk"] };
 function split(on) { $("act").classList.toggle("on", on); $("look").textContent = T(LOOK[state][on ? 1 : 0]); }
-addEventListener("resize", () => { if (mapReady) map.jumpTo(view === "map" ? { padding: bigCam().padding } : miniCam()); });
+// Telegram resizes the view on its own events (viewport, safe area, fullscreen). A camera call during a pinch resets
+// the gesture, so in the map view the new padding waits until the map stands still and no finger is down.
+let touches = 0;
+$("map").addEventListener("touchstart", (e) => { touches = e.touches.length; }, { passive: true });
+["touchend", "touchcancel"].forEach((t) => $("map").addEventListener(t, (e) => { touches = e.touches.length; if (!touches) refit(); }, { passive: true }));
+let refitDue = false;
+function refit() {
+  if (!refitDue || !mapReady) return;
+  if (view !== "map") { refitDue = false; glideToMini(200); return; }
+  if (touches || map.isMoving()) return;
+  refitDue = false; map.jumpTo({ padding: bigCam().padding });
+}
+addEventListener("resize", () => { refitDue = true; refit(); });
 function setCall(b, sub) { $("callB").textContent = b; $("callS").innerHTML = esc(sub) + " <em>→</em>"; }
 
 map = createMap(miniCam().zoom);
 map.setPadding(miniCam().padding);
 map.on("load", () => { mapReady = true; map.jumpTo(miniCam()); });
+map.on("moveend", refit);
 // While there is no pin, the mini globe rotates slowly: it shows it is alive and can be touched.
 (function spinGlobe() {
   if (mapReady && view === "photo" && !guess && !map.isMoving()) { const c = map.getCenter(); map.setCenter([c.lng + 0.12, c.lat]); }
@@ -378,8 +398,7 @@ function toWaiting(how) {
   $("timer").classList.add("hidden");
   overlay('<div class="pl nums"><b id="wleft">' + hm(secondsTo(TODAY.reveal)) + '</b><span class="up">' + esc(T("until_answer")) + '<br>' +
     esc(T("at", { time: AT, zone: ZONE_NAME })) + '</span></div>', tgLink());
-  // Zoom past the edge of the globe unfolding: at 3.5 the map is still slightly curved, and a pinch immediately snapped it back to a globe.
-  if (guess && view === "map") map.easeTo({ padding: bigCam().padding, center: guess, zoom: GLOBE_Z[1] + 0.4, duration: 700, easing: easeOut });
+  if (guess && view === "map") map.easeTo({ padding: bigCam().padding, center: guess, duration: 700, easing: easeOut });
 }
 // The app reopened after the answer: put the pin back where it was sent and show the result, live or final. The site
 // waits for its evening.
@@ -389,8 +408,9 @@ function restore() {
   if (!marker) marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat(guess).addTo(map);
   else marker.setLngLat(guess);
   if (view === "photo") map.jumpTo({ ...miniCam(), center: guess });
+  // Until the result comes, a tap on the map must not move the sent pin.
   if (SITE) toWaiting("restore");
-  else loadResult();
+  else { state = "wait"; marker.setDraggable(false); loadResult(); }
 }
 // Result markers are laid out in pixels on every map-motion frame. A friend's point that falls under the target
 // moves out onto a ring around it; nearby points are pushed apart; a label takes the first free spot, and if it
@@ -438,60 +458,79 @@ map.on("move", layoutMarks);
 map.on("resize", layoutMarks);
 // Result table under the header. Delays are shared by bars and counters: first the kilometres, then the bonuses one by one,
 // then the dashed missed part.
-const T_KM = .25, T_B = (k) => .75 + k * .3, ROWS = 4;
+const T_KM = .25, T_B = (k) => .75 + k * .3, ROWS = 6;
 const pct = (x) => (x * 100 / (5000 + SPEED_MAX)).toFixed(2) + "%";
 // rows: { who, d (km), pts, lvl, sp, me, anon } from /api/result. The grey part of a bar is the points for the distance,
 // the gold one after the bonuses is for speed. Before the reveal the others are anonymous: a question mark, no name, and
 // one bar for all their points, since their bonuses would say which country they picked. fresh holds the rows that came
 // in since the last paint; they slide in, the rest stay as they are.
+function boardRow(r, i, cls, count) {
+  const IF = [T("what_continent"), T("what_country"), T("what_city")], v = (n) => count ? "0" : fmt(n);
+  if (r.anon) return '<div class="r anon' + cls + '" aria-label="' + esc(T("anon_row") + ", " + kmT(r.d) + ", " + fmt(r.pts)) + '"><em>' + (i + 1) + '</em><i class="av">?</i><span>•••</span>' +
+    '<span class="hit" data-rest="' + esc(T("anon_row")) + '"><span class="bar"><i class="km" data-tip="' + esc(T("anon_row")) + '" style="width:' + pct(r.pts) +
+    ';--d:' + T_KM + 's"></i></span></span><b class="s" data-b="' + r.pts + '" data-l="0" data-sp="0">' + v(r.pts) + '</b><span class="k">' + kmT(r.d) + '</span></div>';
+  const b0 = r.pts - bonusOf(r.lvl) - r.sp, segs = ['<i class="km" data-tip="' + esc(T("km_points", { points: fmt(b0), km: fmt(r.d) })) + '" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
+  BONUS.forEach((x, k) => {
+    if (k < r.lvl) segs.push('<i data-tip="' + esc(T("bonus", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + T_B(k) + 's"></i>');
+  });
+  if (r.sp) segs.push('<i class="sp" data-tip="' + esc(T("speed_bonus", { points: r.sp })) + '" style="width:' + pct(r.sp) + ';--d:' + T_B(r.lvl) + 's"></i>');
+  if (r.me) BONUS.forEach((x, k) => {
+    if (k >= r.lvl) segs.push('<i class="if" data-tip="' + esc(T("bonus_missed", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
+  });
+  return '<div class="r' + (r.me ? " me" : "") + cls + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me, r.photo) + '<span>' + esc(r.who) + '</span>' +
+    '<span class="hit" data-rest="' + esc(T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
+    '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '" data-sp="' + r.sp + '">' + v(r.pts) + '</b><span class="k">' + kmT(r.d) + '</span></div>';
+}
+// Under the map the first rows show and yours, one fewer if you are lower, so the height does not change. "N more"
+// opens every answer in a window of its own.
+let boardRows = [];
 function paintBoard(rows, fresh) {
-  // Collapsed, the first rows and yours are visible; if you are lower, there is one fewer row so the height does not change.
+  boardRows = rows;
   const meAt = rows.findIndex((r) => r.me), top = meAt >= ROWS ? ROWS - 1 : ROWS, IF = [T("what_continent"), T("what_country"), T("what_city")];
-  const wasOpen = $("lb").classList.contains("open");
   // Segment tooltips sit in data-tip, not data-t: data-t marks the static lines loadTexts fills.
-  $("lb").innerHTML = rows.map((r, i) => {
-    const x = i >= top && !r.me ? " x" : "", nw = fresh && fresh.has(r.key) ? " new" : "";
-    if (r.anon) return '<div class="r anon' + x + nw + '"><em>' + (i + 1) + '</em><i class="av">?</i><span>•••</span>' +
-      '<span class="hit" data-rest="' + esc(T("anon_row")) + '"><span class="bar"><i class="km" data-tip="' + esc(T("anon_row")) + '" style="width:' + pct(r.pts) +
-      ';--d:' + T_KM + 's"></i></span></span><b class="s" data-b="' + r.pts + '" data-l="0" data-sp="0">0</b><span class="k">' + fmt(r.d) + ' ' + esc(T("km")) + '</span></div>';
-    const b0 = r.pts - bonusOf(r.lvl) - r.sp, segs = ['<i class="km" data-tip="' + esc(T("km_points", { points: fmt(b0), km: fmt(r.d) })) + '" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
-    BONUS.forEach((x, k) => {
-      if (k < r.lvl) segs.push('<i data-tip="' + esc(T("bonus", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + T_B(k) + 's"></i>');
-    });
-    if (r.sp) segs.push('<i class="sp" data-tip="' + esc(T("speed_bonus", { points: r.sp })) + '" style="width:' + pct(r.sp) + ';--d:' + T_B(r.lvl) + 's"></i>');
-    if (r.me) BONUS.forEach((x, k) => {
-      if (k >= r.lvl) segs.push('<i class="if" data-tip="' + esc(T("bonus_missed", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
-    });
-    return '<div class="r' + (r.me ? " me" : "") + x + nw + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me, r.photo) + '<span>' + esc(r.who) + '</span>' +
-      '<span class="hit" data-rest="' + esc(T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
-      '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '" data-sp="' + r.sp + '">0</b><span class="k">' + fmt(r.d) + ' ' + esc(T("km")) + '</span></div>';
-  }).join("");
+  $("lb").innerHTML = rows.map((r, i) => boardRow(r, i, (i >= top && !r.me ? " x" : "") + (fresh && fresh.has(r.key) ? " new" : ""), true)).join("");
   const hidden = rows.length - Math.min(rows.length, top + (meAt >= top ? 1 : 0));
-  const open = wasOpen && hidden > 0;
-  $("lb").classList.toggle("open", open);
   $("more").classList.toggle("hidden", hidden <= 0);
-  $("more").dataset.n = hidden;
-  $("more").textContent = open ? T("less") + " ↑" : T("more", { n: hidden }) + " ↓";
-  // Legend and "what if" at the same distance: one line, wraps in whole chunks.
-  const t = (h) => '<span>' + h + '</span>', me = rows[meAt], legend = t('<i class="km"></i>' + esc(T("legend_km"))) + ' ' + t('<i></i>' + esc(T("legend_bonus"))) +
-    (rows.some((r) => r.sp) ? ' ' + t('<i class="sp"></i>' + esc(T("legend_speed"))) : "");
-  if (!me) { $("ifs").innerHTML = rows.length ? legend : t(esc(T("no_answer"))); return; }
-  const d = me.d, lvl = me.lvl, b = (n) => '<b>' + fmt(n) + '</b>';
-  $("ifs").innerHTML = legend + ' · ' + (lvl >= 3 ? t(esc(T("all_bonuses"))) :
-    t('<i class="if"></i>' + T("if_first", { what: esc(IF[lvl]), score: b(score(d, lvl + 1) + me.sp) })) +
-    IF.slice(lvl + 1).map((n, j) => ', ' + t(T("if_next", { what: esc(n), score: b(score(d, lvl + j + 2) + me.sp) }))).join(""));
+  $("more").textContent = T("more", { n: hidden }) + " →";
+  if ($("sheet").dataset.kind === "board" && $("sheet").classList.contains("on")) fillBoard();
+  // How the points add up sits behind the (i) button, with the colours of the bars, and what the same distance would
+  // have made with more bonuses.
+  const me = rows[meAt], line = (c, h) => '<p><i class="' + c + '"></i><span>' + h + '</span></p>';
+  $("none").classList.toggle("hidden", rows.length > 0);
+  $("rulesBtn").classList.toggle("hidden", !rows.length);
+  let h = line("km", esc(T("rules_km", { n: fmt(3500) }))) + line("", esc(T("rules_bonus", { a: BONUS[0], b: BONUS[1], c: BONUS[2] }))) +
+    line("sp", esc(T("rules_speed", { n: SPEED_MAX })));
+  if (me) {
+    const d = me.d, lvl = me.lvl, b = (n) => '<b>' + fmt(n) + '</b>';
+    h += lvl >= 3 ? line("if", esc(T("all_bonuses"))) : line("if", esc(T("rules_if")) + ' ' + T("if_first", { what: esc(IF[lvl]), score: b(score(d, lvl + 1) + me.sp) }) +
+      IF.slice(lvl + 1).map((n, j) => ', ' + T("if_next", { what: esc(n), score: b(score(d, lvl + j + 2) + me.sp) })).join(""));
+  }
+  $("rules").innerHTML = h;
 }
-// Full leaderboard: a tap on the table or on "N more" expands and collapses it.
-function toggleBoard() {
-  if ($("more").classList.contains("hidden")) return;
-  const open = $("lb").classList.toggle("open");
-  $("more").textContent = open ? T("less") + " ↑" : T("more", { n: $("more").dataset.n }) + " ↓";
+// The (i) under the table opens how the points add up; a tap anywhere else closes it.
+function showRules(on) {
+  $("rules").classList.toggle("hidden", !on);
+  $("rulesBtn").setAttribute("aria-expanded", on);
 }
-$("more").addEventListener("click", toggleBoard);
+$("rulesBtn").addEventListener("click", () => { hideTip(); showRules($("rules").classList.contains("hidden")); });
+document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#rules, #rulesBtn")) showRules(false); });
+// Every answer, in a window over the app; a new answer while it is open joins the list where it stands.
+function openBoard() {
+  if (!boardRows.length) return;
+  haptic("light"); hideTip();
+  sheet('<span id="boardH"></span>', '<div class="lb all" id="lbAll"></div>');
+  $("sheet").dataset.kind = "board";
+  fillBoard();
+}
+function fillBoard() {
+  $("boardH").textContent = T("all_answers", { n: boardRows.length });
+  $("lbAll").innerHTML = boardRows.map((r, i) => boardRow(r, i, "", false)).join("");
+}
+$("more").addEventListener("click", openBoard);
 // The plates over the map stay under the table and move down as it expands.
 const ovUnderBoard = () => { $("ovTop").style.top = $("prog").getBoundingClientRect().top + $("prog").offsetHeight + 10 + "px"; };
 new ResizeObserver(() => { if (state === "reveal") ovUnderBoard(); }).observe($("prog"));
-$("lb").addEventListener("click", (e) => { if (!e.target.closest(".hit")) toggleBoard(); });
+$("lb").addEventListener("click", (e) => { if (!e.target.closest(".hit") && !$("more").classList.contains("hidden")) openBoard(); });
 // Tooltip above the bar: which segment is under the finger or cursor. We look the segment up by x so it is easy to hit.
 function showTip(e) {
   const hit = e.target.closest(".hit");
@@ -513,10 +552,10 @@ $("lb").addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse")
 document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".lb")) hideTip(); });
 // Points in the rows count up in time with the bars: every row on the first paint, only the new ones after it.
 function countUp(fresh) {
-  if (fresh) document.querySelectorAll(".lb .r:not(.new) .s").forEach((e) => {
+  if (fresh) document.querySelectorAll("#lb .r:not(.new) .s").forEach((e) => {
     e.textContent = fmt(+e.dataset.b + bonusOf(+e.dataset.l) + +e.dataset.sp);
   });
-  const t0 = performance.now(), ease = (x) => 1 - (1 - Math.min(1, Math.max(0, x))) ** 3, els = [...document.querySelectorAll(fresh ? ".lb .r.new .s" : ".lb .s")];
+  const t0 = performance.now(), ease = (x) => 1 - (1 - Math.min(1, Math.max(0, x))) ** 3, els = [...document.querySelectorAll(fresh ? "#lb .r.new .s" : "#lb .s")];
   const tick = (now) => {
     const t = (now - t0) / 1000;
     els.forEach((e) => {
@@ -545,27 +584,31 @@ async function loadResult() {
     // The server's clock decides; it says when to ask again.
     if ((e.message === "not_revealed" || e.message === "not_answered") && e.data.opens_at) {
       TODAY.reveal = e.data.opens_at;
-      if (state === "guess" && TODAY.answer) toWaiting("restore");
+      if (state !== "reveal" && TODAY.answer) toWaiting("restore");
     } else if (state !== "reveal") {
       toast(errorText(e));
-      if (state === "guess" && TODAY.answer) toWaiting("restore");
+      if (state !== "reveal" && TODAY.answer) toWaiting("restore");
     }
   } finally { resultLoading = false; }
 }
 // While the names are hidden the result asks again every few seconds, so new answers appear as they come. It stops while
 // the app is in the background and picks up again when it comes back.
-setInterval(() => { if (state === "reveal" && PHASE === "live" && !document.hidden) loadResult(); }, 5000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden && state === "reveal" && PHASE === "live") loadResult(); });
+const shown = () => !document.hidden && !(inTg && tg.isActive === false);
+const polling = () => (state === "reveal" && PHASE === "live") || (state === "wait" && !SITE && TODAY && TODAY.answer);
+setInterval(() => { if (shown() && polling()) loadResult(); }, 5000);
+document.addEventListener("visibilitychange", () => { if (shown() && polling()) loadResult(); });
+if (inTg && tg.onEvent) tg.onEvent("activated", () => { if (polling()) loadResult(); });
 // A row's key is its pin: it stays the same when the names open, so only answers that are really new slide in.
 const rowsOf = (res) => res.table.map((r) => {
-  const anon = !r.me && !r.name;
+  const anon = res.phase === "live" && !r.me;
   return { who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: anon ? 0 : levelOf(r.bonus), sp: r.speed || 0,
     me: !!r.me, photo: r.photo, anon, key: r.lat.toFixed(5) + "," + r.lon.toFixed(5) };
-}).sort((a, b) => b.pts - a.pts);
-// The plate under the table: while the names are hidden, when they open; and where you stand in the world so far.
+}).sort((a, b) => rankPts(b, res) - rankPts(a, res) || a.d - b.d);
+// While the names are hidden the others' points come without the speed part, so yours is ranked without it too.
+const rankPts = (r, res) => res.phase === "live" ? r.pts - r.sp : r.pts;
+// The plate under the table: where you stand in the world so far. The header counts down to the names.
 function livePlate(res) {
   const w = res.world, parts = [];
-  if (PHASE === "live") parts.push('<b class="up lv-on"><i></i>' + esc(T("live_names", { time: AT })) + '</b>');
   if (w && w.rank) parts.push('<span>' + esc(T("world_now", { rank: fmt(w.rank), n: fmt(w.players) })) + '</span>');
   return parts.length ? '<div class="pl lv">' + parts.join("") + '</div>' : "";
 }
@@ -604,6 +647,9 @@ function repaint(res) {
   const was = PHASE;
   if (res.opens_at) TODAY.reveal = res.opens_at;
   if (res.version && res.version === VERSION) return;
+  // The version is "group answers.world players.phase": when only the world moved, the table and markers stay.
+  const [g0, , p0] = VERSION.split("."), [g1, , p1] = (res.version || "").split(".");
+  if (res.version && g0 === g1 && p0 === p1) { drawWorld(res.world); setLive(res); return; }
   const rows = rowsOf(res), fresh = new Set(rows.filter((r) => !seen.has(r.key)).map((r) => r.key));
   rows.forEach((r) => seen.add(r.key));
   mine = rows.find((r) => r.me) || mine;
@@ -624,7 +670,8 @@ function toReveal(res) {
   mine = rows.find((r) => r.me) || null;
   // A pin that never reached the server is not an answer: it leaves the map rather than draw a line to the place.
   if (!mine && marker) { marker.remove(); marker = null; guess = null; }
-  if (mine && !guess) guess = new maplibregl.LngLat(mine.at[0], mine.at[1]);
+  if (mine) guess = new maplibregl.LngLat(mine.at[0], mine.at[1]);
+  if (marker && guess) marker.setLngLat(guess);
   if (guess && !marker) marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat(guess).addTo(map);
   if (marker) marker.setDraggable(false);
   const friends = rows.filter((r) => !r.me);
@@ -649,17 +696,14 @@ function toReveal(res) {
   setCall(T("day_result"), T("see"));
   const where = esc([P.city, regionName(P.country)].filter(Boolean).join(", ")), fact = esc(P.fact || "");
   overlay("", tgLink() +
-    '<div class="place up" id="place"><button class="t" id="placeT">' + where + (fact ? ' ↓' : '') + '<p></p></button>' +
-    '<button class="x" id="placeX" aria-label="' + esc(T("aria_collapse")) + '">×</button><button class="tab" id="placeTab">' + esc(T("about_place")) + ' ↑</button></div>');
+    '<div class="place up" id="place"><div class="t">' + where + (fact ? '<p>' + fact + '</p>' : '') + '</div>' +
+    '<button class="x" id="placeX" aria-label="' + esc(T("aria_collapse")) + '" aria-expanded="true">' + FOLD + '</button>' +
+    '<button class="tab" id="placeTab" aria-expanded="false">' + esc(T("about_place")) + ' ↑</button></div>');
   countUp();
-  // The fact expands on tap; the cross collapses the plate into a tab so it does not cover the map on a phone.
-  $("placeT").onclick = () => {
-    if (!fact) return;
-    const open = !$("placeT").querySelector("p").textContent;
-    $("placeT").innerHTML = where + (open ? " ↑" : " ↓") + "<p>" + (open ? fact : "") + "</p>";
-  };
-  $("placeX").onclick = () => $("place").classList.add("min");
-  $("placeTab").onclick = () => $("place").classList.remove("min");
+  // The plate opens with the place and its fact. Folding it leaves a small tab, so it does not cover the map on a phone.
+  const fold = (on) => { $("place").classList.toggle("min", on); (on ? $("placeTab") : $("placeX")).focus({ preventScroll: true }); };
+  $("placeX").onclick = () => fold(true);
+  $("placeTab").onclick = () => fold(false);
   setLive(res);
   view = "map"; document.body.classList.add("is-map"); paintBackdrop(); syncBack();
   const b = new maplibregl.LngLatBounds(truth, truth); if (guess) b.extend(guess); friends.forEach((f) => b.extend(f.at));
@@ -677,7 +721,9 @@ $("go").addEventListener("click", () => {
 // the picker refusing it), a line with the day number, distance and score goes through t.me/share. In a browser it is
 // the system "Share" menu or the clipboard.
 const SHARE_URL = window.MAPLY_SHARE_URL || location.origin;
-const shareLine = () => "maply #" + TODAY.day + (mine ? " · " + fmt(mine.d) + " " + T("km") + " · " + fmt(mine.pts) : "");
+// The same lines as the message the bot prepares: distance and points apart, so neither is read as the other.
+const shareLine = () => "maply #" + TODAY.day + (mine ? "\n📍 " + T("share_distance", { km: fmt(mine.d) + " " + T("km") }) +
+  "\n⭐ " + T("share_points", { points: fmt(mine.pts) }) + "\n\n" + T("share_ask") : "");
 function shareLink() {
   const line = shareLine();
   if (inTg) { tg.openTelegramLink("https://t.me/share/url?url=" + encodeURIComponent(SHARE_URL) + "&text=" + encodeURIComponent(line)); return; }
@@ -721,7 +767,7 @@ async function getJSON(path) {
 function sheet(title, html, back) {
   const sh = $("sheet");
   sh.innerHTML = '<div class="sh-top"><button class="sh-b" id="shBack" aria-label="' + esc(T("aria_collapse")) + '">' + (back ? "←" : "×") + '</button><b>' + title + '</b></div><div class="sh-body">' + html + '</div>';
-  sh.classList.add("on"); document.body.classList.add("is-sheet"); syncBack();
+  sh.dataset.kind = ""; sh.classList.add("on"); document.body.classList.add("is-sheet"); syncBack();
   $("shBack").onclick = back || closeDays;
 }
 function closeDays() { $("sheet").classList.remove("on"); document.body.classList.remove("is-sheet"); syncBack(); }

@@ -64,7 +64,7 @@ func TestLookBackComesOnceTheDayAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Yesterday’s first place worldwide: Ana", "Your place: 2 of 2."} {
+	for _, want := range []string{"<b>Yesterday worldwide</b>\n🥇 Ana", "Your place in the world: 2 of 2."} {
 		if !strings.Contains(back, want) {
 			t.Errorf("DM look back %q lacks %q", back, want)
 		}
@@ -73,7 +73,8 @@ func TestLookBackComesOnceTheDayAfter(t *testing.T) {
 	if strings.Contains(back, "Typical") || strings.Contains(back, "ahead of") {
 		t.Errorf("DM look back %q has statistics of two players", back)
 	}
-	if back, _ := s.yesterday(ctx, "en", d, grp); !strings.Contains(back, "of 2: Ana #1, Pin #2") {
+	// A group's own places are in its result already; the look back has only the world.
+	if back, _ := s.yesterday(ctx, "en", d, grp); strings.Contains(back, "#1") || !strings.Contains(back, "🥇 Ana") {
 		t.Errorf("group look back = %q", back)
 	}
 	// Carried by the morning post, it is not repeated at 20:00.
@@ -87,7 +88,7 @@ func TestLookBackComesOnceTheDayAfter(t *testing.T) {
 		t.Errorf("Tokyo morning got a half-counted day: %q", back)
 	}
 	clock = d.At(20, 0, tokyo)
-	if late, _ := s.lateLookBack(ctx, "en", d, dm, db.ChatRound{}); !strings.Contains(late, "Your place: 2 of 2") {
+	if late, _ := s.lateLookBack(ctx, "en", d, dm, db.ChatRound{}); !strings.Contains(late, "Your place in the world: 2 of 2") {
 		t.Errorf("Tokyo result look back = %q", late)
 	}
 }
@@ -133,7 +134,7 @@ func TestOwnLinesTellThePersonTheirDay(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := strings.Join(lines, "\n")
-	for _, want := range []string{"Your result: 14 m · ", "3,500 for the distance", "In Café &lt;3: 1 of 2."} {
+	for _, want := range []string{"Distance: <b>14 m</b>", "3,500 for the distance", "In Café &lt;3: place 1 of 2."} {
 		if !strings.Contains(text, want) {
 			t.Errorf("own lines %q lack %q", text, want)
 		}

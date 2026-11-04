@@ -253,7 +253,7 @@ func TestADayAcrossZones(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Oksana opened it from the Kyiv group: the zone is the group's, not the place's.
-	// The app speaks her language, whichever group she opened it from.
+	// Neither group has a language yet, so the app speaks hers.
 	if td.Day != 1 || td.Image != "/img/"+testImageKey || td.Answer != nil || td.Zone != "Europe/Kyiv" ||
 		td.Lang != "uk" || td.Heading == nil || *td.Heading != 164.5 {
 		t.Fatalf("today = %+v", td)
@@ -357,6 +357,25 @@ func TestADayAcrossZones(t *testing.T) {
 	}
 	hs.expect("GET", "/api/result", oksanaDM, "", http.StatusOK)
 	hs.expect("GET", "/api/result", dmitryDM, "", http.StatusOK)
+
+	// Once the Moscow group has a language, the app opened from it speaks
+	// that language, the one the bot posts there in; the DM keeps hers.
+	if err := hs.srv.Store.(*db.Store).SetChatLang(context.Background(), moscowGroup, "ru"); err != nil {
+		t.Fatal(err)
+	}
+	for who, want := range map[string]string{oksanaMoscow: "ru", oksanaKyiv: "uk", oksanaDM: "uk"} {
+		var td todayResponse
+		if err := json.Unmarshal([]byte(hs.expect("GET", "/api/today", who, "", http.StatusOK)), &td); err != nil {
+			t.Fatal(err)
+		}
+		if td.Lang != want {
+			t.Fatalf("lang = %q, want %q", td.Lang, want)
+		}
+	}
+	res = hs.expect("GET", "/api/result", oksanaMoscow, "", http.StatusOK)
+	if !strings.Contains(res, `"city":"Львов"`) {
+		t.Fatalf("Oksana in the Moscow group reads %s, want the city in Russian", res)
+	}
 }
 
 func TestImages(t *testing.T) {
@@ -534,4 +553,18 @@ func TestDMZoneFromThePhone(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &rr); err != nil || rr.Phase != "final" || len(rr.Table) != 1 || rr.Table[0].Points == nil || *rr.Table[0].Points == 0 {
 		t.Fatalf("Lena's result after the move = %s", body)
 	}
+
+	// Tom plays in his DM only, on London's clock by his language. At 20:30
+	// London he sees the place without answering; his phone then says Los
+	// Angeles, where the day is open until 04:00 UTC. The zone is not taken,
+	// and he cannot answer.
+	tom := initData(8, "Tom", "en", "")
+	hs.now = time.Date(2026, time.December, 10, 20, 30, 0, 0, time.UTC)
+	hs.expect("GET", "/api/result", tom, "", http.StatusOK)
+	body = hs.expect("GET", "/api/today?tz=America/Los_Angeles", tom, "", http.StatusOK)
+	today = todayResponse{}
+	if err := json.Unmarshal([]byte(body), &today); err != nil || today.ZoneSet != "" || today.Zone != "Europe/London" {
+		t.Fatalf("Tom's today from Los Angeles after London's reveal = %s", body)
+	}
+	hs.expect("POST", "/api/guess", tom, `{"lat":50,"lon":25}`, http.StatusConflict)
 }
