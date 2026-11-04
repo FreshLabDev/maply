@@ -416,13 +416,14 @@ function restore() {
 // moves out onto a ring around it; nearby points are pushed apart; a label takes the first free spot, and if it
 // ends up far away, a leader line is drawn to the point.
 let marks = null, mine = null;
-const RING = 27, GAP = 23;
+const RING = 27, GAP = 23, CLUSTER = 30;
 function layoutMarks() {
   if (!marks) return;
   const T = map.project(marks.truth), G = guess ? map.project(guess) : { x: -1e4, y: -1e4 }, c = map.getContainer(), W = c.clientWidth;
   const rect = (x, y, w, h) => ({ x, y, w, h });
   const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-  const pts = marks.friends.map((f) => { const p = map.project(f.at); return { f, p, d: { x: p.x, y: p.y }, w: f.b.offsetWidth, h: f.b.offsetHeight }; });
+  const pts = groupMarks(marks.friends.map((f) => ({ f, p: map.project(f.at) })))
+    .map(({ f, p }) => ({ f, p, d: { x: p.x, y: p.y }, w: f.b.offsetWidth, h: f.b.offsetHeight }));
   for (let k = 0; k < 6; k++) {
     for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
       const a = pts[i].d, b = pts[j].d; let dx = b.x - a.x, dy = b.y - a.y, r = Math.hypot(dx, dy);
@@ -458,17 +459,16 @@ map.on("move", layoutMarks);
 map.on("resize", layoutMarks);
 // Result table under the header. Delays are shared by bars and counters: first the kilometres, then the bonuses one by one,
 // then the dashed missed part.
-const T_KM = .25, T_B = (k) => .75 + k * .3, ROWS = 6;
+const T_KM = .25, T_B = (k) => .75 + k * .3, ROWS = 5;
 const pct = (x) => (x * 100 / (5000 + SPEED_MAX)).toFixed(2) + "%";
 // rows: { who, d (km), pts, lvl, sp, me, anon } from /api/result. The grey part of a bar is the points for the distance,
 // the gold one after the bonuses is for speed. Before the reveal the others are anonymous: a question mark, no name, and
 // one bar for all their points, since their bonuses would say which country they picked. fresh holds the rows that came
 // in since the last paint; they slide in, the rest stay as they are.
+// One row: place, face, name, the bar and the points. Your own row has every part in full colour and the bonuses you
+// missed as dashed outlines; the others show only what they earned, in muted colours, so the eye finds yours first.
 function boardRow(r, i, cls, count) {
   const IF = [T("what_continent"), T("what_country"), T("what_city")], v = (n) => count ? "0" : fmt(n);
-  if (r.anon) return '<div class="r anon' + cls + '" aria-label="' + esc(T("anon_row") + ", " + kmT(r.d) + ", " + fmt(r.pts)) + '"><em>' + (i + 1) + '</em><i class="av">?</i><span>•••</span>' +
-    '<span class="hit" data-rest="' + esc(T("anon_row")) + '"><span class="bar"><i class="km" data-tip="' + esc(T("anon_row")) + '" style="width:' + pct(r.pts) +
-    ';--d:' + T_KM + 's"></i></span></span><b class="s" data-b="' + r.pts + '" data-l="0" data-sp="0">' + v(r.pts) + '</b><span class="k">' + kmT(r.d) + '</span></div>';
   const b0 = r.pts - bonusOf(r.lvl) - r.sp, segs = ['<i class="km" data-tip="' + esc(T("km_points", { points: fmt(b0), km: fmt(r.d) })) + '" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
   BONUS.forEach((x, k) => {
     if (k < r.lvl) segs.push('<i data-tip="' + esc(T("bonus", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + T_B(k) + 's"></i>');
@@ -477,11 +477,13 @@ function boardRow(r, i, cls, count) {
   if (r.me) BONUS.forEach((x, k) => {
     if (k >= r.lvl) segs.push('<i class="if" data-tip="' + esc(T("bonus_missed", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
   });
-  return '<div class="r' + (r.me ? " me" : "") + cls + '"><em>' + (i + 1) + '</em>' + av(r.who, r.me, r.photo) + '<span>' + esc(r.who) + '</span>' +
-    '<span class="hit" data-rest="' + esc(T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
+  const face = r.anon ? '<i class="av">?</i>' : av(r.who, r.me, r.photo), label = r.anon ? ' aria-label="' + esc(T("anon_row") + ", " + kmT(r.d) + ", " + fmt(r.pts)) + '"' : "";
+  return '<div class="r' + (r.me ? " me" : "") + (r.anon ? " anon" : "") + cls + '"' + label + '><em' + (i < 3 ? ' class="m' + (i + 1) + '"' : "") + '>' + (i + 1) + '</em>' + face +
+    '<span>' + (r.anon ? "•••" : esc(r.who)) + '</span>' +
+    '<span class="hit" data-rest="' + esc(r.anon ? T("anon_row") : T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
     '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '" data-sp="' + r.sp + '">' + v(r.pts) + '</b><span class="k">' + kmT(r.d) + '</span></div>';
 }
-// Under the map the first rows show and yours, one fewer if you are lower, so the height does not change. "N more"
+// Under the map the top five show, yours among them (the fifth gives way if you are lower), so the height does not change. "N more"
 // opens every answer in a window of its own.
 let boardRows = [];
 function paintBoard(rows, fresh) {
@@ -601,7 +603,7 @@ if (inTg && tg.onEvent) tg.onEvent("activated", () => { if (polling()) loadResul
 // A row's key is its pin: it stays the same when the names open, so only answers that are really new slide in.
 const rowsOf = (res) => res.table.map((r) => {
   const anon = res.phase === "live" && !r.me;
-  return { who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: anon ? 0 : levelOf(r.bonus), sp: r.speed || 0,
+  return { who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0,
     me: !!r.me, photo: r.photo, anon, key: r.lat.toFixed(5) + "," + r.lon.toFixed(5) };
 }).sort((a, b) => rankPts(b, res) - rankPts(a, res) || a.d - b.d);
 // While the names are hidden the others' points come without the speed part, so yours is ranked without it too.
@@ -638,9 +640,40 @@ function drawFriends(friends, fresh) {
     const e = el('<div class="friend' + nw + '"><span class="g"><s></s>' + face + '<b>' + esc(f.anon ? kmT(f.d) : f.who) + '</b></span></div>');
     const m = new maplibregl.Marker({ element: e }).setLngLat(f.at).addTo(map);
     m.getElement().style.zIndex = 1; friendMarkers.push(m);
-    return { at: f.at, g: e.firstChild, s: e.querySelector("s"), b: e.querySelector("b") };
+    const it = { at: f.at, e, g: e.firstChild, s: e.querySelector("s"), b: e.querySelector("b"), face: e.querySelector(".av"), name: f.anon ? kmT(f.d) : f.who, n: 0, group: null };
+    it.face0 = it.face.outerHTML;
+    // A tap on a group zooms in until it comes apart.
+    it.g.addEventListener("click", (ev) => {
+      if (!it.group || !it.group.length) return;
+      ev.stopPropagation(); haptic("light");
+      const b = new maplibregl.LngLatBounds(it.at, it.at);
+      it.group.forEach((o) => b.extend(o.at));
+      const cam = map.cameraForBounds(b, { padding: 70, maxZoom: Math.min(map.getZoom() + 4, 14) });
+      if (cam) map.easeTo({ center: cam.center, zoom: Math.max(cam.zoom, map.getZoom() + 1), duration: 650, easing: easeOut });
+    });
+    return it;
   });
   layoutMarks();
+}
+// Several answers within a finger's width of each other become one marker: the best of them, with how many more stand
+// behind it. Which ones group changes with the zoom.
+function groupMarks(all) {
+  const leads = [];
+  all.forEach((a) => {
+    const host = leads.find((l) => Math.hypot(l.p.x - a.p.x, l.p.y - a.p.y) < CLUSTER);
+    if (host) host.f.group.push(a.f); else { a.f.group = []; leads.push(a); }
+  });
+  all.forEach((a) => {
+    const f = a.f, lead = leads.includes(a), n = lead ? f.group.length : -1;
+    if (!lead) f.group = null;
+    if (n === f.n) return;
+    f.n = n;
+    f.e.classList.toggle("hid", !lead);
+    f.e.classList.toggle("grp", n > 0);
+    if (n > 0) { f.face.outerHTML = '<i class="av grp">' + (n + 1) + '</i>'; f.face = f.g.querySelector(".av"); f.b.textContent = f.name + " +" + n; }
+    else if (n === 0) { f.face.outerHTML = f.face0; f.face = f.g.querySelector(".av"); f.b.textContent = f.name; }
+  });
+  return leads;
 }
 // A later look at the live result: new answers slide in, and at the reveal the names take the question marks' place.
 function repaint(res) {

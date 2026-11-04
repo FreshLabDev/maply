@@ -283,7 +283,7 @@ func TestADayAcrossZones(t *testing.T) {
 		if l.Me != (l.Name == "Ivan") || l.Km == nil || l.Points == nil {
 			t.Fatalf("line = %+v", l)
 		}
-		if !l.Me && (l.Name != "" || l.Photo != "" || l.Bonus != nil || l.Speed != 0) {
+		if !l.Me && (l.Name != "" || l.Photo != "" || l.Bonus == nil || l.Speed != 0) {
 			t.Fatalf("Pavel is named before the reveal: %+v", l)
 		}
 	}

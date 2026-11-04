@@ -42,9 +42,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   the group's table, the live table and the world ranking alike. Before,
   the earlier answer came first in the world and the table could put a
   closer pin below a farther one.
-- The result table under the map shows the first six rows, yours always
-  among them, and "N more" opens every answer in a window of its own, which
-  keeps up with new answers while it is open.
+- The result table under the map shows the top five, yours always among
+  them, and "N more" opens every answer in a window of its own, which keeps
+  up with new answers while it is open. Your row stands out on a lighter
+  band with bigger points; everyone else's bar shows the bonuses they
+  earned in muted colours, and the first three places are coloured.
+- On the map, answers too close to tell apart group into one marker: the
+  best of them with a count. A tap zooms in until the group comes apart.
 - The colour legend and the "what if" line under the table moved behind an
   (i) button: it explains the points for the distance, each bonus and the
   speed bonus, and what the same distance would have made with more

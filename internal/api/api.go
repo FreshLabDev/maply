@@ -619,9 +619,12 @@ func (s *Server) buildResult(ctx context.Context, p play, now time.Time) (result
 				total -= g.Speed()
 			}
 			l.Points = &total
+			// The bonus follows from the distance and the points anyway,
+			// and it is what the table draws.
+			l.Bonus = g.PtsBonus
 		}
 		if me || !live {
-			l.Name, l.Bonus, l.Speed = g.FirstName, g.PtsBonus, g.Speed()
+			l.Name, l.Speed = g.FirstName, g.Speed()
 		}
 		if b := photos[g.UserID]; b != nil {
 			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)

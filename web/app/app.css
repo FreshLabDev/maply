@@ -34,7 +34,7 @@ html.framed { --top: 44px; }
 .timer b { font: 700 26px/1 var(--display); letter-spacing: .02em; }
 /* Result: below the header is the day's table. One row per player: rank, avatar, name, a score bar on a 0–5,000 scale,
    points and kilometres. The bar is split into parts: grey for kilometres, white for bonuses, gold for speed; in your own row
-   dashed outlines also show the bonuses you missed. Below that, one "what if" line. */
+   dashed outlines also show the bonuses you missed. */
 .prog { position: absolute; left: 0; right: 0; top: 100%; padding: 4px 12px 8px; background: var(--field-deep);
         transform: scaleY(0); transform-origin: 50% 0; transition: transform .3s var(--ease); }
 .is-reveal.is-map .prog { transform: none; }
@@ -45,11 +45,19 @@ html.framed { --top: 44px; }
 .lb.all .bar { background: var(--field-deep); }
 .lb .r em { font-style: normal; color: var(--ink-muted); text-align: center; }
 .lb .r > span:nth-of-type(1) { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lb .r.me { color: var(--ink); }
+/* Your row stands out: a lighter band with a white edge, bigger points; the others' bars and points are muted. */
+.lb .r.me { height: 30px; margin: 2px -8px; padding: 0 8px; background: var(--field); box-shadow: inset 3px 0 0 var(--ink); color: var(--ink); }
+.lb .r.me > span:nth-of-type(1) { font-size: 12px; }
+.lb .r.me .s { font-size: 21px; }
+.lb .r:not(.me) .bar i { opacity: .5; }
+.lb .r:not(.me) .s { font-size: 16px; color: var(--ink-soft); }
+.lb .r em.m1 { color: var(--speed); }
+.lb .r em.m2 { color: var(--ink); }
+.lb .r em.m3 { color: #D9925B; }
 .lb .hit { height: 100%; display: flex; align-items: center; cursor: default; }
 .lb .bar { width: 100%; height: 8px; display: flex; gap: 1px; background: var(--field); }
 .lb .bar i.lit { outline: 2px solid var(--ink); outline-offset: 1px; }
-/* Long leaderboard: collapsed, the first rows and yours are visible; the rest slide out on tap. */
+/* Under the table: "N more" opens every answer in a sheet; (i) opens how the points add up. */
 .prog .foot { display: flex; align-items: center; min-height: 24px; }
 .prog .none { padding-left: 17px; font: 700 10px/1.4 var(--label); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
 .prog .info { margin-left: auto; height: 24px; display: flex; align-items: center; gap: 6px; font: 700 10px/1 var(--label); letter-spacing: .1em;
@@ -84,7 +92,7 @@ html.framed { --top: 44px; }
       font: 700 10px/1 var(--label); letter-spacing: 0; text-transform: uppercase; font-style: normal; }
 .av.me { background: var(--ink); color: var(--field-deep); }
 .av.ph img { width: 100%; height: 100%; display: block; object-fit: cover; }
-/* Before the reveal the others are a question mark: no face, no name, one grey bar. */
+/* Before the reveal the others are a question mark: no face, no name. */
 .av.anon { background: var(--field-tint); color: var(--ink); }
 .lb .r.anon span:not(.hit):not(.bar):not(.k) { color: var(--ink-muted); letter-spacing: .2em; }
 /* An answer that came in while you watch slides in, and its bar grows. */
@@ -94,10 +102,9 @@ html.framed { --top: 44px; }
 @keyframes bar-in { from { transform: scaleX(0); } to { transform: none; } }
 .friend.new .g { animation: pop .45s cubic-bezier(.2, 1.5, .4, 1) both; }
 @keyframes pop { from { opacity: 0; scale: .4; } to { opacity: 1; scale: 1; } }
-/* The live plate: a blinking square while the names are hidden, then the place in the world so far. */
+/* The live plate: the place in the world so far. */
 .pl.lv { display: grid; gap: 6px; }
 .pl.lv span { font: 600 14px/1.25 var(--text); color: var(--ink); }
-@keyframes blink { 50% { opacity: 0; } }
 
 /* Fullscreen panorama */
 .stage { position: fixed; top: calc(var(--top) + var(--safe-top)); left: 0; right: 0; bottom: var(--foot); background: var(--field-deep); }
@@ -194,6 +201,11 @@ html.framed { --top: 44px; }
 .friend { width: 0; height: 0; }
 .friend .g { position: absolute; left: 0; top: 0; }
 .friend i { position: absolute; left: -9px; top: -9px; outline-color: var(--ink); }
+/* A group of answers too close to tell apart: the best one's spot, a count instead of a face, a tap zooms in. */
+.friend.hid { display: none; }
+.friend.grp .g { cursor: pointer; }
+.friend i.grp { width: 22px; height: 22px; left: -11px; top: -11px; border-radius: 50%; background: var(--ink); color: var(--field-deep);
+                outline: 3px solid rgba(255, 255, 255, .35); font: 700 11px/1 var(--label); }
 /* A face needs a little more room than a letter to be told apart. */
 .friend i.ph { width: 22px; height: 22px; left: -11px; top: -11px; }
 .friend b { position: absolute; left: 0; top: 0; white-space: nowrap; font: 700 10px/1 var(--label); letter-spacing: .08em; text-transform: uppercase;
