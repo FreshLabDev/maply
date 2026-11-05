@@ -14,6 +14,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/maply/internal/account"
 	"github.com/FreshLabDev/maply/internal/api"
 	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/avatar"
@@ -177,6 +178,18 @@ func run(log *slog.Logger) error {
 	if cards != nil {
 		gameAPI.Shares = cards
 	}
+	accounts := account.New(account.Config{
+		Store: store, Key: signer.Key("maply-auth-flow-v1"), InitData: gameAPI.InitData,
+		Zones: zones, AppURL: cfg.AppURL, Log: log,
+	})
+	if cfg.TelegramLogin() {
+		accounts.SetTelegram(account.Telegram(account.TelegramIssuer, cfg.AppURL, cfg.TelegramLoginClientID, cfg.TelegramLoginClientSecret))
+	}
+	if cfg.GoogleLogin() {
+		accounts.SetGoogle(account.Google(account.GoogleIssuer, cfg.AppURL, cfg.GoogleClientID, cfg.GoogleClientSecret))
+	}
+	log.Info("site sign-in", "telegram", cfg.TelegramLogin(), "google", cfg.GoogleLogin())
+	gameAPI.Accounts = accounts
 	game := gameAPI.Handler()
 
 	app, err := web.Handler()
@@ -188,6 +201,8 @@ func run(log *slog.Logger) error {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", game)
 	mux.Handle("/img/", game)
+	mux.Handle("/auth/", accounts.Middleware(accounts.Handler()))
+	mux.Handle("GET /privacy", accounts.Privacy())
 	if cards != nil {
 		// The card page is for the renderer, behind a signed link and the
 		// chat's reveal; the shared images are what Telegram fetches.

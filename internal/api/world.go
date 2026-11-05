@@ -100,15 +100,37 @@ func (s *Server) siteGuess(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errClosed)
 		return
 	}
-	player := playerID(r)
-	if player == "" {
-		player = newPlayerID()
-	}
-	if err := s.Store.SitePlayer(ctx, player, body.Name); err != nil {
-		s.fail(w, r, err)
+	v := s.siteViewer(r)
+	// An account with Telegram answers as its Telegram player, once for the
+	// bot and the site together (/api/guess).
+	if v.TelegramUserID != 0 {
+		s.fail(w, r, errTelegram)
 		return
 	}
-	setPlayer(w, player)
+	player := v.Player
+	if v.SignedIn() {
+		// An account may have taken in players that answered today already.
+		if _, ok, err := s.Store.AccountSiteGuessOf(ctx, d, v.AccountID); err != nil {
+			s.fail(w, r, err)
+			return
+		} else if ok {
+			s.fail(w, r, errAnswered)
+			return
+		}
+		if player, err = s.Store.AccountSitePlayer(ctx, v.AccountID, newPlayerID(), body.Name); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	} else {
+		if player == "" {
+			player = newPlayerID()
+		}
+		if err := s.Store.SitePlayer(ctx, player, body.Name); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		setPlayer(w, player)
+	}
 	err = s.Store.InsertSiteGuess(ctx, db.NewSiteGuess{
 		Date: d, Player: player, Pin: pt, AnsweredAt: now, Deadline: deadline,
 		Late: now.After(s.Zones.FirstReveal(d)),
@@ -145,12 +167,17 @@ func (s *Server) siteName(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errBadRequest)
 		return
 	}
-	if player := playerID(r); player != "" {
-		if err := s.Store.SitePlayer(r.Context(), player, &body.Name); err != nil {
+	if v := s.siteViewer(r); v.SignedIn() {
+		if err := s.Store.SetAccountName(r.Context(), v.AccountID, body.Name); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		setPlayer(w, player)
+	} else if v.Player != "" {
+		if err := s.Store.SitePlayer(r.Context(), v.Player, &body.Name); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		setPlayer(w, v.Player)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"name": db.CleanName(body.Name)})
 }
@@ -182,12 +209,16 @@ type dayView struct {
 }
 
 // viewer is who asks for the days page: a Telegram player from the Mini App,
-// a site player from the cookie, or nobody.
+// an account, a site player from the cookie, or nobody.
 type viewer struct {
 	user   int64
 	chatID int64
 	player string
 	lang   string
+	// account is the site's signed-in account, and players every site
+	// player it has taken in.
+	account string
+	players map[string]bool
 }
 
 func (s *Server) viewer(r *http.Request) (viewer, error) {
@@ -201,7 +232,16 @@ func (s *Server) viewer(r *http.Request) (viewer, error) {
 	if !s.ipLimit.allowIP(clientIP(r)) {
 		return viewer{}, errRateLimited
 	}
-	return viewer{player: playerID(r), lang: i18n.Resolve(r.URL.Query().Get("lang"))}, nil
+	sv := s.siteViewer(r)
+	out := viewer{player: sv.Player, lang: i18n.Resolve(r.URL.Query().Get("lang"))}
+	if sv.SignedIn() {
+		players, err := s.sitePlayers(r, sv)
+		if err != nil {
+			return viewer{}, err
+		}
+		out.user, out.account, out.players = sv.TelegramUserID, sv.AccountID, players
+	}
+	return out, nil
 }
 
 // days lists the last daysShown dates, newest first. A day still open
@@ -228,6 +268,12 @@ func (s *Server) days(w http.ResponseWriter, r *http.Request) {
 	}
 	var mine map[round.Date]db.Mine
 	switch {
+	case v.account != "":
+		players := make([]string, 0, len(v.players))
+		for p := range v.players {
+			players = append(players, p)
+		}
+		mine, err = s.Store.AccountDays(ctx, v.user, players, list)
 	case v.user != 0:
 		mine, err = s.Store.MyDays(ctx, v.user, list)
 	case v.player != "":
@@ -310,7 +356,7 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 	rd, answer, world := c.round, c.answer, *c.world
 	ranking := make([]rankLine, 0, min(len(world.Entries), rankShown+1))
 	for i, e := range world.Entries {
-		me := (v.user != 0 && e.UserID == v.user) || (v.player != "" && e.Player == v.player)
+		me := (v.user != 0 && e.UserID == v.user) || (v.player != "" && e.Player == v.player) || (e.Player != "" && v.players[e.Player])
 		if i < rankShown || me {
 			ranking = append(ranking, rankLine{Rank: e.Rank, Name: e.Name, Site: e.Site(), Km: e.Km, Points: e.Points, Me: me})
 		}

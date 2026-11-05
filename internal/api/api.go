@@ -33,6 +33,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/maply/internal/account"
 	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/card"
 	"github.com/FreshLabDev/maply/internal/db"
@@ -72,6 +73,11 @@ type Store interface {
 	SiteName(ctx context.Context, id string) (string, error)
 	InsertSiteGuess(context.Context, db.NewSiteGuess) error
 	SiteGuessOf(context.Context, round.Date, string) (db.SiteGuess, bool, error)
+	AccountSitePlayer(ctx context.Context, accountID, id string, name *string) (string, error)
+	SetAccountName(ctx context.Context, accountID, name string) error
+	AccountPlayers(ctx context.Context, accountID string) ([]string, error)
+	AccountDays(ctx context.Context, userID int64, players []string, days []db.Day) (map[round.Date]db.Mine, error)
+	AccountSiteGuessOf(ctx context.Context, d round.Date, accountID string) (db.SiteGuess, bool, error)
 }
 
 type MemberChecker interface {
@@ -109,8 +115,10 @@ type Server struct {
 	// Avatars gives the players' kept photos for the result's marks; nil
 	// keeps the letters.
 	Avatars Avatars
-	Log     *slog.Logger
-	Now     func() time.Time
+	// Accounts signs people in on the site; nil leaves the site to guests.
+	Accounts *account.Service
+	Log      *slog.Logger
+	Now      func() time.Time
 
 	ipLimit    *limiter
 	userLimit  *limiter
@@ -169,14 +177,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/site/name", s.siteName)
 	mux.HandleFunc("GET /api/days", s.days)
 	mux.HandleFunc("GET /api/day", s.day)
+	mux.HandleFunc("/api/me", s.accounts)
+	mux.HandleFunc("/api/account/", s.accounts)
 	mux.HandleFunc("GET /img/{key}", s.image)
-	return mux
+	return s.withViewer(mux)
 }
 
 // play is who is asking, from where, and for which date.
 type play struct {
 	user   auth.User
-	kind   string // dm or group
+	kind   string // dm, group, or site: a browser signed in with Telegram
 	chatID int64
 	// chatType is the group's type as the launch named it.
 	chatType string
@@ -211,6 +221,9 @@ var (
 	errNotRevealed  = apiError{http.StatusForbidden, "not_revealed"}
 	errNotAnswered  = apiError{http.StatusForbidden, "not_answered"}
 	errUnavailable  = apiError{http.StatusServiceUnavailable, "unavailable"}
+	// errTelegram is a site answer from an account with Telegram, which
+	// plays as its Telegram player.
+	errTelegram = apiError{http.StatusConflict, "telegram"}
 	// errLeft is a link from a group maply has been removed from: the group
 	// no longer plays, and its reveal no longer bounds anyone's answer.
 	errLeft = apiError{http.StatusGone, "left"}
@@ -224,6 +237,10 @@ func (s *Server) resolve(r *http.Request) (play, error) { return s.resolveAs(r, 
 // touch records the person, and the group the app was opened from, in core.
 // A group recorded is a group whose reveal closes the person's answers.
 func (s *Server) touch(ctx context.Context, p play) error {
+	if p.kind == "site" {
+		// A sign-in on the site is not a chat with the bot.
+		return nil
+	}
 	user := tg.User{ID: p.user.ID, FirstName: p.user.FirstName, LastName: p.user.LastName,
 		Username: p.user.Username, LanguageCode: p.user.LanguageCode}
 	if p.kind != "group" {
@@ -260,6 +277,9 @@ func (s *Server) tieOnce(ctx context.Context, p play) error {
 func (s *Server) resolveAs(r *http.Request, touch bool) (play, error) {
 	raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "tma ")
 	if !ok {
+		if v := s.siteViewer(r); r.Header.Get("Authorization") == "" && v.TelegramUserID != 0 {
+			return s.resolveSite(r, v)
+		}
 		return play{}, errUnauthorized
 	}
 	data, err := s.InitData.Verify(raw)
@@ -483,6 +503,9 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 	if p.shareLang != "" && p.shareLang != p.lang {
 		resp.ShareLang = p.shareLang
 	}
+	if p.kind == "site" {
+		resp.Bot = s.BotUsername
+	}
 	// Their own pin is theirs to see; it says nothing about the place.
 	if g, ok, err := s.Store.GuessOf(ctx, p.date, p.user.ID); err != nil {
 		s.fail(w, r, err)
@@ -497,7 +520,7 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 // phone, sent as ?tz=, when a choice keeps the same clock. Before, the DM
 // followed the language: English meant London even in Berlin.
 func (s *Server) adoptZone(ctx context.Context, r *http.Request, p *play) (string, error) {
-	if p.kind != "dm" {
+	if p.kind != "dm" && p.kind != "site" {
 		return "", nil
 	}
 	zone := s.Zones.Match(r.URL.Query().Get("tz"), s.Now())
@@ -717,7 +740,7 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	// A DM's day ends at midnight in its zone, while one of the person's
 	// groups may still be guessing it: an app opened on that day keeps it.
 	// A group's date is in its signed link.
-	if p.kind == "dm" {
+	if p.kind == "dm" || p.kind == "site" {
 		if d, err := round.ParseDate(r.URL.Query().Get("date")); err == nil && d.String() == p.date.AddDays(-1).String() {
 			p.date = d
 		}
@@ -762,11 +785,19 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 	if err != nil {
 		return resultResponse{}, err
 	}
-	live := now.Before(opens)
 	own, answered, err := s.Store.GuessOf(ctx, p.date, p.user.ID)
 	if err != nil {
 		return resultResponse{}, err
 	}
+	// The site writes nothing to core, so seeing the place there cannot tie
+	// the person to a reveal: without an answer it waits for the latest
+	// reveal anywhere, as it does for a guest, after which nobody can answer.
+	if p.kind == "site" && !answered {
+		if last := s.Zones.LastReveal(p.date); last.After(opens) {
+			opens = last
+		}
+	}
+	live := now.Before(opens)
 	if live && !answered {
 		return resultResponse{}, earlyError{errNotAnswered.code, opens}
 	}
@@ -999,7 +1030,8 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if s.Shares == nil || !s.Shares.CanShare() {
+	// shareMessage is the Mini App's; the site shares as a guest does.
+	if s.Shares == nil || !s.Shares.CanShare() || p.kind == "site" {
 		s.fail(w, r, errUnavailable)
 		return
 	}
