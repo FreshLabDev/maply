@@ -31,7 +31,7 @@ func serve(t *testing.T, target string, header http.Header) *httptest.ResponseRe
 
 func TestIndex(t *testing.T) {
 	rec := serve(t, "/", nil)
-	if rec.Code != http.StatusOK || !regexp.MustCompile(`<script defer src="app\.js\?v=[0-9a-f]{24}">`).MatchString(rec.Body.String()) {
+	if rec.Code != http.StatusOK || !regexp.MustCompile(`<script defer src="/app\.js\?v=[0-9a-f]{24}">`).MatchString(rec.Body.String()) {
 		t.Fatalf("GET / = %d", rec.Code)
 	}
 	h := rec.Header()
@@ -55,8 +55,22 @@ func TestVendorIsImmutable(t *testing.T) {
 	}
 }
 
+// Every page address is the app itself, with the same headers and the same
+// hashed scripts as "/".
+func TestPages(t *testing.T) {
+	index := serve(t, "/", nil)
+	for _, p := range []string{"/days", "/days/", "/days/2026-11-04", "/days/14", "/me", "/play", "/party/K7QF", "/p/a1b2c3"} {
+		rec := serve(t, p, nil)
+		if rec.Code != http.StatusOK || rec.Body.String() != index.Body.String() || rec.Header().Get("Content-Security-Policy") != CSP ||
+			rec.Header().Get("ETag") != index.Header().Get("ETag") {
+			t.Errorf("GET %s = %d", p, rec.Code)
+		}
+	}
+}
+
 func TestUnknownPaths(t *testing.T) {
-	for _, p := range []string{"/nope.js", "/../web.go", "/app/index.html", "/vendor/"} {
+	for _, p := range []string{"/nope.js", "/../web.go", "/app/index.html", "/vendor/", "/days/2026/11", "/me/x", "/party", "/p", "/play/x",
+		"/party/" + strings.Repeat("a", 65), "/days/a.b", "/days/app.js", "/dayss"} {
 		if rec := serve(t, p, nil); rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d", p, rec.Code)
 		}
@@ -76,7 +90,11 @@ func TestNoThirdPartyHosts(t *testing.T) {
 		if strings.HasPrefix(ref, "https://telegram.org/") {
 			continue
 		}
-		if _, err := fs.Stat(embedded, "app/"+ref); err != nil {
+		// The page is served on /days/14 too: a relative path would load /days/app.js.
+		if !strings.HasPrefix(ref, "/") {
+			t.Errorf("index.html loads %s by a relative path", ref)
+		}
+		if _, err := fs.Stat(embedded, "app"+ref); err != nil {
 			t.Errorf("index.html loads %s, which is not embedded", ref)
 		}
 	}
@@ -84,7 +102,7 @@ func TestNoThirdPartyHosts(t *testing.T) {
 	allowed := map[string]bool{"https://telegram.org": true, TileHost: true}
 	// Links people tap (attribution, the share sheet) open in Telegram, not from the page.
 	links := map[string]bool{"https://t.me": true, "https://www.mapillary.com": true, "https://panoramax.fr": true, "https://www.openstreetmap.org": true, "https://openfreemap.org": true}
-	for _, name := range []string{"index.html", "app.css", "app.js", "tg.js", "map.js", "loader.js", "profile.css", "profile.js", "profland.js"} {
+	for _, name := range appFiles(t) {
 		data, err := fs.ReadFile(embedded, "app/"+name)
 		if err != nil {
 			t.Fatal(err)
@@ -136,7 +154,10 @@ func TestAppKeysExist(t *testing.T) {
 	}
 	uses := regexp.MustCompile(`\b(?:T|lines)\("([a-z_.]*[a-z_])"|data-(?:t|aria)="([a-z_.]+)"|LOOK = \{([^}]*)\}`)
 	quoted := regexp.MustCompile(`"([a-z_]+)"`)
-	for _, name := range []string{"index.html", "app.js", "map.js", "tg.js", "profile.js"} {
+	for _, name := range appFiles(t) {
+		if strings.HasSuffix(name, ".css") {
+			continue
+		}
 		data, err := fs.ReadFile(embedded, "app/"+name)
 		if err != nil {
 			t.Fatal(err)
@@ -167,4 +188,21 @@ func TestAppKeysExist(t *testing.T) {
 			t.Errorf("the app builds %q, which internal/i18n does not have", key)
 		}
 	}
+}
+
+// appFiles are the app's own files, every screen's included: all but the
+// vendored libraries and the generated coastline.
+func appFiles(t *testing.T) []string {
+	t.Helper()
+	entries, err := fs.ReadDir(embedded, "app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() && e.Name() != "land.js" {
+			names = append(names, e.Name())
+		}
+	}
+	return names
 }

@@ -75,7 +75,7 @@ const lines = (key) => T(key).split("\n");
 const errorText = (e) => TX["error." + e.message] ? T("error." + e.message) : T("error.network");
 async function loadTexts(lang) {
   // Through get(), so a file that hangs gives up like any request rather than keep the loading screen up.
-  const d = await get("texts/" + lang + ".json").then(reply).catch(() => null) || await get("texts/en.json").then(reply);
+  const d = await get("/texts/" + lang + ".json").then(reply).catch(() => null) || await get("/texts/en.json").then(reply);
   LANG = d.lang; TX = d.t; ZONES = d.zone; textsLoaded = true;
   document.documentElement.lang = LANG;
   // Arabic reads right to left: rows, labels and numbers next to words follow it.
@@ -174,7 +174,7 @@ function retryLoading() {
 }
 $("loader").addEventListener("click", retryLoading);
 addEventListener("online", retryLoading);
-$("logo").addEventListener("click", () => openDays());
+$("logo").addEventListener("click", () => Router.go("/days"));
 
 /* ---------- Countdown ---------- */
 // Before the answer the timer runs to the deadline: the earliest reveal among the person's chats. After it, to the reveal
@@ -1130,7 +1130,7 @@ let SHARE_TX = null;
 function loadShareTexts() {
   const lang = TODAY && TODAY.share_lang;
   if (!lang || lang === LANG || (SHARE_TX && SHARE_TX.lang === lang)) return;
-  get("texts/" + lang + ".json").then(reply).then((d) => { if (d && d.lang === lang) SHARE_TX = d; }).catch(() => {});
+  get("/texts/" + lang + ".json").then(reply).then((d) => { if (d && d.lang === lang) SHARE_TX = d; }).catch(() => {});
 }
 // The same lines as the message the bot prepares: distance and points apart, so neither is read as the other.
 const shareLine = () => {
@@ -1192,14 +1192,14 @@ async function getJSON(path) {
 // The sheet is a dialog over the app: a screen reader announces its title and starts on its close button.
 // SHEET counts what the sheet shows: a reply that comes back after the sheet moved on or closed is dropped.
 let SHEET = 0, sheetFrom = null;
-function sheet(title, html, back) {
+function sheet(title, html, back, close) {
   const sh = $("sheet");
   // Closing gives the focus back to what opened the sheet.
   if (!sh.classList.contains("on")) sheetFrom = document.activeElement;
   SHEET++;
   sh.innerHTML = '<div class="sh-top"><button class="sh-b" id="shBack" aria-label="' + esc(T("aria_collapse")) + '">' + (back ? (fwd() === "→" ? "←" : "→") : "×") + '</button><b id="shTitle">' + title + '</b></div><div class="sh-body">' + html + '</div>';
   sh.dataset.kind = ""; sh.classList.add("on"); document.body.classList.add("is-sheet"); syncBack(); behindSheet(true);
-  $("shBack").onclick = back || closeDays;
+  $("shBack").onclick = back || close || closeDays;
   $("shBack").focus({ preventScroll: true });
   return SHEET;
 }
@@ -1215,11 +1215,13 @@ function closeDays() {
 }
 // Escape is the sheet's own back button: from a day to the days, from the days out.
 addEventListener("keydown", (e) => { if (e.key === "Escape" && $("sheet").classList.contains("on")) { e.preventDefault(); $("shBack").click(); } });
+// The days are the page /days and a day is /days/<date>: closing the sheet goes back to the page before it.
+const leaveDays = () => Router.back("/");
 async function openDays() {
   haptic("light");
-  const ticket = sheet(esc(T("days")), '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>');
+  const ticket = sheet(esc(T("days")), '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>', null, leaveDays);
   let data;
-  try { data = await getJSON("/api/days"); } catch (e) { if (ticket === SHEET) sheet(esc(T("days")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>'); return; }
+  try { data = await getJSON("/api/days"); } catch (e) { if (ticket === SHEET) sheet(esc(T("days")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', null, leaveDays); return; }
   if (ticket !== SHEET) return;
   const days = data.days || [];
   let html = "";
@@ -1243,10 +1245,10 @@ async function openDays() {
 // The days as they were drawn last: Back from a day comes back to them where they were scrolled, without asking again.
 let DAYS = null;
 function showDays() {
-  sheet(esc(T("days")), DAYS.html);
+  sheet(esc(T("days")), DAYS.html, null, leaveDays);
   const body = $("sheet").querySelector(".sh-body");
   body.scrollTop = DAYS.scroll;
-  $("sheet").querySelectorAll(".dd[data-date]").forEach((b) => { b.onclick = () => { DAYS.scroll = body.scrollTop; openDay(b.dataset.date, b); }; });
+  $("sheet").querySelectorAll(".dd[data-date]").forEach((b) => { b.onclick = () => { DAYS.scroll = body.scrollTop; Router.go("/days/" + b.dataset.date); }; });
   const name = $("shName");
   if (name) name.value = siteName();
   if (name) name.onchange = async () => {
@@ -1257,15 +1259,21 @@ function showDays() {
     } catch (e) { toast(errorText(e)); }
   };
 }
-// A later tap wins over an earlier one whose reply comes last; the tapped day says it is on its way.
-async function openDay(date, btn) {
+// A later tap wins over an earlier one whose reply comes last; the tapped day says it is on its way. A day opened by its
+// address has no list under it: the sheet waits for it on its own, and Back goes to the list.
+async function openDay(date) {
   haptic("select");
-  const ticket = ++SHEET;
+  const btn = $("sheet").classList.contains("on") && [...$("sheet").querySelectorAll(".dd[data-date]")].find((b) => b.dataset.date === date);
+  const toDays = () => Router.back("/days");
+  const ticket = btn ? ++SHEET : sheet(esc(T("days")), '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>', toDays);
   $("sheet").querySelectorAll(".dd.busy").forEach((b) => { b.classList.remove("busy"); b.removeAttribute("aria-busy"); });
   if (btn) { btn.classList.add("busy"); btn.setAttribute("aria-busy", "true"); }
   let d;
   try { d = await getJSON("/api/day?date=" + encodeURIComponent(date)); } catch (e) {
-    if (ticket === SHEET) { toast(errorText(e)); if (btn) { btn.classList.remove("busy"); btn.removeAttribute("aria-busy"); } }
+    if (ticket !== SHEET) return;
+    // The list stays, and so does its address.
+    if (btn) { toast(errorText(e)); btn.classList.remove("busy"); btn.removeAttribute("aria-busy"); Router.go("/days", { replace: true }); }
+    else sheet(esc(T("days")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', toDays);
     return;
   }
   if (ticket !== SHEET) return;
@@ -1277,8 +1285,21 @@ async function openDay(date, btn) {
       '</span><span class="w" lang="' + nameLang() + '"' + (r.who ? ' data-who="' + esc(r.who) + '" role="button" tabindex="0"' : '') + '>' + esc(name) + (r.me ? ' <em>· ' + esc(T("you")) + '</em>' : '') + '</span><span class="k">' + kmT(r.km) + '</span><b>' + fmt(r.points) + '</b></li>';
   }
   html += '</ol><p class="sh-legend"><span>' + SRC_TG + esc(T("from_tg")) + '</span><span>' + SRC_SITE + esc(T("from_site")) + '</span></p>';
-  sheet("#" + d.day + " · " + esc(where), html, () => DAYS ? showDays() : openDays());
+  sheet("#" + d.day + " · " + esc(where), html, toDays);
 }
+// The game is the page under every other: today has nothing of its own to open or close. Until days.js takes /days
+// over, the days are the sheet above; Back from a day comes back to the list as it was scrolled, without asking again.
+Router.screen("today", /^\/(?:index\.html)?$/, { open() {} });
+let dayShown = false;
+Router.screen("days", /^\/days(?:\/(\d{4}-\d{2}-\d{2}))?$/, {
+  open(m) {
+    if (m[1]) openDay(m[1]);
+    else if (dayShown && DAYS) showDays();
+    else openDays();
+    dayShown = !!m[1];
+  },
+  close() { dayShown = false; closeDays(); },
+});
 
 /* ---------- Start ---------- */
 // Opened inside Telegram without initData (a plain link in the in-app browser) there is nothing to play as.
@@ -1296,6 +1317,8 @@ async function boot() {
   if (TODAY.now) SKEW = Date.parse(TODAY.now) - Date.now();
   // The texts are asked for again when they did not come with the first try, even in the same language.
   if (TODAY.lang && (TODAY.lang !== LANG || !textsLoaded)) { await loadTexts(TODAY.lang).catch(() => {}); setCall(T("where"), T("drop_pin")); }
+  // The words are final now: the page the address names can open.
+  Router.start();
   loadShareTexts();
   $("day").textContent = "#" + TODAY.day;
   HEADING = TODAY.heading || 0;

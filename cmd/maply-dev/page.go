@@ -107,7 +107,14 @@ func mountDev(e *Env, mux *http.ServeMux) {
 	})
 	// /dev/fresh wipes the stand and seeds it again at the current clock.
 	mux.HandleFunc("POST /dev/fresh", func(w http.ResponseWriter, r *http.Request) {
-		if err := seed(context.WithoutCancel(r.Context()), e); err != nil {
+		// The bot and the scheduler keep what they planned in memory: they
+		// stop before the wipe and start again on the new data.
+		e.stopExtensions()
+		err := seed(context.WithoutCancel(r.Context()), e)
+		if serr := e.startExtensions(); err == nil {
+			err = serr
+		}
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -145,6 +152,25 @@ func (e *Env) back(w http.ResponseWriter, r *http.Request, note string) {
 
 // InitData signs a launch as p, from chat when it is a group.
 func (e *Env) InitData(p Player, chat int64) (string, error) {
+	if chat == 0 {
+		return e.SignLaunch(p, 0, "sender", ""), nil
+	}
+	g, ok := e.Group(chat)
+	if !ok {
+		return "", fmt.Errorf("no such group %d", chat)
+	}
+	d := round.DateIn(e.Clock.Now(), e.Zones.For(g.Zone, ""))
+	payload, err := e.Signer.Sign(auth.Payload{Date: d, ChatID: chat})
+	if err != nil {
+		return "", err
+	}
+	return e.SignLaunch(p, chat, "supergroup", payload), nil
+}
+
+// SignLaunch signs initData as p from chat, with the chat type and start
+// parameter Telegram would put there; empty ones are left out, as for a
+// web_app button.
+func (e *Env) SignLaunch(p Player, chat int64, chatType, startParam string) string {
 	f := map[string]string{
 		// The verifier checks auth_date against real time, not the stand's.
 		"auth_date": strconv.FormatInt(time.Now().Unix(), 10),
@@ -152,20 +178,11 @@ func (e *Env) InitData(p Player, chat int64) (string, error) {
 			p.ID, p.Name, p.Username, p.Lang),
 		"chat_instance": strconv.FormatInt(p.ID*7+chat, 10),
 	}
-	if chat != 0 {
-		g, ok := e.Group(chat)
-		if !ok {
-			return "", fmt.Errorf("no such group %d", chat)
-		}
-		d := round.DateIn(e.Clock.Now(), e.Zones.For(g.Zone, ""))
-		payload, err := e.Signer.Sign(auth.Payload{Date: d, ChatID: chat})
-		if err != nil {
-			return "", err
-		}
-		f["start_param"] = payload
-		f["chat_type"] = "supergroup"
-	} else {
-		f["chat_type"] = "sender"
+	if chatType != "" {
+		f["chat_type"] = chatType
+	}
+	if startParam != "" {
+		f["start_param"] = startParam
 	}
 	keys := make([]string, 0, len(f))
 	for k := range f {
@@ -180,7 +197,22 @@ func (e *Env) InitData(p Player, chat int64) (string, error) {
 	}
 	mac := func(k, m []byte) []byte { h := hmac.New(sha256.New, k); h.Write(m); return h.Sum(nil) }
 	v.Set("hash", hex.EncodeToString(mac(mac([]byte("WebAppData"), []byte(BotToken)), []byte(strings.Join(lines, "\n")))))
-	return v.Encode(), nil
+	return v.Encode()
+}
+
+// LaunchWith is the Mini App at path, launched as SignLaunch signs it.
+func (e *Env) LaunchWith(p Player, chat int64, chatType, startParam, platform, path string) string {
+	return launchURL(e.SignLaunch(p, chat, chatType, startParam), platform, path)
+}
+
+func launchURL(data, platform, path string) string {
+	if platform == "" {
+		platform = "ios"
+	}
+	if path == "" || !strings.HasPrefix(path, "/") {
+		path = "/"
+	}
+	return path + "#tgWebAppData=" + url.QueryEscape(data) + "&tgWebAppVersion=8.0&tgWebAppPlatform=" + url.QueryEscape(platform)
 }
 
 // LaunchURL is the Mini App as Telegram opens it for p: at path (default /),
@@ -190,13 +222,7 @@ func (e *Env) LaunchURL(p Player, chat int64, platform, path string) (string, er
 	if err != nil {
 		return "", err
 	}
-	if platform == "" {
-		platform = "ios"
-	}
-	if path == "" || !strings.HasPrefix(path, "/") {
-		path = "/"
-	}
-	return path + "#tgWebAppData=" + url.QueryEscape(data) + "&tgWebAppVersion=8.0&tgWebAppPlatform=" + url.QueryEscape(platform), nil
+	return launchURL(data, platform, path), nil
 }
 
 // Answer gives p's answer of today through the real API, from chat or the DM.

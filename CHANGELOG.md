@@ -43,6 +43,12 @@ For the operator:
   days page read "Telegram player" instead of the name for everyone outside
   the person's own groups, and the mini profile does not open. The bot's
   posts keep the name.
+- The app's screens have addresses: the server answers `/days`, `/days/<day>`,
+  `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
+  the screen the address names. `/days` opens the days and `/days/<date>` a
+  closed day, so a day can be linked and Back in the browser closes it. An
+  address without a screen yet shows today. In Telegram the address changes
+  without adding history, so Back stays Telegram's.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

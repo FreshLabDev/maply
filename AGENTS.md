@@ -17,6 +17,10 @@ player, and production-minded.
   original single-file prototype (`web/prototype/index.html`), the curation
   scripts (`scripts/curation/`) and the source measurements
   (`scripts/sources/`).
+- The app is one page on many addresses: the server answers every path in
+  `web.Pages` with `index.html`, and `web/app/router.js` maps the path to a
+  screen. A screen registers itself there from its own file; a new address
+  goes into `Pages`. `index.html` names its files from the root.
 - The result is a map card when `CARD_RENDERER_URL` names a headless Chromium:
   `internal/card` serves the page `/card/result/<chat>/<date>`, the renderer
   photographs it, and `schedule` sends the PNG. Any renderer failure falls back
