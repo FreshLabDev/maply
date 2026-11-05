@@ -385,12 +385,11 @@ func (s *Service) touch(ctx context.Context, p *party, m Member, now time.Time) 
 	return s.Store.SeenFree(ctx, p.snap.Game.ID, m.M, now)
 }
 
-// party is the party behind code, locked, with the player w is in it.
 // party is the party behind code, locked, and w in it. Release it with
 // s.release.
 func (s *Service) party(ctx context.Context, w Who, code string) (*party, Member, error) {
-	if !w.Telegram() {
-		return nil, Member{}, ErrTelegram
+	if !w.Keeps() {
+		return nil, Member{}, ErrSignIn
 	}
 	p, err := s.byCode(ctx, code)
 	if err != nil {
@@ -408,8 +407,8 @@ func (s *Service) party(ctx context.Context, w Who, code string) (*party, Member
 // given up.
 func (s *Service) NewParty(ctx context.Context, w Who, name, lang string, set Settings) (PartyView, error) {
 	s.init()
-	if !w.Telegram() {
-		return PartyView{}, ErrTelegram
+	if !w.Keeps() {
+		return PartyView{}, ErrSignIn
 	}
 	if !set.ValidParty() {
 		return PartyView{}, ErrBadRequest
@@ -426,7 +425,7 @@ func (s *Service) NewParty(ctx context.Context, w Who, name, lang string, set Se
 		}
 		g := p.snap.Game
 		var ferr error
-		if host, ok := p.snap.memberNo(g.Host); g.Status == StatusLobby && ok && host.Who == w {
+		if host, ok := p.snap.memberNo(g.Host); g.Status == StatusLobby && ok && host.Who.Same(w) {
 			if _, ferr = s.Store.FinishFree(ctx, id, StatusAbandoned, now, nil); ferr == nil {
 				ferr = s.reload(ctx, p)
 			}
@@ -466,8 +465,8 @@ func nameOr(name string) string {
 // and the places before count as missed. Someone who left comes back.
 func (s *Service) Join(ctx context.Context, w Who, name, code, lang string) (v PartyView, err error) {
 	s.init()
-	if !w.Telegram() {
-		return PartyView{}, ErrTelegram
+	if !w.Keeps() {
+		return PartyView{}, ErrSignIn
 	}
 	p, err := s.byCode(ctx, code)
 	if err != nil {
@@ -512,7 +511,7 @@ func (s *Service) Join(ctx context.Context, w Who, name, code, lang string) (v P
 			} else {
 				// The place was drawn before they came, without their
 				// history: one they know waits out as a place already begun.
-				known, err := s.Store.FreeKnown(ctx, w.UserID, r.PlaceID)
+				known, err := s.Store.FreeKnown(ctx, w, r.PlaceID)
 				if err != nil {
 					return PartyView{}, err
 				}

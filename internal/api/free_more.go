@@ -2,8 +2,8 @@
 package api
 
 // The archive and the challenges of the free game. A site guest takes days
-// from the archive as the browser's player; a challenge is a Telegram
-// person's, as a party is.
+// from the archive as the browser's player; a challenge is for those who
+// keep records, a Telegram person or an account, as a party is.
 
 import (
 	"crypto/rand"
@@ -93,8 +93,8 @@ func (s *Server) challengeTake(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	if !v.who.Telegram() {
-		s.freeFail(w, r, free.ErrTelegram)
+	if !v.keeps() {
+		s.freeFail(w, r, free.ErrSignIn)
 		return
 	}
 	if err := s.met(r.Context(), v); err != nil {
@@ -111,7 +111,7 @@ func (s *Server) challengeTake(w http.ResponseWriter, r *http.Request) {
 
 // challengeInvite prepares the message someone in a challenge sends on: the
 // settings, the best score so far and a button that opens it. Without
-// Invites, and on the site, the app shares the link.
+// Invites the app shares the link, and the site its own, /play?c=<code>.
 func (s *Server) challengeInvite(w http.ResponseWriter, r *http.Request) {
 	v, err := s.freeViewer(w, r, s.inviteLimit, true)
 	if err != nil {
@@ -128,8 +128,12 @@ func (s *Server) challengeInvite(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, free.ErrNotMember)
 		return
 	}
+	if v.site {
+		writeJSON(w, http.StatusOK, map[string]string{"link": s.siteLink("/play?c=" + code)})
+		return
+	}
 	link := "https://t.me/" + s.BotUsername + "/play?startapp=" + free.ChallengePrefix + code
-	if s.Invites == nil || v.site {
+	if s.Invites == nil {
 		writeJSON(w, http.StatusOK, map[string]string{"link": link})
 		return
 	}

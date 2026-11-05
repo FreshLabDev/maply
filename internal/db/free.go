@@ -130,13 +130,17 @@ func (s *Store) FreeSnapshot(ctx context.Context, id int64) (free.Snapshot, erro
 		}
 		return err
 	})
+	// A site player is an account's while the account has it: their game
+	// keeps a record then, and a guest's does not.
 	b.Queue(`
-		SELECT m, COALESCE(user_id, 0), COALESCE(player::text, ''), name, joined_at, from_round, last_seen_at, left_at
-		  FROM free_member WHERE game = $1 ORDER BY joined_at, m`, id).Query(func(rows pgx.Rows) error {
+		SELECT fm.m, COALESCE(fm.user_id, 0), COALESCE(fm.player::text, ''), sp.account_id IS NOT NULL,
+		       fm.name, fm.joined_at, fm.from_round, fm.last_seen_at, fm.left_at
+		  FROM free_member fm LEFT JOIN site_player sp ON sp.id = fm.player
+		 WHERE fm.game = $1 ORDER BY fm.joined_at, fm.m`, id).Query(func(rows pgx.Rows) error {
 		var err error
 		snap.Members, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (free.Member, error) {
 			var m free.Member
-			err := row.Scan(&m.M, &m.Who.UserID, &m.Who.Player, &m.Name, &m.JoinedAt, &m.FromRound, &m.LastSeen, &m.LeftAt)
+			err := row.Scan(&m.M, &m.Who.UserID, &m.Who.Player, &m.Who.Account, &m.Name, &m.JoinedAt, &m.FromRound, &m.LastSeen, &m.LeftAt)
 			return m, err
 		})
 		return err
@@ -176,17 +180,21 @@ func (s *Store) FreeSnapshot(ctx context.Context, id int64) (free.Snapshot, erro
 	return snap, nil
 }
 
-// FreeKnown is whether a Telegram person has had the place: answered the day
-// it was the place of, or had it in any free game they were in.
-func (s *Store) FreeKnown(ctx context.Context, userID, placeID int64) (bool, error) {
+// FreeKnown is whether a player has had the place: answered the day it was
+// the place of, in Telegram or on the site, or had it in any free game they
+// were in.
+func (s *Store) FreeKnown(ctx context.Context, w free.Who, placeID int64) (bool, error) {
+	user, player := whoArgs(w)
 	var known bool
 	err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS (SELECT 1 FROM free_round fr JOIN free_member fm ON fm.game = fr.game
-		                WHERE fr.place_id = $2 AND fm.user_id = $1)
+		                WHERE fr.place_id = $3 AND (fm.user_id = $1 OR fm.player = $2::uuid))
 		    OR EXISTS (SELECT 1 FROM round r JOIN guess g ON g.date = r.date
-		                WHERE r.place_id = $2 AND g.user_id = $1)`, userID, placeID).Scan(&known)
+		                WHERE r.place_id = $3 AND g.user_id = $1)
+		    OR EXISTS (SELECT 1 FROM round r JOIN site_guess g ON g.date = r.date
+		                WHERE r.place_id = $3 AND g.player = $2::uuid)`, user, player, placeID).Scan(&known)
 	if err != nil {
-		return false, fmt.Errorf("free known %d/%d: %w", userID, placeID, err)
+		return false, fmt.Errorf("free known of place %d: %w", placeID, err)
 	}
 	return known, nil
 }
@@ -396,12 +404,20 @@ func (s *Store) FinishFree(ctx context.Context, id int64, status string, at time
 		if r.Settings.Mode == free.Streak {
 			streak = r.Streak
 		}
+		user, player := whoArgs(free.Who{UserID: r.UserID, Player: r.Player})
+		// A site player's line is written only while an account has the
+		// player: a guest keeps no records, whatever the caller passed.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO free_result (game, m, user_id, kind, mode, seconds, rounds, points, points_base, km, km_rounds,
+			INSERT INTO free_result (game, m, user_id, player, kind, mode, seconds, rounds, points, points_base, km, km_rounds,
 			                         time_ms, played, answered, countries, from_round, place, players, beaten, streak, finished_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+			SELECT $1::bigint, $2::smallint, $3::bigint, $4::uuid, $5::text, $6::text, $7::smallint, $8::smallint,
+			       $9::integer, $10::integer, $11::double precision, $12::double precision[], $13::bigint,
+			       $14::smallint, $15::smallint, $16::smallint, $17::smallint, $18::smallint, $19::smallint,
+			       $20::smallint, $21::smallint, $22::timestamptz
+			 WHERE $4::uuid IS NULL
+			    OR EXISTS (SELECT 1 FROM site_player WHERE id = $4::uuid AND account_id IS NOT NULL)
 			ON CONFLICT DO NOTHING`,
-			id, r.M, r.UserID, r.Kind, r.Settings.Mode, nullInt(r.Settings.Seconds), nullInt(r.Settings.Rounds),
+			id, r.M, user, player, r.Kind, r.Settings.Mode, nullInt(r.Settings.Seconds), nullInt(r.Settings.Rounds),
 			r.Points, r.Base, r.Km, r.KmRounds, r.TimeMs, r.Played, r.Answered, r.Countries, r.FromRound,
 			place, players, beaten, streak, at); err != nil {
 			return false, fmt.Errorf("free result %d/%d: %w", id, r.M, err)
@@ -442,6 +458,36 @@ func memberOf(w free.Who) (string, any) {
 	return `m.player = $1::uuid`, w.Player
 }
 
+// resultOf is the condition on free_result for a player's lines, using the
+// index of whichever kind of player it is.
+func resultOf(w free.Who) (string, any) {
+	if w.UserID != 0 {
+		return `user_id = $1`, w.UserID
+	}
+	return `player = $1::uuid`, w.Player
+}
+
+// FreeAccountPlayer is the site player an account plays free as while it has
+// no Telegram, and the player's name; empty before its first site game or
+// answer. The session's cache may not know a player made a moment ago, so
+// the free game reads the account's row.
+func (s *Store) FreeAccountPlayer(ctx context.Context, accountID string) (player, name string, err error) {
+	if !uuidShape(accountID) {
+		return "", "", nil
+	}
+	err = s.pool.QueryRow(ctx, `
+		SELECT COALESCE(a.player::text, ''), COALESCE(sp.name, '')
+		  FROM account a LEFT JOIN site_player sp ON sp.id = a.player
+		 WHERE a.id = $1::uuid`, accountID).Scan(&player, &name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("account's free player: %w", err)
+	}
+	return player, name, nil
+}
+
 func (s *Store) LastFreeSettings(ctx context.Context, w free.Who) (free.Settings, bool, error) {
 	cond, arg := memberOf(w)
 	var set free.Settings
@@ -475,15 +521,19 @@ func (s *Store) OpenFreeGames(ctx context.Context, w free.Who, kind string) ([]i
 	return pgx.CollectRows(rows, pgx.RowTo[int64])
 }
 
-func (s *Store) FreeBest(ctx context.Context, userID int64, except int64) (map[string]int, error) {
+// FreeBest leaves out a day from the archive, which has its place in the
+// day's table instead, and an attempt at a challenge: its places were drawn
+// for someone else, who may have said where they are.
+func (s *Store) FreeBest(ctx context.Context, w free.Who, except int64) (map[string]int, error) {
+	cond, arg := resultOf(w)
 	rows, err := s.pool.Query(ctx, `
 		SELECT mode, COALESCE(seconds, 0), COALESCE(rounds, 0),
 		       max(CASE mode WHEN 'streak' THEN streak WHEN 'timed' THEN countries ELSE points END)
 		  FROM free_result
-		 WHERE user_id = $1 AND game <> $2 AND mode <> 'archive'
-		 GROUP BY 1, 2, 3`, userID, except)
+		 WHERE `+cond+` AND game <> $2 AND mode <> 'archive' AND kind <> 'challenge'
+		 GROUP BY 1, 2, 3`, arg, except)
 	if err != nil {
-		return nil, fmt.Errorf("free best of %d: %w", userID, err)
+		return nil, fmt.Errorf("free best: %w", err)
 	}
 	defer rows.Close()
 	best := map[string]int{}
@@ -506,9 +556,9 @@ func (s *Store) StaleFreeGames(ctx context.Context, idle, lobby, now time.Time) 
 		     OR (g.status = 'lobby'
 		         AND GREATEST(g.created_at, (SELECT max(last_seen_at) FROM free_member WHERE game = g.id)) < $2)
 		     OR (g.kind IN ('solo', 'challenge')
-		         AND (GREATEST(g.created_at,
+		         AND ((g.mode <> 'archive' AND GREATEST(g.created_at,
 		                       (SELECT max(starts_at) FROM free_round WHERE game = g.id),
-		                       (SELECT max(answered_at) FROM free_guess WHERE game = g.id)) < $1
+		                       (SELECT max(answered_at) FROM free_guess WHERE game = g.id)) < $1)
 		              OR EXISTS (SELECT 1 FROM free_round r
 		                          WHERE r.game = g.id AND r.ends_at + interval '2 seconds' < $3
 		                            AND NOT EXISTS (SELECT 1 FROM free_guess q WHERE q.game = r.game AND q.n = r.n))

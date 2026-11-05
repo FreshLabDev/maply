@@ -35,7 +35,7 @@ func (hs *harness) seedPast(n int, country, continent string, answers ...pastAns
 	if err := hs.pool.QueryRow(ctx, `
 		INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
 		                         country_iso, continent, city, difficulty, reviewed_at)
-		VALUES ('used', 'mapillary', $1, 'CC-BY-SA-4.0', 'photo', 10, 20, $2, $3, $4, '{"en":"Past","ru":"Прошлое"}', 3, now())
+		VALUES ('used', 'mapillary', $1, 'CC-BY-SA-4.0', 'panorama', 10, 20, $2, $3, $4, '{"en":"Past","ru":"Прошлое"}', 3, now())
 		RETURNING id`, "past-"+d.String(), "pastkey-"+d.String(), country, continent).Scan(&placeID); err != nil {
 		hs.t.Fatal(err)
 	}

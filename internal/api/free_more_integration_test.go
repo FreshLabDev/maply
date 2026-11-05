@@ -127,13 +127,17 @@ func TestChallengeOverHTTP(t *testing.T) {
 	hs.expect("GET", "/api/today", initData(8, "Nobody", "en", "cZZZZZZZZ"), "", 200)
 	hs.expect("GET", "/api/free/challenge/ZZZZZZZZ", vera, "", 404)
 	hs.expect("GET", "/api/free/challenge/nope", vera, "", 404)
-	// A guest of the site does not take a challenge.
+	// A guest of the site neither takes a challenge nor looks at it: the
+	// table names the players.
 	req := httptest.NewRequest("POST", "/api/free/challenge/"+code+"/play", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	hs.h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "telegram_only") {
+	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "sign_in") {
 		t.Fatalf("guest: %d %s", rr.Code, rr.Body)
+	}
+	if body := hs.expect("GET", "/api/free/challenge/"+code, "", "", http.StatusForbidden); !strings.Contains(body, "sign_in") || strings.Contains(body, "Oksana") {
+		t.Fatalf("guest looks: %s", body)
 	}
 	// Vera's first place begins only when she starts it, on her own clock.
 	hs.now = hs.now.Add(time.Hour)
