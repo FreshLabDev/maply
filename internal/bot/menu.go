@@ -221,15 +221,13 @@ func (v view) home(appURL string, admin bool, zone string) (string, telegram.Mar
 	return text, rows
 }
 
-// freeURL opens the Mini App on the free game.
+// freeURL opens the Mini App on the free game: its page /play.
 func freeURL(appURL string) string {
 	u, err := url.Parse(appURL)
 	if err != nil {
 		return appURL
 	}
-	q := u.Query()
-	q.Set("screen", "free")
-	u.RawQuery = q.Encode()
+	u.Path = strings.TrimSuffix(u.Path, "/") + "/play"
 	return u.String()
 }
 

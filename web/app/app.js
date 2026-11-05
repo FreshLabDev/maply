@@ -419,7 +419,8 @@ function glideToMini(ms) {
 const easeOut = (t) => 1 - (1 - t) ** 3;
 $("globeHit").addEventListener("click", toMap);
 $("look").addEventListener("click", toPhoto);
-if (tgAt("6.1")) tg.BackButton.onClick(() => document.body.classList.contains("is-sheet") ? $("shBack").click() : toPhoto());
+// Over the free game the Back button is the free game's own.
+if (tgAt("6.1")) tg.BackButton.onClick(() => document.body.classList.contains("is-free") ? null : document.body.classList.contains("is-sheet") ? $("shBack").click() : toPhoto());
 // Splits the bottom strip into two buttons or merges it back into one.
 // The left button label depends on the stage: before the answer it invites a closer look, after the answer simply to enjoy.
 const LOOK = { guess: ["look_more", "look"], wait: ["admire", "admire"], reveal: ["walk", "walk"] };
@@ -1226,6 +1227,7 @@ async function openDays() {
   const days = data.days || [];
   let html = "";
   if (SITE) html += '<label class="sh-name"><span class="up">' + esc(T("your_name")) + '</span><input id="shName" lang="' + nameLang() + '" maxlength="24" autocomplete="nickname" placeholder="' + esc(T("guest")) + '" value="' + esc(siteName()) + '"></label>';
+  if (window.Free) html += Free.entry();
   if (!days.length) html += '<p class="sh-wait">' + esc(T("no_days")) + '</p>';
   for (const d of days) {
     const head = '<span class="up">#' + d.day + ' · ' + esc(dayDate(d.date)) + '</span>';
@@ -1304,6 +1306,7 @@ Router.screen("days", /^\/days(?:\/(\d{4}-\d{2}-\d{2}))?$/, {
 /* ---------- Start ---------- */
 // Opened inside Telegram without initData (a plain link in the in-app browser) there is nothing to play as.
 async function boot() {
+  if (window.Free && Free.takes()) return Free.start(boot);
   // The client's language first, so nothing on the first screen is blank; the person's own choice from core
   // arrives with /api/today and wins.
   const [today] = await Promise.all([

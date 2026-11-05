@@ -182,7 +182,13 @@ func (s *Server) freeHome(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, h)
+	// The free screen may be the first the app opens, so it names the
+	// language the person speaks and the bot to share, as /api/today does.
+	writeJSON(w, http.StatusOK, struct {
+		free.Home
+		Lang string `json:"lang"`
+		Bot  string `json:"bot,omitempty"`
+	}{h, v.lang, s.BotUsername})
 }
 
 func (s *Server) freeNew(w http.ResponseWriter, r *http.Request) {
