@@ -171,6 +171,50 @@ func (s *Store) LeaveChat(ctx context.Context, chatID int64) error {
 	return nil
 }
 
+// MigrateChat carries a group over to the supergroup Telegram made of it.
+// The new id takes the old one's settings and the language picked by hand,
+// and the old id is left as any chat maply was removed from. The day goes on
+// in the new chat from the next planning pass; what went to the old one
+// stays there, since its messages cannot be edited any more.
+func (s *Store) MigrateChat(ctx context.Context, from, to int64) error {
+	if from >= 0 || to >= 0 || from == to {
+		return fmt.Errorf("migrate chat %d to %d: not two groups", from, to)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("migrate chat %d: %w", from, err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO chat_settings (chat_id, kind, post_time, intrigue, mentions, active, timezone, zone_auto)
+		SELECT $2, 'group', post_time, intrigue, mentions, true, timezone, zone_auto
+		  FROM chat_settings WHERE chat_id = $1
+		ON CONFLICT (chat_id) DO UPDATE SET post_time = EXCLUDED.post_time, intrigue = EXCLUDED.intrigue,
+		       mentions = EXCLUDED.mentions, timezone = COALESCE(EXCLUDED.timezone, chat_settings.timezone),
+		       zone_auto = EXCLUDED.zone_auto, active = true, left_at = NULL, updated_at = now()`, from, to); err != nil {
+		return fmt.Errorf("migrate chat %d settings: %w", from, err)
+	}
+	var lang *string
+	if err := tx.QueryRow(ctx, `SELECT core.manual_language('chat', $1)`, from).Scan(&lang); err != nil {
+		return fmt.Errorf("migrate chat %d language: %w", from, err)
+	}
+	if lang != nil {
+		if _, err := tx.Exec(ctx, `SELECT core.set_language('maply', 'chat', $1, $2, 'manual')`, to, *lang); err != nil {
+			return fmt.Errorf("migrate chat %d language: %w", from, err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE chat_settings SET active = false, updated_at = now(),
+		       left_at = CASE WHEN active THEN now() ELSE COALESCE(left_at, now()) END
+		 WHERE chat_id = $1`, from); err != nil {
+		return fmt.Errorf("migrate chat %d: %w", from, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("migrate chat %d: %w", from, err)
+	}
+	return nil
+}
+
 // ReturnChat marks a chat active again: the person unblocked maply or wrote
 // to it, or the group talks to it.
 func (s *Store) ReturnChat(ctx context.Context, chatID int64) error {

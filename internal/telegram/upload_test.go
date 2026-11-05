@@ -88,3 +88,20 @@ func TestUploadErrorsKeepTheTokenOut(t *testing.T) {
 		t.Fatalf("error %v", err)
 	}
 }
+
+// An upload to a group that became a supergroup says where it went, as tg's
+// own calls do, so the scheduler can carry the group over.
+func TestUploadErrorNamesTheSupergroup(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: group chat was upgraded to a supergroup chat","parameters":{"migrate_to_chat_id":-1001900000300}}`)
+	}))
+	defer srv.Close()
+	c := New(tg.New("123:abc"))
+	c.Upload = &Uploader{Base: srv.URL, Token: "123:abc"}
+	_, err := c.SendPhoto(context.Background(), -300, Photo{PNG: []byte("png")}, "", nil)
+	var apiErr *tg.APIError
+	if !errors.As(err, &apiErr) || apiErr.MigrateToChatID != -1001900000300 {
+		t.Fatalf("error %#v", err)
+	}
+}

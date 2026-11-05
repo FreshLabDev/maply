@@ -3,6 +3,7 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"runtime/debug"
 	"sync/atomic"
@@ -32,6 +33,7 @@ type Store interface {
 	AdoptChatZone(ctx context.Context, chatID int64, zone string) error
 	LeaveChat(ctx context.Context, chatID int64) error
 	ReturnChat(ctx context.Context, chatID int64) error
+	MigrateChat(ctx context.Context, from, to int64) error
 	Stats(ctx context.Context, userID int64) (db.Stats, error)
 
 	ChatSettings(ctx context.Context, chatID int64) (db.Settings, error)
@@ -208,6 +210,16 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 	if err := b.store.Touch(ctx, *user, chat); err != nil {
 		b.log.Error("core touch failed", "update_id", u.UpdateID, "error", err)
 	}
+	// A group upgraded to a supergroup says so in both: the old chat names
+	// the new id, the new one the old id. Either carries the group over.
+	if u.Message != nil {
+		if from, to := migration(u.Message); from != 0 {
+			if err := b.store.MigrateChat(ctx, from, to); err != nil {
+				b.log.Error("migrate chat failed", "from", from, "to", to, "error", err)
+			}
+			return
+		}
+	}
 	// Whoever writes to maply gets the day again, after a block too.
 	if u.Message != nil && !user.IsBot {
 		if err := b.store.ReturnChat(ctx, chat.ID); err != nil {
@@ -249,4 +261,23 @@ func wait(ctx context.Context, d time.Duration) bool {
 	case <-t.C:
 		return true
 	}
+}
+
+// migration reads a service message about a group becoming a supergroup:
+// the old id and the new, or zeros. tg does not model these fields.
+func migration(m *tg.Message) (from, to int64) {
+	var raw struct {
+		To   int64 `json:"migrate_to_chat_id"`
+		From int64 `json:"migrate_from_chat_id"`
+	}
+	if len(m.Raw) == 0 || json.Unmarshal(m.Raw, &raw) != nil {
+		return 0, 0
+	}
+	switch {
+	case raw.To != 0:
+		return m.Chat.ID, raw.To
+	case raw.From != 0:
+		return raw.From, m.Chat.ID
+	}
+	return 0, 0
 }

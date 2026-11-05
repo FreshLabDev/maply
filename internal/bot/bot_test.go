@@ -3,6 +3,7 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"sync"
@@ -30,6 +31,7 @@ type fakeStore struct {
 	zones    map[int64]string
 	left     []int64
 	returned []int64
+	migrated [][2]int64
 	stats    db.Stats
 	settings map[int64]db.Settings
 	rounds   map[string]bool
@@ -100,6 +102,10 @@ func (f *fakeStore) LeaveChat(_ context.Context, id int64) error {
 }
 func (f *fakeStore) ReturnChat(_ context.Context, id int64) error {
 	f.returned = append(f.returned, id)
+	return nil
+}
+func (f *fakeStore) MigrateChat(_ context.Context, from, to int64) error {
+	f.migrated = append(f.migrated, [2]int64{from, to})
 	return nil
 }
 func (f *fakeStore) Stats(context.Context, int64) (db.Stats, error) { return f.stats, nil }
@@ -270,6 +276,33 @@ func TestRunTouchesSendersAndAdvancesOffset(t *testing.T) {
 	for i := range want {
 		if store.touches[i] != want[i] {
 			t.Fatalf("touches = %+v, want %+v", store.touches, want)
+		}
+	}
+}
+
+// A group upgraded to a supergroup says so in both chats; either message
+// carries it over, and the old id is not brought back by the message itself.
+func TestSupergroupCarriesTheGroupOver(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	store := newStore()
+	const old, super = int64(-300), int64(-1001900000300)
+	client := &fakeTelegram{cancel: cancel, batch: []tg.Update{
+		{UpdateID: 1, Message: &tg.Message{From: &tg.User{ID: 1}, Chat: tg.Chat{ID: old, Type: "group"},
+			Raw: json.RawMessage(`{"migrate_to_chat_id":-1001900000300}`)}},
+		{UpdateID: 2, Message: &tg.Message{From: &tg.User{ID: 1}, Chat: tg.Chat{ID: super, Type: "supergroup"},
+			Raw: json.RawMessage(`{"migrate_from_chat_id":-300}`)}},
+	}}
+	b := New(store, client, slog.New(slog.NewTextHandler(io.Discard, nil)), Options{})
+	if err := b.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.migrated) != 2 || store.migrated[0] != [2]int64{old, super} || store.migrated[1] != [2]int64{old, super} {
+		t.Fatalf("migrated = %v", store.migrated)
+	}
+	for _, id := range store.returned {
+		if id == old {
+			t.Fatalf("the old group was brought back: %v", store.returned)
 		}
 	}
 }

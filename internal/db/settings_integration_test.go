@@ -146,3 +146,56 @@ func TestLeaveChatKeepsTheZone(t *testing.T) {
 		t.Fatalf("zone after coming back = %q", zone)
 	}
 }
+
+// A group that became a supergroup goes on under the new id with what its
+// admins set: zone, post time, switches and the language picked in maply.
+// The old id is left.
+func TestMigrateChatCarriesTheSettings(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	const old, super = int64(-6301), int64(-1001900006301)
+	admin := tg.User{ID: 63, FirstName: "Ola"}
+	if err := store.Touch(ctx, admin, &tg.Chat{ID: old, Type: "group"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetChatZone(ctx, old, "Asia/Tokyo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MovePost(ctx, old, 90); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSwitch(ctx, old, "intrigue", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetChatLang(ctx, old, "uk"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Touch(ctx, admin, &tg.Chat{ID: super, Type: "supergroup"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MigrateChat(ctx, old, super); err != nil {
+		t.Fatal(err)
+	}
+	if zone, _ := store.ChatZone(ctx, super); zone != "Asia/Tokyo" {
+		t.Fatalf("zone = %q", zone)
+	}
+	if st, err := store.ChatSettings(ctx, super); err != nil || st.PostHour != 8 || st.PostMin != 30 || st.Intrigue || !st.Mentions {
+		t.Fatalf("settings = %+v, %v", st, err)
+	}
+	if lang, _ := store.ChatLang(ctx, super); lang != "uk" {
+		t.Fatalf("language = %q", lang)
+	}
+	if on, _ := store.ChatActive(ctx, old); on {
+		t.Fatal("the old id is still active")
+	}
+	if on, _ := store.ChatActive(ctx, super); !on {
+		t.Fatal("the supergroup is not active")
+	}
+	// Telegram tells it twice, once in each chat.
+	if err := store.MigrateChat(ctx, old, super); err != nil {
+		t.Fatal(err)
+	}
+	if zone, _ := store.ChatZone(ctx, super); zone != "Asia/Tokyo" {
+		t.Fatalf("zone after the second message = %q", zone)
+	}
+}

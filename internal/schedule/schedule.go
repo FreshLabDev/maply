@@ -75,6 +75,7 @@ type Store interface {
 	Answer(ctx context.Context, placeID int64) (db.Answer, error)
 	ScoreDue(ctx context.Context, d round.Date, now time.Time, judge func(geo.Point) scoring.Score) (int, error)
 	LeaveChat(ctx context.Context, chatID int64) error
+	MigrateChat(ctx context.Context, from, to int64) error
 	FixZone(ctx context.Context, chatID int64, zone string) error
 }
 
@@ -384,6 +385,14 @@ func (s *Scheduler) runJob(parent context.Context, j db.Job) {
 		err = s.Store.FinishJob(ctx, j.ID, "done", "")
 	case errors.Is(err, errSkip):
 		err = s.Store.FinishJob(ctx, j.ID, "skipped", "")
+	case errors.As(err, &apiErr) && apiErr.MigrateToChatID != 0:
+		// The group became a supergroup: the day goes on there from the
+		// next planning pass, with the group's settings.
+		s.Log.Info("group became a supergroup", "chat", j.ChatID, "to", apiErr.MigrateToChatID)
+		if mErr := s.Store.MigrateChat(ctx, j.ChatID, apiErr.MigrateToChatID); mErr != nil {
+			s.Log.Error("migrate chat failed", "chat", j.ChatID, "error", mErr)
+		}
+		err = s.Store.FinishJob(ctx, j.ID, "skipped", err.Error())
 	case errors.As(err, &apiErr) && apiErr.IsUnreachableDestination():
 		// Blocked, kicked or deleted: the chat stops getting the day.
 		s.Log.Info("chat unreachable, leaving it", "chat", j.ChatID, "error", err)

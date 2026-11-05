@@ -67,12 +67,17 @@ func (u *Uploader) post(ctx context.Context, method string, fields map[string]st
 		Result      tg.Message `json:"result"`
 		ErrorCode   int        `json:"error_code"`
 		Description string     `json:"description"`
+		Parameters  struct {
+			RetryAfter      int   `json:"retry_after"`
+			MigrateToChatID int64 `json:"migrate_to_chat_id"`
+		} `json:"parameters"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return tg.Message{}, fmt.Errorf("telegram %s: %d with an unreadable body", method, resp.StatusCode)
 	}
 	if !out.OK {
-		return tg.Message{}, &tg.APIError{Method: method, StatusCode: resp.StatusCode, ErrorCode: out.ErrorCode, Description: out.Description}
+		return tg.Message{}, &tg.APIError{Method: method, StatusCode: resp.StatusCode, ErrorCode: out.ErrorCode, Description: out.Description,
+			RetryAfter: time.Duration(out.Parameters.RetryAfter) * time.Second, MigrateToChatID: out.Parameters.MigrateToChatID}
 	}
 	return out.Result, nil
 }

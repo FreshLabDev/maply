@@ -196,10 +196,10 @@ func exec(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
 }
 
 const (
-	group  = int64(-1005001)
-	player = int64(7) // plays in the group and in a DM
-	quiet  = int64(8) // in the group, never answers
-	alone  = int64(9) // only a DM
+	group  = int64(-1001900005001) // a supergroup's id, past 32 bits
+	player = int64(7)              // plays in the group and in a DM
+	quiet  = int64(8)              // in the group, never answers
+	alone  = int64(9)              // only a DM
 )
 
 // TestOneDay runs 05:00 to 21:00 Kyiv time in ten-minute steps, restarts the
