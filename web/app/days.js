@@ -43,6 +43,7 @@ Router.screen("days", /^\/days(?:\/(\d{1,6}|\d{4}-\d{2}-\d{2}))?$/, {
     else { dropDay(); if (DAY && !wide()) closeDay(); }
   },
   close() { closeView(); dropDay(); DAY = null; DAYS = null; closeDays(); },
+  nav: { href: "/days", t: "days", at: 2 },
 });
 // The sheet is closed by hiding it, so the list's page stays in it until the next sheet.
 const daysShown = () => $("sheet").classList.contains("on") && !!$("dPage");

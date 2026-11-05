@@ -259,8 +259,12 @@ function toMap() {
 }
 function toPhoto() {
   if (view === "photo") return;
+  // The focus on the folded map goes to the globe that opens it, not to the page: a focus the script then moves from
+  // nowhere would show its ring after a tap.
+  const inMap = $("map").contains(document.activeElement);
   view = "photo"; document.body.classList.remove("is-map"); haptic("soft"); syncBack(); seePano();
   $("map").inert = true; lookLabel(); Desk.cross();
+  if (inMap) $("globeHit").focus({ preventScroll: true });
   globe.toMini(650);
 }
 $("map").inert = true;
@@ -277,7 +281,7 @@ const LOOK = { guess: ["look_more", "look"], wait: ["admire", "admire"], reveal:
 function split(on) {
   const bar = Desk.on && state === "guess";
   $("act").classList.toggle("on", on); lookLabel();
-  if (state === "guess") $("go").textContent = T(bar ? (on ? "desk.answer_key" : "desk.pin_first") : "final");
+  if (state === "guess") $("go").textContent = T(bar ? (on ? (Desk.keyboard ? "desk.answer_key" : "final") : "desk.pin_first") : "final");
   $("go").disabled = bar && !on;
   $("go").tabIndex = on || bar ? 0 : -1; $("go").toggleAttribute("aria-hidden", !on && !bar);
 }
@@ -843,7 +847,7 @@ function closeDays() {
 // Escape is the sheet's own back button: from a day to the days, from the days out.
 addEventListener("keydown", (e) => { if (e.key === "Escape" && $("sheet").classList.contains("on")) { e.preventDefault(); $("shBack").click(); } });
 // The game is the page under every other: today has nothing of its own to open or close. The days are days.js's.
-Router.screen("today", /^\/(?:index\.html)?$/, { open() {}, nav: { href: "/", t: "desk.today" } });
+Router.screen("today", /^\/(?:index\.html)?$/, { open() {}, nav: { href: "/", t: "desk.today", at: 1 } });
 
 // The window crossed into the computer's layout or out of it: the same state, laid out again. The plates have moved
 // already; the map's box changed its place, so the camera starts over in it.

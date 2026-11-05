@@ -13,22 +13,29 @@
    - Header: 56 px (--top), the field colour, the logo and the day at the start, the screens' links in the middle
      (Router.screen(…, { nav: { href, t } }) puts one there), the timer, a full screen button in Telegram Desktop,
      and #acct at the end, an empty slot for the account's button.
-   - A page under the header: .dk-page, which scrolls on its own, with .dk-wrap inside, 1200 px at most (--page),
-     a 12-column grid with 24 px gaps (--gap).
+   - A page under the header: .dk-page, which scrolls on its own, over everything but the header, as the days' sheet
+     is. The screen that shows it puts the game out of reach with inert on body's other children (app.js's
+     behindSheet does it for the sheet). Inside, .dk-wrap: 1200 px at most (--page), a 12-column grid with 24 px
+     gaps (--gap).
    - Panels: .dk-card, a solid --field-deep plate with 24 px inside. No shadows, no rounded corners, no
      transparency, as everywhere in maply.
-   - Type: .dk-h1 40 px and .dk-h2 28 px in the display face, .up for labels (app.css), 15 px text.
+   - Type: .dk-h1 40 px and .dk-h2 28 px in the display face, .up for labels (app.css), 15 px text; links in
+     --ink-soft, --ink under the mouse.
    - Buttons: .dk-btn, 48 px high, white with the field's text; .dk-btn.alt on --field. A hover lightens a dark
      surface by one step (--field-deep to --field, --field to --field-tint) and dims a white one to --ink-soft.
-   - Focus: every control gets the same ring from the keyboard, 2 px white with 2 px air; nothing shows it for the
-     mouse or a finger.
-   - Side panel: .side, 400 px (440 px from 1440 px) on the right under the header (--side), as the result has it.
+   - Focus: with a mouse and a keyboard every control gets the same ring from the keyboard, 2 px white with 2 px
+     air; nothing shows it for the mouse. A phone keeps the browser's own.
+   - A side column: --side wide (400 px, 440 px from 1440 px) on the right under the header, as the result's. The
+     game's own .side is not for other screens: desk.js shows it and moves the result into it.
 */
 
 /* ---------- Every layout: input, focus, the header's slots ---------- */
-:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-/* Inside the map the ring goes in, so the panel's edge does not cut it. */
-.maplibregl-canvas:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
+:root { --page: 1200px; --gap: 24px; }
+@media (hover: hover) and (pointer: fine) {
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* Inside the map the ring goes in, so the panel's edge does not cut it. */
+  .maplibregl-canvas:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
+}
 /* The keyboard's aim on the open map: Space drops the pin here. */
 .cross { display: none; position: fixed; z-index: 11; width: 26px; height: 26px; margin: -13px 0 0 -13px; pointer-events: none; }
 .cross.on { display: block; }
@@ -64,7 +71,7 @@
 .keys p { margin: 0; color: var(--field-tint); font: 500 12px/1.3 var(--text); }
 
 @media (hover: hover) {
-  #look:hover { background: var(--field); }
+  #look:hover { background: var(--field-tint); }
   #go:not(:disabled):hover, .pl.w:hover { background: var(--ink-soft); }
   .logo:hover span, .nav a:hover { color: var(--ink); }
   .fs:hover, .sh-b:hover { color: var(--ink); }
@@ -82,12 +89,12 @@
 }
 
 /* ---------- Computer ---------- */
-.desk { --top: 56px; --foot: 0px; --mini: 240px; --side: 400px; --gap: 24px; --bar: 52px; --page: 1200px;
+.desk { --top: 56px; --foot: 0px; --mini: 240px; --side: 400px; --bar: 52px;
         /* The map's panel: its size from the choice, never higher than the window leaves under the compass. */
         --pw: 480px; --ph: 360px;
         --pw-now: min(var(--pw), calc(100vw - 48px)); --ph-now: min(calc(var(--ph) + var(--bar)), calc(100vh - var(--top) - 100px)); }
 .desk[data-map="m"] { --pw: 640px; --ph: 480px; }
-.desk[data-map="l"] { --pw: 50vw; --ph: 70vh; }
+.desk[data-map="l"] { --pw: max(768px, 50vw); --ph: 70vh; }
 @media (min-width: 1440px) { .desk { --mini: 280px; --side: 440px; } }
 /* A Telegram window with its own title bar keeps the computer's header height. */
 .desk.framed { --top: 56px; }
@@ -107,7 +114,8 @@
 .desk .hint { top: 62px; }
 @media (hover: hover) and (pointer: fine) { .desk .hint .dk { display: block; } }
 /* Credits: a solid plate in the bottom left corner, always in sight. */
-.desk .credits { left: calc(24px + var(--safe-left)); right: auto; bottom: 24px; height: 28px; padding: 0 10px; max-width: calc(100vw - var(--pw-now) - 96px); }
+.desk .credits { left: calc(24px + var(--safe-left)); right: auto; bottom: 24px; height: auto; min-height: 28px; padding: 6px 10px; max-width: calc(100vw - var(--pw-now) - 96px);
+                  flex-wrap: wrap; row-gap: 3px; justify-content: flex-start; white-space: normal; line-height: 1.3; overflow: visible; }
 .desk .toast { left: 0; right: 0; width: max-content; max-width: min(420px, calc(100% - 48px)); margin: 0 auto; top: calc(var(--top) + var(--safe-top) + 64px); }
 .desk .keys { right: auto; left: calc(24px + var(--safe-left)); bottom: 64px; width: 400px; }
 
@@ -125,6 +133,9 @@
 .desk .is-panel.is-map #map { clip-path: circle(150% at calc(100% - var(--mini) / 2) calc(100% - var(--mini) / 2)); }
 .desk .is-panel .globe-hit { right: calc(24px + var(--safe-right)); bottom: 24px; }
 .desk .is-panel .call { right: calc(24px + var(--safe-right) + var(--mini) + 14px); bottom: calc(24px + var(--mini) / 2 - 31px); }
+/* Over the open panel a toast speaks of the pin: it stands in the panel, under the buttons, whatever the window. */
+.desk .is-panel.is-map .toast { left: calc(100vw - 24px - var(--safe-right) - var(--pw-now) + 16px); right: calc(40px + var(--safe-right));
+                                top: calc(100vh - 24px - var(--ph-now) + 52px); max-width: calc(var(--pw-now) - 32px); }
 /* The cursor aims while there is a pin to drop. */
 .desk .is-panel .maplibregl-canvas-container.maplibregl-interactive { cursor: crosshair; }
 /* −, + and the hold in the panel's top left corner. */
@@ -148,6 +159,7 @@
 .is-side .call { right: calc(var(--side) + 24px + var(--mini) + 14px); bottom: calc(24px + var(--mini) / 2 - 31px); }
 .is-side .toast { right: var(--side); }
 .is-side .credits { max-width: calc(100vw - var(--side) - var(--mini) - 96px); }
+.is-side.is-map .credits { max-width: calc(100vw - var(--side) - 48px); }
 /* Behind the map the panorama and its compass are out of sight. */
 .is-side.is-map .compass, .is-side.is-map .hint { visibility: hidden; }
 
@@ -215,6 +227,7 @@
 .side .lb .r.me .s { font-size: 22px; }
 .side .lb .r.hl { background: var(--field); }
 .side .lb .r.me.hl { box-shadow: inset 3px 0 0 var(--speed); }
+[dir="rtl"] .side .lb .r.me.hl { box-shadow: inset -3px 0 0 var(--speed); }
 @media (hover: hover) { .side .lb .r:not(.me):hover { background: var(--field); } }
 .side .prog .more, .side .prog .fold, .side .prog .info { display: none !important; }
 .side .prog .tip { display: none; }
@@ -231,7 +244,6 @@
 .side .act.on { gap: 8px; }
 .side .act button { height: 52px; font-size: 15px; }
 .side #look { background: var(--field); }
-@media (hover: hover) { .side #look:hover { background: var(--field-tint); } }
 
 /* The others' marks answer the hovered row, and the rows the hovered mark. */
 .friend.lit { z-index: 5 !important; }
@@ -240,8 +252,9 @@
 .pinm.lit .pin { scale: 1.18; }
 
 /* ---------- Pages for other screens ---------- */
-.dk-page { position: fixed; z-index: 28; top: calc(var(--top) + var(--safe-top)); left: 0; right: 0; bottom: 0; overflow-y: auto; padding: 32px 24px 48px;
-           background: var(--field); user-select: text; -webkit-user-select: text; }
+.dk-page { position: fixed; z-index: 38; top: calc(var(--top) + var(--safe-top)); left: 0; right: 0; bottom: 0; overflow-y: auto; padding: 32px 24px 48px;
+           background: var(--field); font: 400 15px/1.45 var(--text); user-select: text; -webkit-user-select: text; }
+.dk-page a:not(.dk-btn) { color: var(--ink-soft); text-underline-offset: 3px; }
 .dk-wrap { max-width: var(--page); margin: 0 auto; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gap); }
 .dk-card { padding: 24px; background: var(--field-deep); }
 .dk-h1 { margin: 0; font: 700 40px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; }
@@ -249,6 +262,6 @@
 .dk-btn { display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 20px; background: var(--panel); color: var(--on-panel);
           font: 700 15px/1 var(--label); letter-spacing: .06em; text-transform: uppercase; text-decoration: none; }
 .dk-btn.alt { background: var(--field); color: var(--ink); }
-@media (hover: hover) { .dk-btn:hover { background: var(--ink-soft); } .dk-btn.alt:hover { background: var(--field-tint); } .dk-card a:hover { color: var(--ink); } }
+@media (hover: hover) { .dk-btn:hover { background: var(--ink-soft); } .dk-btn.alt:hover { background: var(--field-tint); } .dk-page a:not(.dk-btn):hover { color: var(--ink); } }
 
 @media (prefers-reduced-motion: reduce) { .desk #map, .side .act { transition: none !important; } }

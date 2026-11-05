@@ -39,11 +39,14 @@
 //   globe.language(lang)                 relabel the map
 //   globe.map                            the MapLibre map, for anything else
 //   globe.destroy()
+// The pin and the longitude helper are the page's: the days' map and the free game draw the same pin.
+// On the map, markers are dark with a white outline: visible on both light land and green water.
+// MapLibre places a marker by its element's transform, so the drop plays on the svg inside, not on the element itself.
+const PIN_PATH = "M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1 0 320 349 A60 60 0 1 0 320 229 Z";
+const PIN = '<div class="pinm"><svg class="pin" viewBox="150 119 340 402"><path fill="#1A412B" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="miter" paint-order="stroke" fill-rule="evenodd" d="' + PIN_PATH + '"/></svg></div>';
+// The longitude of lng nearest to from, so a line or a frame crosses the 180th meridian the short way.
+const lngNear = (lng, from) => from + ((((lng - from) % 360) + 540) % 360) - 180;
 const createGlobe = (() => {
-  // On the map, markers are dark with a white outline: visible on both light land and green water.
-  // MapLibre places a marker by its element's transform, so the drop plays on the svg inside, not on the element itself.
-  const PIN_PATH = "M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1 0 320 349 A60 60 0 1 0 320 229 Z";
-  const PIN = '<div class="pinm"><svg class="pin" viewBox="150 119 340 402"><path fill="#1A412B" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="miter" paint-order="stroke" fill-rule="evenodd" d="' + PIN_PATH + '"/></svg></div>';
   const el = (html) => { const d = document.createElement("div"); d.innerHTML = html; return d.firstElementChild; };
   const easeOut = (t) => 1 - (1 - t) ** 3;
   // Globe radius on screen: the equator is 512·2^zoom px long, which gives the zoom for a target diameter.
@@ -59,7 +62,6 @@ const createGlobe = (() => {
   const GLOBE_Z = [2.2, 3.6];
   // A longitude moved by whole turns to within half a turn of from's: two points either side of the 180th meridian frame
   // and join the short way round, not across the rest of the world.
-  const lngNear = (lng, from) => from + ((((lng - from) % 360) + 540) % 360) - 180;
   const near180 = (at, from) => [lngNear(at[0], from), at[1]];
   // The angle between two points on the globe, in degrees.
   function arc(a, b) {
@@ -446,9 +448,11 @@ const createGlobe = (() => {
       const bounds = new maplibregl.LngLatBounds(pts[0], pts[0]);
       pts.forEach((p) => bounds.extend(p));
       // Your pin stands above its point. On a short screen the margins shrink together, so the map keeps some room: with
-      // margins larger than the screen MapLibre does not move at all.
-      let top = i.top + 24 + (guess ? 46 : 0), bottom = i.bottom + 24;
-      const side = Math.min(40, (W - i.left - i.right) / 8), room = H - 120;
+      // margins larger than the screen MapLibre does not move at all. A map as wide as a computer's keeps its points
+      // further from the edges than a phone's.
+      const wide = W - i.left - i.right >= 700, air = wide ? 56 : 24;
+      let top = i.top + air + (guess ? 46 : 0), bottom = i.bottom + air;
+      const side = Math.min(wide ? 96 : 40, (W - i.left - i.right) / 8), room = H - 120;
       if (top + bottom > room) { const k = room / (top + bottom); top *= k; bottom *= k; }
       map.setPadding({ left: 0, top: 0, right: 0, bottom: 0 });
       userMoved = false;

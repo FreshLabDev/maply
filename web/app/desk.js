@@ -4,6 +4,7 @@
 // or the table differ. A Telegram Desktop window is a phone until it is stretched or goes full screen.
 //
 //   Desk.on                     whether the computer's layout is on now
+//   Desk.keyboard               whether a mouse and a keyboard are the input: hints name keys only then
 //   Desk.change(fn)             fn(on) after the layout switched, the page already restyled
 //   Desk.place()                the game's state changed: the plates move into the side panel or back
 //   Desk.start(game)            once the words are in: the header, the panel, the keys. game is app.js's:
@@ -16,6 +17,7 @@
 // The keys work in every layout, as soon as there is a keyboard: Telegram Desktop's small window has one too.
 const Desk = (() => {
   const Q = matchMedia("(min-width: 1024px) and (min-height: 600px)"), BIG = matchMedia("(min-width: 1440px)");
+  const FINE = matchMedia("(hover: hover) and (pointer: fine)");
   const root = document.documentElement, fns = [];
   const $ = (id) => document.getElementById(id);
   let on = Q.matches, game = null;
@@ -75,8 +77,15 @@ const Desk = (() => {
   const isOpen = () => game.view() === "map";
   const sheetOn = () => document.body.classList.contains("is-sheet");
   const inPanel = (e) => !!e && ["map", "act", "mapCtl"].some((id) => $(id).contains(e));
-  // The keyboard in the panel keeps it open; a click that left the focus on the map does not.
-  const keyIn = () => { const a = document.activeElement; return inPanel(a) && a.matches(":focus-visible"); };
+  // The keyboard in the panel keeps it open; a click that left the focus on the map does not, whatever key comes
+  // after it. So the focus remembers whether a press or a key brought it.
+  let pressed = false, byPress = false;
+  // A press in the map takes the keyboard's aim away even when the focus was already there.
+  document.addEventListener("pointerdown", (e) => { pressed = true; if (game && inPanel(e.target)) { byPress = true; cross(); } }, true);
+  addEventListener("keydown", () => { pressed = false; }, true);
+  // On the way down, before the map's own focus listener asks for the cross.
+  document.addEventListener("focus", () => { byPress = pressed; }, true);
+  const keyIn = () => inPanel(document.activeElement) && !byPress;
   function open(how) {
     clearTimeout(closeT);
     if (!isOpen()) game.open();
@@ -85,7 +94,7 @@ const Desk = (() => {
   function fold() {
     clearTimeout(openT); clearTimeout(closeT); held = false;
     if (!isOpen()) return;
-    // The folded map can no longer hold the focus: the globe that opens it again takes it.
+    // The folded panel can no longer hold the focus, its buttons and bar included: the globe that opens it takes it.
     const k = inPanel(document.activeElement);
     game.close();
     if (k) $("globeHit").focus({ preventScroll: true });
@@ -95,7 +104,7 @@ const Desk = (() => {
     closeT = setTimeout(() => {
       if (!panel() || !isOpen() || inside || hold || held || sheetOn()) return;
       if (down || keyIn() || game.globe.map.isMoving()) { later(); return; }
-      game.close();
+      fold();
     }, 600);
   }
   // Where the mouse is, against the open panel or the folded globe: the panel is one box with its bar and buttons.
@@ -126,7 +135,7 @@ const Desk = (() => {
     const c = $("cross");
     if (!game) return;
     const canvas = game.globe.map.getCanvas();
-    const show = game.state() === "guess" && isOpen() && document.activeElement === canvas && canvas.matches(":focus-visible");
+    const show = game.state() === "guess" && isOpen() && document.activeElement === canvas && !byPress;
     c.classList.toggle("on", show);
     if (!show) return;
     const p = game.globe.center().point, m = $("map").getBoundingClientRect();
@@ -217,6 +226,10 @@ const Desk = (() => {
     mark(Router.current);
   }
   const mark = (name) => $("nav").querySelectorAll("a").forEach((a) => a.setAttribute("aria-current", a.dataset.name === name ? "page" : "false"));
+  // The header is written when the first screen opens, the words in by then, whether the page began with the day or
+  // with another screen.
+  let head = false;
+  Router.on((name) => { if (!head) { head = true; nav(); fullscreen(); } mark(name); });
   // Telegram Desktop and the web clients can go full screen, where the computer's layout has room.
   function fullscreen() {
     const tg = window.Telegram && Telegram.WebApp;
@@ -240,7 +253,7 @@ const Desk = (() => {
   function start(g) {
     if (game) return;
     game = g;
-    nav(); Router.on(mark); fullscreen(); keysPanel(); place();
+    keysPanel(); place();
     $("keys").addEventListener("click", () => keys(false));
     addEventListener("keydown", onKey);
     addEventListener("keyup", offKey);
@@ -292,6 +305,7 @@ const Desk = (() => {
 
   return {
     get on() { return on; },
+    get keyboard() { return FINE.matches; },
     change(fn) { fns.push(fn); },
     place, start, cross,
   };

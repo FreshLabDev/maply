@@ -149,9 +149,9 @@ For the operator:
 - The app has a computer's layout. From 1024 px wide and 600 px high the
   panorama fills the screen and the map opens beside it as a panel, on hover, a
   click or M, in three sizes; after answering the map fills the screen and the
-  score, the world's table and the buttons are in a sidebar. On a tablet the
-  phone's layout gets a bigger globe and centred buttons. The phone's layout is
-  unchanged.
+  score, the world's table and the buttons are in a sidebar. A header links
+  Today, Days and Free play. On a tablet the phone's layout gets a bigger globe
+  and centred buttons. The phone's layout is unchanged.
 - Keys: the arrows or WASD turn the panorama, + and − zoom it, Space drops a pin
   on the focused map, Enter answers, Esc folds the map, ? lists the keys. Hints
   follow the pointer, so a mouse is no longer told to use a finger.
