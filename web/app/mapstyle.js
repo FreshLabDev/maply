@@ -1,5 +1,5 @@
 /* ---------- Map style: a paper globe from afar, a regular map up close ---------- */
-// Shared by the Mini App (map.js) and the result card (card/card.js).
+// Shared by the Mini App (globe.js) and the result card (card/card.js).
 // Palette: land is light "paper", water is the maply field colour, no background around the globe.
 // Flat fills without shadows or glow, as in the design system; only the graticule gives the globe volume.
 const C = { water: "#245A3C", land: "#DDE5E0", park: "#C9D7CE", build: "#C3D0C8",

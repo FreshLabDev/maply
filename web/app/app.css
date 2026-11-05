@@ -260,7 +260,7 @@ html.framed { --top: 44px; }
 .friend s { position: absolute; left: 0; top: -1px; height: 2px; width: 0; background: var(--field-deep); transform-origin: 0 50%;
             transition: width .22s var(--ease), transform .22s var(--ease); }
 /* The mini globe in the corner shows only your own pin: friends' labels and the target turn into a mess there. */
-body:not(.is-map) .friend, body:not(.is-map) .target { visibility: hidden; }
+.globe.small .friend, .globe.small .target { visibility: hidden; }
 
 /* States: waiting and result */
 .nums { display: flex; align-items: flex-end; gap: 10px; }

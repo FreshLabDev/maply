@@ -20,6 +20,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   address without a screen yet shows today. In Telegram the address changes
   without adding history, so Back stays Telegram's.
 
+### Changed
+
+- The panorama and the globe moved out of the day's game into `pano.js` and
+  `globe.js`, each with a small API that the free game and the profile can
+  reuse. The game looks and behaves as before; a double click no longer zooms
+  the panorama by itself.
+
 ## v0.0.1-alpha.15 - 2026-11-05
 
 Fixes from a review of the whole project on 5 November: security, the

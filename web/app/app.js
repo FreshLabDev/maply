@@ -14,10 +14,6 @@ function report(message, source, line, column, stack) {
 addEventListener("error", (e) => report(e.message, e.filename, e.lineno, e.colno, e.error && e.error.stack));
 addEventListener("unhandledrejection", (e) => report(e.reason && e.reason.message || e.reason, "promise", 0, 0, e.reason && e.reason.stack));
 const $ = (id) => document.getElementById(id);
-const PIN_PATH = "M320 501 L214 395 A150 150 0 1 1 426 395 Z M320 229 A60 60 0 1 0 320 349 A60 60 0 1 0 320 229 Z";
-// On the map, markers are dark with a white outline: visible on both light land and green water.
-// MapLibre places a marker by its element's transform, so the drop plays on the svg inside, not on the element itself.
-const PIN = '<div class="pinm"><svg class="pin" viewBox="150 119 340 402"><path fill="#1A412B" stroke="#FFFFFF" stroke-width="24" stroke-linejoin="miter" paint-order="stroke" fill-rule="evenodd" d="' + PIN_PATH + '"/></svg></div>';
 // A chevron pointing down: the plate folds away to the bottom edge.
 const FOLD = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 // The group's mark by a face in the world's table: two heads.
@@ -82,8 +78,8 @@ async function loadTexts(lang) {
   document.documentElement.dir = LANG === "ar" ? "rtl" : "ltr";
   document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = T(e.dataset.t); });
   document.querySelectorAll("[data-aria]").forEach((e) => e.setAttribute("aria-label", T(e.dataset.aria)));
-  buildTape();
-  if (typeof setMapLanguage === "function" && map) setMapLanguage(LANG);
+  pano.relabel();
+  globe.language(LANG);
 }
 
 /* ---------- Server ---------- */
@@ -199,7 +195,7 @@ function tick() {
 }
 setInterval(tick, 15000);
 
-/* ---------- Panorama: Pannellum, inertia, pinch, double tap ---------- */
+/* ---------- Panorama ---------- */
 // The photo's author is credited only after the reveal: a Mapillary profile lists where its owner takes pictures.
 const MAP_CREDITS = '<span>© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, OpenMapTiles, <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a></span>';
 const SOURCES = { mapillary: ["Mapillary", "https://www.mapillary.com"], panoramax: ["Panoramax", "https://panoramax.fr"] };
@@ -212,160 +208,22 @@ function credits(place) {
   $("credits").innerHTML = photo + MAP_CREDITS;
 }
 credits(null);
-// Pannellum sets the horizontal field of view. On a portrait phone this gave ~140° vertically,
-// and tilting up/down hit the limits. We pick hfov so that the vertical span is ~95°.
-function baseHfov() {
-  const w = $("pano").clientWidth || innerWidth, h = $("pano").clientHeight || innerHeight, v = 95 * Math.PI / 180;
-  const hf = 2 * Math.atan(Math.tan(v / 2) * w / h) * 180 / Math.PI;
-  return Math.max(50, Math.min(105, hf));
-}
-// The viewer is created once /api/today says which picture it is; until then everything that turns it waits.
-let viewer = null;
-// A picture that did not come is asked for again a few times; until it comes the loading screen stays only for someone
-// who still has to answer: who has answered plays on the map.
-let panoTries = 0;
-function startPano() {
-  if (viewer) { try { viewer.destroy(); } catch {} viewer = null; }
-  viewer = pannellum.viewer("pano", Object.assign({
-    type: "equirectangular", panorama: TODAY.image, autoLoad: true, showControls: false, compass: false,
-    hfov: baseHfov(), minHfov: 20, maxHfov: 110, friction: 0.1, keyboardZoom: false, disableKeyboardCtrl: true,
-    backgroundColor: [0.10, 0.25, 0.17], pitch: 0
-  }, TODAY.kind === "panorama" ? {} : { haov: 80, vaov: 50, maxHfov: 80 }));
-  viewer.on("load", () => { panoTries = 0; hideLoader(); });
-  viewer.on("error", () => {
-    if (panoTries < 3) { setTimeout(startPano, 2000 * 2 ** panoTries++); return; }
-    if (!TODAY.answer) failLoading(T("no_image"), () => { panoTries = 0; startPano(); });
-    else toast(T("no_image"));
-  });
-}
-addEventListener("resize", () => viewer && viewer.setHfov(baseHfov(), 0));
-// A double tap zooms in or back out. Only a tap counts: one finger, short and still, the second near the first. Lifting
-// two fingers after a pinch fires two pointerups too, and used to undo the pinch.
-let lastTap = null, downs = new Map(), multi = false;
-$("pano").addEventListener("pointerdown", (e) => {
-  $("hint").classList.add("gone");
-  downs.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now() });
-  if (downs.size > 1) { multi = true; lastTap = null; }
-});
-const panoUp = (e) => {
-  const d = downs.get(e.pointerId); downs.delete(e.pointerId);
-  const wasMulti = multi; if (!downs.size) multi = false;
-  if (e.type !== "pointerup" || !d || wasMulti) return;
-  const now = performance.now();
-  if (now - d.t > 250 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) { lastTap = null; return; }
-  if (viewer && lastTap && now - lastTap.t < 300 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
-    const b = baseHfov(), h = viewer.getHfov(); viewer.setHfov(h > b * 0.8 ? b * 0.5 : b, 350); haptic("light"); lastTap = null; return;
-  }
-  lastTap = { x: e.clientX, y: e.clientY, t: now };
-};
-$("pano").addEventListener("pointerup", panoUp);
-$("pano").addEventListener("pointercancel", panoUp);
-// Direction by compass = frame centre direction + camera rotation. The compass card rotates the opposite way.
-let HEADING = 0;
-// Full-width tape: about 150° is visible in the window, so the cardinal directions are readable rather than flickering.
-// Drawn over three turns (−360…720°) and shifted: crossing north does not jump.
-let TAPE_K = 1.5, TAPE_W = 0;
-function buildTape() {
-  TAPE_W = $("compass").clientWidth || innerWidth; TAPE_K = TAPE_W / 150;
-  const NAMES = {};
-  ["n", "ne", "e", "se", "s", "sw", "w", "nw"].forEach((k, i) => { NAMES[i * 45] = esc(TX["compass_" + k] || ""); });
-  let svg = "";
-  for (let d = -360; d <= 720; d += 5) {
-    const x = ((d + 360) * TAPE_K).toFixed(1), n = ((d % 360) + 360) % 360;
-    if (n === 0) svg += '<rect x="' + (x - 12) + '" y="6" width="24" height="26" fill="#FFFFFF"/><text x="' + x + '" y="26" text-anchor="middle" fill="#245A3C" style="font: 700 19px/1 var(--display)">' + NAMES[0] + '</text>';
-    else if (n % 90 === 0) svg += '<text x="' + x + '" y="26" text-anchor="middle" fill="#FFFFFF" style="font: 700 19px/1 var(--display)">' + NAMES[n] + '</text>';
-    else if (n % 45 === 0) svg += '<text x="' + x + '" y="24" text-anchor="middle" fill="#B5C7BD" style="font: 700 11px/1 var(--label); letter-spacing: .06em">' + NAMES[n] + '</text>';
-    else if (n % 15 === 0) svg += '<path d="M' + x + ' 13v12" stroke="#59826B" stroke-width="2"/>';
-    else svg += '<path d="M' + x + ' 17v4" stroke="#59826B" stroke-width="1.5"/>';
-  }
-  const t = $("tape"), w = (1080 * TAPE_K).toFixed(0);
-  t.setAttribute("width", w); t.setAttribute("viewBox", "0 0 " + w + " 38"); t.innerHTML = svg;
-}
-buildTape();
-// Telegram changes the window's height often (keyboard, fullscreen, safe area); the tape depends on the width alone.
-addEventListener("resize", () => { if (($("compass").clientWidth || innerWidth) !== TAPE_W) buildTape(); });
-// The tape follows the panorama; on the map it is hidden and stands still.
-let tapeAt = "";
-(function spin() {
-  if (!document.body.classList.contains("is-map")) {
-    const h = ((((viewer ? viewer.getYaw() : 0) + HEADING) % 360) + 360) % 360;
-    const at = "translateX(" + (TAPE_W / 2 - (h + 360) * TAPE_K) + "px)";
-    if (at !== tapeAt) { $("tape").style.transform = at; tapeAt = at; }
-  }
-  requestAnimationFrame(spin);
-})();
-// The tape can be dragged with a finger or mouse; the panorama rotates along, with inertia after release.
-// A short tap without movement turns the view to north. The wheel over the tape also rotates.
-const tapeEl = $("compass");
-let tdrag = null, spinV = 0, spinRaf = 0;
-function faceNorth() {
-  const north = ((-HEADING + 540) % 360) - 180; // yaw at which we face north, within −180…180
-  viewer.lookAt(viewer.getPitch(), north, viewer.getHfov(), 700); haptic("select");
-}
-function coast() {
-  // Inertia: velocity in degrees per frame decays, like the panorama's own.
-  if (Math.abs(spinV) < 0.05) return;
-  viewer.setYaw(viewer.getYaw() + spinV, false); spinV *= 0.92;
-  spinRaf = requestAnimationFrame(coast);
-}
-tapeEl.addEventListener("pointerdown", (e) => {
-  if (!viewer) return;
-  cancelAnimationFrame(spinRaf); spinV = 0;
-  tdrag = { x: e.clientX, last: e.clientX, t: performance.now(), moved: false };
-  tapeEl.setPointerCapture(e.pointerId); $("hint").classList.add("gone");
-});
-tapeEl.addEventListener("pointermove", (e) => {
-  if (!tdrag) return;
-  const dx = e.clientX - tdrag.last, now = performance.now(), dt = Math.max(1, now - tdrag.t);
-  if (Math.abs(e.clientX - tdrag.x) > 4) tdrag.moved = true;
-  // Dragging the tape right moves it right, so the heading decreases.
-  const dYaw = -dx / TAPE_K;
-  viewer.setYaw(viewer.getYaw() + dYaw, false);
-  spinV = 0.7 * (dYaw / dt * 16) + 0.3 * spinV;
-  tdrag.last = e.clientX; tdrag.t = now;
-});
-function tapeUp() {
-  if (!tdrag) return;
-  const moved = tdrag.moved, idle = performance.now() - tdrag.t; tdrag = null;
-  if (!moved) { spinV = 0; faceNorth(); return; }
-  if (idle < 80) coast(); // finger stopped before release: no inertia
-}
-tapeEl.addEventListener("pointerup", tapeUp);
-// Enter or Space on the compass, which has no pointer: face north, as a tap does.
-tapeEl.addEventListener("click", (e) => { if (e.detail === 0 && viewer) faceNorth(); });
-tapeEl.addEventListener("pointercancel", tapeUp);
-tapeEl.addEventListener("wheel", (e) => {
-  e.preventDefault(); cancelAnimationFrame(spinRaf);
-  if (viewer) viewer.setYaw(viewer.getYaw() + (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / TAPE_K * 0.6, false);
-}, { passive: false });
+// pano.js draws the picture and the compass tape. The viewer is shown once /api/today says which picture it is; until
+// then everything that turns it waits. A picture that did not come is asked for again a few times; until it comes the
+// loading screen stays only for someone who still has to answer: who has answered plays on the map.
+const pano = createPano({ el: $("pano"), compass: $("compass"), tape: $("tape"), label: (k) => TX["compass_" + k] || "", haptic });
+pano.on("load", hideLoader);
+pano.on("error", (retry) => { if (!TODAY.answer) failLoading(T("no_image"), retry); else toast(T("no_image")); });
+pano.on("touch", () => $("hint").classList.add("gone"));
 
 /* ---------- Two views: photo with a mini globe, and the big map ---------- */
 let state = "guess", view = "photo";
-let map = null, mapReady = false; // declared up front: otherwise window.map is the div#map
 const MINI = 136, ACT = 82, TAPE_H = 38; // TAPE_H is the height of the compass tape at the bottom (--tape)
-// Globe radius on screen: the equator is 512·2^zoom px long, which gives the zoom for a target diameter.
-const zoomFor = (d) => Math.log2(d * Math.PI / 512);
-const globeR = (zm) => 512 * 2 ** zm / (2 * Math.PI);
-function onGlobe(pt) {
-  const T = map.transform;
-  if (typeof T.isPointOnMapSurface === "function") return T.isPointOnMapSurface(pt);
-  const c = map.project(map.getCenter()); // fallback in case MapLibre's internal method disappears
-  return map.getZoom() >= GLOBE_Z[1] || Math.hypot(pt.x - c.x, pt.y - c.y) <= globeR(map.getZoom()) * 0.88;
-}
-function box() { const m = $("map"); return { W: m.clientWidth, H: m.clientHeight }; }
-// MapLibre's globe grows as 1/cos of the centre's latitude at the same zoom, so the zoom takes that back. The mini
-// globe's centre stays within ±40°: a pin further north or south still shows, nearer the edge, and the zoom stays
-// above the map's minimum.
-const MINI_LAT = 40, miniLat = (lat) => Math.max(-MINI_LAT, Math.min(MINI_LAT, lat || 0));
-const atLat = (lat) => Math.log2(Math.cos(lat * Math.PI / 180));
-function miniCam(lat) {
-  // Globe centre in the bottom-right corner: shift the focus point with padding; the canvas stays fullscreen.
-  // The globe sits under its button, which keeps clear of a notch on the side; before layout, where it would be.
-  const { W, H } = box(), g = $("globeHit").getBoundingClientRect(), m = $("map").getBoundingClientRect();
-  const cx = g.width ? g.left - m.left + g.width / 2 : W - 12 - MINI / 2, cy = g.height ? g.top - m.top + g.height / 2 : H - TAPE_H - 16 - MINI / 2;
-  const at = miniLat(lat !== undefined ? lat : map ? map.getCenter().lat : 30);
-  // MapLibre rejects negative padding and fails entirely; this happens while the canvas is still zero-sized.
-  return { padding: { left: Math.max(0, 2 * cx - W), top: Math.max(0, 2 * cy - H), right: 0, bottom: 0 }, zoom: zoomFor(MINI - 4) + atLat(at) };
+// The small globe sits under its button, which keeps clear of a notch on the side; before layout, where it would be.
+// Its size is the button's, which the layout sets.
+function miniAt() {
+  const g = $("globeHit").getBoundingClientRect(), m = $("map").getBoundingClientRect(), W = $("map").clientWidth, H = $("map").clientHeight;
+  return { x: g.width ? g.left - m.left + g.width / 2 : W - 12 - MINI / 2, y: g.height ? g.top - m.top + g.height / 2 : H - TAPE_H - 16 - MINI / 2, d: (g.width || MINI) - 4 };
 }
 // How much space the plates take at top and bottom: the camera keeps the globe and markers in the free part.
 function reserve() {
@@ -374,49 +232,23 @@ function reserve() {
   const board = document.body.classList.contains("is-reveal") ? $("prog").parentElement.getBoundingClientRect().bottom + $("prog").offsetHeight - top + 8 : 0;
   const t = Math.max(board, on("ovTop") ? $("ovTop").getBoundingClientRect().bottom - top + 8 : 0);
   const b = (on("ovBot") ? $("ovBot").offsetHeight + 20 : 0) + ACT; // the bottom strip is always present in map mode
-  return { t, b };
-}
-function bigCam() {
-  const { W, H } = box(), { t, b } = reserve();
-  return { padding: { left: 0, top: t, right: 0, bottom: b }, zoom: zoomFor(Math.max(MINI, 0.86 * Math.min(W, H - t - b))) + atLat(miniLat(map.getCenter().lat)) };
+  return { top: t, bottom: b };
 }
 function overlay(top, bot) {
   $("ovTop").innerHTML = top; $("ovBot").innerHTML = bot;
   $("ovTop").classList.toggle("on", !!top); $("ovBot").classList.toggle("on", !!bot);
 }
+// The map covers the photo: the tape stops following it.
 function toMap() {
   if (view === "map") return;
-  view = "map"; document.body.classList.add("is-map"); haptic("light"); paintBackdrop(); cancelAnimationFrame(tween); syncBack();
-  const c = bigCam();
-  map.easeTo({ ...c, zoom: guess ? Math.max(map.getZoom(), 2.2) : c.zoom, center: guess || map.getCenter(), duration: 750, easing: easeOut });
+  view = "map"; document.body.classList.add("is-map"); haptic("light"); syncBack(); pano.still(true);
+  globe.toBig();
 }
 function toPhoto() {
   if (view === "photo") return;
-  view = "photo"; document.body.classList.remove("is-map"); haptic("soft"); paintBackdrop(); syncBack();
-  glideToMini(650);
+  view = "photo"; document.body.classList.remove("is-map"); haptic("soft"); syncBack(); pano.still(false);
+  globe.toMini(650);
 }
-// Not easeTo: if zooming out starts from a flat map (zoom > 3.6), MapLibre clamps the final zoom right at the start
-// to "the world is no narrower than the screen", log2(H/512), and the globe gets stuck large. A frame-by-frame jumpTo does not know this:
-// by the time zoom drops below 3.6 the projection is already a globe, and there is no constraint.
-let tween = 0;
-function glideToMini(ms) {
-  cancelAnimationFrame(tween); map.stop();
-  const z0 = map.getZoom(), c0 = map.getCenter(), p0 = map.getPadding(), t0 = performance.now();
-  const c1 = { lng: (guess || c0).lng, lat: miniLat((guess || c0).lat) }, dl = ((c1.lng - c0.lng + 540) % 360) - 180;
-  const mix = (a, b, e) => a + (b - a) * e, pad = (a, b, e) => Math.max(0, mix(a, b, e));
-  const step = (now) => {
-    if (view !== "photo") return;
-    // A frame's timestamp can be a little earlier than t0. Unclamped, k goes negative, the padding below zero,
-    // and MapLibre throws on every frame after that.
-    const k = Math.min(1, Math.max(0, (now - t0) / ms)), e = easeOut(k), cam = miniCam(c1.lat), p = cam.padding;
-    map.jumpTo({ zoom: mix(z0, cam.zoom, e), center: [c0.lng + dl * e, mix(c0.lat, c1.lat, e)],
-      padding: { left: pad(p0.left, p.left, e), top: pad(p0.top, p.top, e), right: pad(p0.right, p.right, e), bottom: pad(p0.bottom, p.bottom, e) } });
-    // The last frame may have landed on the flat projection, so we finish with a couple more frames.
-    if (k < 1 || (Math.abs(map.getZoom() - cam.zoom) > .01 && now - t0 < ms + 500)) tween = requestAnimationFrame(step);
-  };
-  tween = requestAnimationFrame(step);
-}
-const easeOut = (t) => 1 - (1 - t) ** 3;
 $("globeHit").addEventListener("click", toMap);
 $("look").addEventListener("click", toPhoto);
 if (tgAt("6.1")) tg.BackButton.onClick(() => document.body.classList.contains("is-sheet") ? $("shBack").click() : toPhoto());
@@ -428,22 +260,6 @@ function split(on) {
   $("act").classList.toggle("on", on); $("look").textContent = T(LOOK[state][on ? 1 : 0]);
   $("go").tabIndex = on ? 0 : -1; $("go").toggleAttribute("aria-hidden", !on);
 }
-// Telegram resizes the view on its own events (viewport, safe area, fullscreen). A camera call during a pinch resets
-// the gesture, so in the map view the new padding waits until the map stands still and no finger is down.
-let touches = 0;
-$("map").addEventListener("touchstart", (e) => { touches = e.touches.length; }, { passive: true });
-["touchend", "touchcancel"].forEach((t) => $("map").addEventListener(t, (e) => {
-  touches = e.touches.length;
-  if (!touches) { refit(); if (viewDue) keepInView(); }
-}, { passive: true }));
-let refitDue = false;
-function refit() {
-  if (!refitDue || !mapReady) return;
-  if (view !== "map") { refitDue = false; glideToMini(200); return; }
-  if (touches || map.isMoving()) return;
-  refitDue = false; map.jumpTo({ padding: bigCam().padding });
-}
-addEventListener("resize", () => { refitDue = true; refit(); });
 // Arrows point the way the text reads: the other way round in Arabic.
 function fwd() { return document.documentElement.dir === "rtl" ? "←" : "→"; }
 // The caption's arrow points at the mini globe, which stays in the right corner whichever way the text reads: in Arabic it
@@ -453,66 +269,21 @@ function setCall(b, sub) {
   $("callS").innerHTML = document.documentElement.dir === "rtl" ? "<em>→</em> " + esc(sub) : esc(sub) + " <em>→</em>";
 }
 
-map = createMap(miniCam().zoom);
-map.setPadding(miniCam().padding);
-// Markers, the line and the layers of the answer need the style, not the tiles. "load" waits for the tiles' description
-// too, and when that one request fails MapLibre never fires it: a returning player would get no pin and no result.
-const mapWaiters = [];
-function whenMapReady(fn) { mapReady ? fn() : mapWaiters.push(fn); }
-function onMapReady() {
-  if (mapReady) return;
-  mapReady = true; map.jumpTo(miniCam());
-  mapWaiters.splice(0).forEach((fn) => fn());
-}
-map.on("style.load", onMapReady);
-map.on("load", onMapReady);
-// MapLibre does not ask for the tiles' description again: without it the globe has no water or coasts all session.
-let omtTries = 0;
-map.on("error", (e) => {
-  const src = e && e.sourceId === "omt" && map.getSource("omt");
-  if (!src || src.loaded() || omtTries >= 6) return;
-  const url = src.url;
-  setTimeout(() => { const s = map.getSource("omt"); if (s && !s.loaded()) s.setUrl(url); }, 1500 * 2 ** omtTries++);
-});
-map.on("moveend", refit);
-// While there is no pin, the mini globe rotates slowly: it shows it is alive and can be touched. It turns by the time
-// passed, about twelve times a second: every turn redraws a full-screen canvas, and at the display's rate it heated the
-// phone and spun faster on 120 Hz. Not at all for someone who asked the system for less motion.
-const stillMotion = matchMedia("(prefers-reduced-motion: reduce)");
-let spunAt = 0;
-(function spinGlobe(now) {
-  const due = now - spunAt;
-  if (due > 80) {
-    if (mapReady && view === "photo" && !guess && !map.isMoving() && !stillMotion.matches && $("loader").classList.contains("gone")) {
-      const c = map.getCenter(); map.setCenter([c.lng + Math.min(due, 250) * 0.0072, c.lat]);
-    }
-    spunAt = now;
-  }
-  requestAnimationFrame(spinGlobe);
-})(0);
-
-let guess = null, marker = null;
+// globe.js draws the globe, the pin and the answer; the layout above says where the small globe stands and what the
+// plates cover. The small globe turns only once the loading screen is gone.
+const globe = createGlobe({ el: $("map"), lang: LANG0, mini: miniAt, insets: reserve, haptic, spin: () => $("loader").classList.contains("gone") });
+// A tap beside the globe, in the void around it, returns to the photo.
+globe.on("beside", toPhoto);
+globe.on("pick", ({ lngLat, point }) => { if (state === "guess") putPin(lngLat, point); });
+globe.on("pinmoved", () => { haptic("select"); toast(pick(lines("moved"))); });
 function putPin(lngLat, point) {
-  const first = !guess; guess = lngLat;
-  if (!marker) {
-    marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom", draggable: true }).setLngLat(guess).addTo(map);
-    marker.on("dragend", () => { guess = marker.getLngLat(); haptic("select"); toast(pick(lines("moved"))); });
-  } else {
-    marker.setLngLat(guess);
-    const p = marker.getElement().firstChild; p.style.animation = "none"; void p.offsetWidth; p.style.animation = "";
-  }
-  const wet = map.queryRenderedFeatures(point, { layers: ["water"] }).length > 0;
-  toast(pick(lines(wet ? "on_water" : first ? "on_land" : "moved")));
+  const first = !globe.guess;
+  globe.pin(lngLat, { draggable: true, drop: true });
+  toast(pick(lines(globe.water(point) ? "on_water" : first ? "on_land" : "moved")));
   haptic("medium");
   // The pin is placed but the answer is not sent: Telegram will ask for confirmation before closing the app.
   if (first) { split(true); setCall(T("pin_set"), T("answer")); if (tgAt("6.2")) tg.enableClosingConfirmation(); }
 }
-map.on("click", (e) => {
-  // A tap beside the globe, in the void around it, returns to the photo. We check the surface itself via MapLibre:
-  // for a point off the globe it still returns a coordinate on its edge, and previously a pin was placed there.
-  if (!onGlobe(e.point)) { toPhoto(); return; }
-  if (state === "guess") putPin(e.lngLat, e.point);
-});
 
 /* ---------- Waiting and result ---------- */
 // Score: up to 3,500 for distance plus bonuses for guessing the continent, country and city, 5,000 at most for the pin;
@@ -529,7 +300,7 @@ const levelOf = (bonus) => [300, 800, 1500].filter((x) => (bonus || 0) >= x).len
 async function send() {
   $("go").disabled = true;
   try {
-    const at = guess.wrap();
+    const at = globe.guess.wrap();
     const res = await api("/api/guess", { lat: at.lat, lon: at.lng });
     if (res.place && Array.isArray(res.table)) toReveal(res);
     else {
@@ -549,98 +320,30 @@ const todayPath = () => SITE ? "/api/today" : "/api/today?" + new URLSearchParam
 // "sent" right after the answer, "closed" when the window shut without one, "restore" when the app reopens after answering.
 let waitShown = false;
 function toWaiting(how) {
-  state = "wait"; waitShown = true; if (marker) marker.setDraggable(false);
+  state = "wait"; waitShown = true; globe.lock();
   if (how === "sent") haptic("success");
   // A pin that never reached the server is not an answer: it leaves the map, so nobody takes it for one.
-  if (how === "closed" && !TODAY.answer && marker) { marker.remove(); marker = null; guess = null; }
+  if (how === "closed" && !TODAY.answer) globe.pin(null);
   if (tgAt("6.2")) tg.disableClosingConfirmation();
   split(false); setCall(T(how === "closed" ? "closed" : "sent"), T("result_at", { time: atZone() }));
   $("timer").classList.add("hidden");
   // A browser in a zone maply does not name gets the time alone.
   overlay('<div class="pl nums"><b id="wleft">' + hm(secondsTo(TODAY.reveal)) + '</b><span class="up">' + esc(T("until_answer")) + '<br>' +
     esc(ZONE_NAME ? T("at", { time: AT, zone: ZONE_NAME }) : T("result_at", { time: atZone() })) + '</span></div>', tgLink());
-  if (guess && view === "map") map.easeTo({ padding: bigCam().padding, center: guess, duration: 700, easing: easeOut });
+  if (globe.guess && view === "map") globe.toBig(700);
 }
 // The app reopened after the answer: put the pin back where it was sent and show the result, live or final. The site
 // waits for its evening.
 function restore() {
   if (!TODAY.answer) return;
-  guess = new maplibregl.LngLat(TODAY.answer.lon, TODAY.answer.lat);
-  if (!marker) marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat(guess).addTo(map);
-  else marker.setLngLat(guess);
-  if (view === "photo") map.jumpTo({ ...miniCam(guess.lat), center: [guess.lng, miniLat(guess.lat)] });
+  globe.pin([TODAY.answer.lon, TODAY.answer.lat], { draggable: false });
+  if (view === "photo") globe.toMini(0);
   // Until the result comes, a tap on the map must not move the sent pin, and the caption already says the answer is in.
   if (SITE) toWaiting("restore");
-  else { state = "wait"; marker.setDraggable(false); setCall(T("sent"), T("result_at", { time: atZone() })); loadResult(); }
+  else { state = "wait"; globe.lock(); setCall(T("sent"), T("result_at", { time: atZone() })); loadResult(); }
 }
-// Result markers are laid out in pixels on every map-motion frame. A friend's point that falls under the target
-// moves out onto a ring around it; nearby points are pushed apart; a label takes the first free spot, and if it
-// ends up far away, a leader line is drawn to the point.
-let marks = null, mine = null;
-const RING = 27, GAP = 23, CLUSTER = 30;
-// The angle between two points on the globe, in degrees.
-function arc(a, b) {
-  const r = Math.PI / 180, la1 = a.lat * r, la2 = b[1] * r, dl = (b[0] - a.lng) * r;
-  return Math.acos(Math.max(-1, Math.min(1, Math.sin(la1) * Math.sin(la2) + Math.cos(la1) * Math.cos(la2) * Math.cos(dl)))) / r;
-}
-// A mark round the back of the globe would show through the land. MapLibre knows exactly where the horizon is at this
-// zoom; when its internal method is gone, the angle from the centre is the guess: a little under 90°.
-const HORIZON = 80;
-function behind(at) {
-  const T = map.transform;
-  if (typeof T.isLocationOccluded === "function") { try { return T.isLocationOccluded(maplibregl.LngLat.convert(at)); } catch {} }
-  return arc(map.getCenter(), at) >= HORIZON;
-}
-function layoutMarks() {
-  // In the photo view the markers are hidden: nothing to lay out until the map opens.
-  if (!marks || view !== "map") return;
-  const T = map.project(marks.truth), G = guess ? map.project(guess) : { x: -1e4, y: -1e4 }, c = map.getContainer(), W = c.clientWidth;
-  const rect = (x, y, w, h) => ({ x, y, w, h });
-  const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-  const front = (at) => !behind(at);
-  marks.target.classList.toggle("far", !front([marks.truth.lng, marks.truth.lat]));
-  marks.friends.forEach((f) => f.e.classList.toggle("far", !front(f.at)));
-  const pts = groupMarks(marks.friends.filter((f) => front(f.at)).map((f) => ({ f, p: map.project(f.at) })))
-    .map(({ f, p }) => ({ f, p, d: { x: p.x, y: p.y }, w: f.b.offsetWidth, h: f.b.offsetHeight }));
-  for (let k = 0; k < 6; k++) {
-    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
-      const a = pts[i].d, b = pts[j].d; let dx = b.x - a.x, dy = b.y - a.y, r = Math.hypot(dx, dy);
-      if (r >= GAP) continue;
-      if (r < .5) { dx = 1; dy = 0; r = 1; }
-      const m = (GAP - r) / 2; a.x -= dx / r * m; a.y -= dy / r * m; b.x += dx / r * m; b.y += dy / r * m;
-    }
-    pts.forEach((a, i) => {
-      let dx = a.d.x - T.x, dy = a.d.y - T.y, r = Math.hypot(dx, dy);
-      if (r >= RING) return;
-      if (r < .5) { const ang = -Math.PI / 4 + i * 1.3; dx = Math.cos(ang); dy = Math.sin(ang); r = 1; }
-      a.d.x = T.x + dx / r * RING; a.d.y = T.y + dy / r * RING;
-    });
-    // Your pin stands above its point: a mark under it could not be tapped, so it moves out sideways or below.
-    if (guess) pts.forEach((a) => {
-      const dx = a.d.x - G.x, dy = a.d.y - G.y, half = 30;
-      if (dy <= -56 || dy >= 11 || Math.abs(dx) >= half) return;
-      if (11 - dy < half - Math.abs(dx)) a.d.y = G.y + 11; else a.d.x = G.x + (dx < 0 ? -half : half);
-    });
-  }
-  const taken = [rect(T.x - 17, T.y - 17, 34, 34), rect(G.x - 20, G.y - 46, 40, 46), ...pts.map((a) => rect(a.d.x - 11, a.d.y - 11, 22, 22))];
-  pts.forEach((a) => {
-    const { w, h } = a;
-    // First flush on the right, then left, below, above; then the diagonals with a leader line.
-    const slots = [[14, -h / 2], [-14 - w, -h / 2], [-w / 2, 14], [-w / 2, -14 - h],
-      [22, -h - 16], [-22 - w, -h - 16], [22, 16], [-22 - w, 16], [34, -h - 30], [-34 - w, -h - 30], [34, 30], [-34 - w, 30]];
-    let n = slots.findIndex(([x, y]) => { const r = rect(a.d.x + x, a.d.y + y, w, h); return r.x >= 4 && r.x + w <= W - 4 && !taken.some((t) => hit(r, t)); });
-    if (n < 0) n = 0;
-    const [x, y] = slots[n];
-    taken.push(rect(a.d.x + x, a.d.y + y, w, h));
-    a.f.g.style.transform = "translate(" + (a.d.x - a.p.x) + "px," + (a.d.y - a.p.y) + "px)";
-    a.f.b.style.transform = "translate(" + x + "px," + y + "px)";
-    const lx = Math.max(x, Math.min(0, x + w)), ly = Math.max(y, Math.min(0, y + h)), len = n < 4 ? 0 : Math.hypot(lx, ly);
-    a.f.s.style.width = len + "px";
-    a.f.s.style.transform = "rotate(" + Math.atan2(ly, lx) + "rad)";
-  });
-}
-map.on("move", layoutMarks);
-map.on("resize", layoutMarks);
+// mine is your own row of the chat's answers, once the result is in.
+let mine = null;
 // Result table under the header. Delays are shared by bars and counters: first the kilometres, then the bonuses one by one,
 // then the dashed missed part.
 const T_KM = .25, T_B = (k) => .75 + k * .3, ROWS = 5;
@@ -777,7 +480,7 @@ new ResizeObserver(() => {
   ovUnderBoard();
   const h = $("prog").offsetHeight, grew = h > progH + 4;
   progH = h;
-  if (grew) keepInView();
+  if (grew) globe.keepInView();
 }).observe($("prog"));
 $("lb").addEventListener("click", (e) => {
   if (e.target.closest(".hit")) return;
@@ -926,77 +629,10 @@ function setLive(res) {
   $("timer").querySelector("span").textContent = T("until_names");
   tick();
 }
-// Everyone's pins worldwide, small and grey under the markers: where the world thinks it is, without anyone's name.
-function drawWorld(w) {
-  const data = { type: "FeatureCollection", features: ((w && w.pins) || []).map((p) => ({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [p.lon, p.lat] } })) };
-  const src = map.getSource("world");
-  if (src) { src.setData(data); return; }
-  map.addSource("world", { type: "geojson", data });
-  map.addLayer({ id: "world", type: "circle", source: "world", paint: { "circle-radius": 3, "circle-color": "#B5C7BD", "circle-stroke-color": "#1A412B", "circle-stroke-width": 1 } });
-}
-// The others' markers. An unnamed one carries a question mark and its distance instead of a name. A marker lives as long
-// as its answer: a new answer adds one, and at the reveal the names take the question marks' place in the same markers.
-// Nothing under a finger is ever replaced, so a gesture that starts on a marker keeps going.
-const friendAt = new Map();
-function drawFriends(friends, fresh) {
-  const keep = new Set(friends.map((f) => f.key));
-  friendAt.forEach((it, k) => { if (!keep.has(k)) { it.m.remove(); friendAt.delete(k); } });
-  marks.friends = friends.map((f) => {
-    const name = f.anon ? kmT(f.d) : f.who, face0 = f.anon ? '<i class="av anon">?</i>' : av(f.who, false, f.photo);
-    let it = friendAt.get(f.key);
-    if (!it) {
-      it = newFriend(f, fresh && fresh.has(f.key));
-      friendAt.set(f.key, it);
-    }
-    // A changed face or name is drawn by groupMarks on the next layout, as a group or alone.
-    if (it.name !== name || it.face0 !== face0) { it.name = name; it.face0 = face0; it.n = NaN; }
-    return it;
-  });
-  layoutMarks();
-}
-function newFriend(f, fresh) {
-  const e = el('<div class="friend' + (fresh ? " new" : "") + '"><span class="g"><s></s><i class="av"></i><b></b></span></div>');
-  const m = new maplibregl.Marker({ element: e }).setLngLat(f.at).addTo(map);
-  e.style.zIndex = 1;
-  // The pop plays once: a marker that hides in a group and comes back does not pop again.
-  e.addEventListener("animationend", () => e.classList.remove("new"), { once: true });
-  const it = { m, at: f.at, e, g: e.firstChild, s: e.querySelector("s"), b: e.querySelector("b"), face: e.querySelector(".av"), n: NaN, group: null };
-  // A tap on a group zooms in until it comes apart.
-  it.g.addEventListener("click", (ev) => {
-    if (!it.group || !it.group.length) return;
-    ev.stopPropagation(); haptic("light");
-    const b = new maplibregl.LngLatBounds(it.at, it.at);
-    it.group.forEach((o) => b.extend(near180(o.at, it.at[0])));
-    const cam = map.cameraForBounds(b, { padding: 70, maxZoom: Math.min(map.getZoom() + 4, 14) });
-    // The player chose this view: a growing table does not take it back to the opening frame.
-    userMoved = true;
-    if (cam) map.easeTo({ center: cam.center, zoom: Math.max(cam.zoom, map.getZoom() + 1), duration: 650, easing: easeOut });
-  });
-  return it;
-}
-// Several answers within a finger's width of each other become one marker: the best of them, with how many more stand
-// behind it. Which ones group changes with the zoom.
-function groupMarks(all) {
-  const leads = [];
-  all.forEach((a) => {
-    const host = leads.find((l) => Math.hypot(l.p.x - a.p.x, l.p.y - a.p.y) < CLUSTER);
-    if (host) host.f.group.push(a.f); else { a.f.group = []; leads.push(a); }
-  });
-  all.forEach((a) => {
-    const f = a.f, lead = leads.includes(a), n = lead ? f.group.length : -1;
-    if (!lead) f.group = null;
-    if (n === f.n) return;
-    f.n = n;
-    f.e.classList.toggle("hid", !lead);
-    f.e.classList.toggle("grp", n > 0);
-    if (n < 0) return;
-    f.face.outerHTML = n > 0 ? '<i class="av grp">' + (n + 1) + '</i>' : f.face0;
-    f.face = f.g.querySelector(".av");
-    // The name is isolated, so in Arabic "+3" stays after it and does not mix with its digits.
-    f.b.textContent = n > 0 ? "⁨" + f.name + "⁩ +" + n : f.name;
-  });
-  return leads;
-}
+// The others' marks on the map. An unnamed one carries a question mark and its distance instead of a name; at the reveal
+// the names take the question marks' place in the same marks.
+const friendsOf = (rows) => rows.filter((r) => !r.me).map((f) => ({ key: f.key, at: f.at, d: f.d,
+  label: f.anon ? kmT(f.d) : f.who, face: f.anon ? '<i class="av anon">?</i>' : av(f.who, false, f.photo) }));
 // A later look at the live result: new answers slide in, and at the reveal the names take the question marks' place.
 function repaint(res) {
   const was = PHASE;
@@ -1007,13 +643,12 @@ function repaint(res) {
   const board = boardOf(res), freshB = new Set(board.filter((r) => !seenB.has(r.key)).map((r) => r.key));
   board.forEach((r) => seenB.add(r.key));
   paintBoard(board, res.players, freshB); countUp(freshB);
-  drawWorld(res.world);
+  globe.world(res.world && res.world.pins);
   if (res.version && g0 === g1 && p0 === p1) { setLive(res); return; }
   const rows = rowsOf(res), fresh = new Set(rows.filter((r) => !seen.has(r.key)).map((r) => r.key));
   rows.forEach((r) => seen.add(r.key));
   mine = rows.find((r) => r.me) || mine;
-  marks.rows = rows.filter((r) => !r.me);
-  drawFriends(marks.rows, fresh);
+  globe.others(friendsOf(rows), fresh);
   setLive(res);
   if (was === "live" && PHASE === "final") { toast(T("names_open")); haptic("success"); }
   else if (fresh.size) haptic("light");
@@ -1025,36 +660,22 @@ function toReveal(res) {
   PHASE = res.phase || "final";
   // The answer is in: closing the app loses nothing, so Telegram must not ask.
   if (tgAt("6.2")) tg.disableClosingConfirmation();
-  const P = res.place, truth = new maplibregl.LngLat(P.lon, P.lat);
+  const P = res.place;
   credits(P);
   const rows = rowsOf(res);
   seen = new Set(rows.map((r) => r.key));
   mine = rows.find((r) => r.me) || null;
   // A pin that never reached the server is not an answer: it leaves the map rather than draw a line to the place.
-  if (!mine && marker) { marker.remove(); marker = null; guess = null; }
-  if (mine) guess = new maplibregl.LngLat(mine.at[0], mine.at[1]);
-  if (marker && guess) marker.setLngLat(guess);
-  if (guess && !marker) marker = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat(guess).addTo(map);
-  if (marker) marker.setDraggable(false);
-  const friends = rows.filter((r) => !r.me), board = boardOf(res);
+  globe.pin(mine && mine.at, { draggable: false });
+  const board = boardOf(res);
   seenB = new Set(board.map((r) => r.key));
   paintBoard(board, res.players);
   $("lb").offsetWidth; // the bar and avatars must catch the closed state, otherwise there will be no animation
   document.body.classList.add("is-reveal");
   ovUnderBoard();
-  drawWorld(res.world);
-  // Layer order: the world's pins, friends, the target above them, your own pin on top.
-  marks = { truth, friends: [], rows: friends, target: el(TARGET) };
-  drawFriends(friends, null);
-  new maplibregl.Marker({ element: marks.target }).setLngLat(truth).addTo(map).getElement().style.zIndex = 2;
-  if (marker) marker.getElement().style.zIndex = 3;
-  layoutMarks();
-  if (guess) {
-    const line = { type: "Feature", geometry: { type: "LineString", coordinates: [near180([guess.lng, guess.lat], truth.lng), [truth.lng, truth.lat]] } };
-    map.addSource("line", { type: "geojson", data: line });
-    map.addLayer({ id: "line-case", type: "line", source: "line", paint: { "line-color": "#FFFFFF", "line-width": 5 } });
-    map.addLayer({ id: "line", type: "line", source: "line", paint: { "line-color": "#1A412B", "line-width": 2, "line-dasharray": [2, 1.5] } });
-  }
+  // The world's pins go under the answer's marks.
+  globe.world(res.world && res.world.pins);
+  globe.answer({ truth: [P.lon, P.lat], km: mine ? mine.d : null, others: friendsOf(rows) });
   split(!!mine); $("go").textContent = T("share");
   setCall(T("day_result"), T("see"));
   const where = esc([P.city, regionName(P.country)].filter(Boolean).join(", ")), fact = esc(P.fact || "");
@@ -1070,52 +691,12 @@ function toReveal(res) {
   // On a short screen the plate starts folded: open, it would leave the map a strip between the table and the buttons.
   if (innerHeight < 640) $("place").classList.add("min");
   setLive(res);
-  view = "map"; document.body.classList.add("is-map"); paintBackdrop(); syncBack();
-  frameResult(1200);
+  view = "map"; document.body.classList.add("is-map"); syncBack(); pano.still(true);
+  globe.frame(1200);
   haptic("success");
 }
-// A longitude moved by whole turns to within half a turn of from's: two points either side of the 180th meridian frame
-// and join the short way round, not across the rest of the world.
-const lngNear = (lng, from) => from + ((((lng - from) % 360) + 540) % 360) - 180;
-const near180 = (at, from) => [lngNear(at[0], from), at[1]];
-// The opening frame: the place, your pin and the answers near them. An answer from the other side of the world would
-// zoom out to the whole globe and squeeze the two that matter into one dot, or turn them to its back.
-function frameResult(duration) {
-  const { W, H } = box(), { t, b } = reserve(), c = marks.truth.lng, pts = [[c, marks.truth.lat]];
-  if (guess) pts.push(near180([guess.lng, guess.lat], c));
-  const ds = marks.rows.map((f) => f.d).sort((x, y) => x - y);
-  const near = Math.min(3000, Math.max(800, mine ? mine.d * 1.5 : ds[Math.min(2, ds.length - 1)] || 0));
-  marks.rows.forEach((f) => { if (f.d <= near) pts.push(near180(f.at, c)); });
-  const bounds = new maplibregl.LngLatBounds(pts[0], pts[0]);
-  pts.forEach((p) => bounds.extend(p));
-  // Your pin stands above its point. On a short screen the margins shrink together, so the map keeps some room: with
-  // margins larger than the screen MapLibre does not move at all.
-  let top = t + 24 + (guess ? 46 : 0), bottom = b + 24;
-  const side = Math.min(40, W / 8), room = H - 120;
-  if (top + bottom > room) { const k = room / (top + bottom); top *= k; bottom *= k; }
-  map.setPadding({ left: 0, top: 0, right: 0, bottom: 0 });
-  userMoved = false;
-  map.fitBounds(bounds, { padding: { top, left: side, right: side, bottom }, maxZoom: 9, duration });
-}
-// When the table grows over the place or your pin, the camera moves to show them again. Not under a finger or in flight:
-// then it waits until the map stands still. Once the player has moved the map, the view is theirs: a point they took
-// off the screen is not "under the table".
-let viewDue = false, userMoved = false;
-map.on("movestart", (e) => { if (e.originalEvent) userMoved = true; });
-function keepInView() {
-  if (state !== "reveal" || view !== "map" || !marks || userMoved) return;
-  if (touches || map.isMoving()) { viewDue = true; return; }
-  viewDue = false;
-  const { t, b } = reserve(), { W, H } = box();
-  const under = (ll, above) => {
-    const p = map.project(ll);
-    return p.x >= 0 && p.x <= W && ((p.y >= 0 && p.y - above < t) || (p.y > H - b && p.y <= H));
-  };
-  if (under(marks.truth, 15) || (guess && under(guess, 46))) frameResult(600);
-}
-map.on("moveend", () => { if (viewDue) keepInView(); });
 $("go").addEventListener("click", () => {
-  if (state === "guess" && guess) send();
+  if (state === "guess" && globe.guess) send();
   else if (state === "reveal") share();
 });
 // Forwarding the result. In Telegram 8.0 and later the server prepares the result card, a map picture with a Play button,
@@ -1321,14 +902,13 @@ async function boot() {
   Router.start();
   loadShareTexts();
   $("day").textContent = "#" + TODAY.day;
-  HEADING = TODAY.heading || 0;
   AT = new Intl.DateTimeFormat(numLang(), { timeZone: TODAY.zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(TODAY.reveal));
   ZONE_NAME = ZONES[TODAY.zone] || "";
-  startPano();
+  pano.show({ image: TODAY.image, kind: TODAY.kind, heading: TODAY.heading || 0 });
   // Someone who has answered is told so at once, not asked to drop a pin while the map loads.
   if (TODAY.answer) setCall(T("sent"), T("result_at", { time: atZone() }));
   // The answer and the result need the map's style: markers and the line are added to it.
-  await new Promise((r) => whenMapReady(r));
+  await new Promise((r) => globe.ready(r));
   if (TODAY.answer) { restore(); hideLoader(); }
   else if (!secondsTo(TODAY.deadline)) toWaiting("closed");
   tick();
