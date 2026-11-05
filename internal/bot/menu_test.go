@@ -369,9 +369,13 @@ func TestJoiningAndLeaving(t *testing.T) {
 	if store.zones[groupID] != "Europe/Kyiv" {
 		t.Fatalf("zone = %q", store.zones[groupID])
 	}
-	// A promotion is not a second setup.
+	// A promotion is not a second setup, and a restriction is not a removal.
 	b.handle(ctx, membership(admin, "member", "administrator"))
-	b.handle(ctx, membership(admin, "administrator", "kicked"))
+	b.handle(ctx, membership(admin, "administrator", "restricted"))
+	if len(store.left) != 0 {
+		t.Fatalf("a restriction left the group: %v", store.left)
+	}
+	b.handle(ctx, membership(admin, "restricted", "kicked"))
 	if len(store.left) != 1 || store.left[0] != groupID {
 		t.Fatalf("left = %v", store.left)
 	}

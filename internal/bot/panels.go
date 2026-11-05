@@ -390,9 +390,13 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 
 // onMembership sets a group up when maply is added and marks it when maply
 // is removed. In a DM the same update says the person blocked or unblocked
-// maply.
+// maply. A restricted maply is still in the group: an admin who turned off
+// GIFs for it did not remove it, and what it may not send, Telegram refuses
+// when it is sent.
 func (b *Bot) onMembership(ctx context.Context, upd *tg.ChatMemberUpdated) error {
-	in := func(status string) bool { return status == "member" || status == "administrator" }
+	in := func(status string) bool {
+		return status == "member" || status == "administrator" || status == "restricted"
+	}
 	if upd.Chat.Type == "private" {
 		if in(upd.NewChatMember.Status) {
 			return b.store.ReturnChat(ctx, upd.Chat.ID)
