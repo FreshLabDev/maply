@@ -4,6 +4,7 @@ package api
 import (
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"sync"
 	"time"
@@ -40,8 +41,22 @@ func (l *limiter) allow(userID int64) bool {
 	return l.allowKey(strconv.FormatInt(userID, 10))
 }
 
+// allowIP counts an IPv6 address by its /64: one home or phone gets a whole
+// /64, and counting each address would give it 2^64 buckets.
 func (l *limiter) allowIP(ip string) bool {
-	return l.allowKey(ip)
+	return l.allowKey(ipKey(ip))
+}
+
+func ipKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil || addr.Unmap().Is4() {
+		return ip
+	}
+	p, err := addr.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
 }
 
 // clientIP trusts CF-Connecting-IP because the service is reachable only

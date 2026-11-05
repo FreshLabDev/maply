@@ -117,6 +117,9 @@ type Server struct {
 	shareLimit *limiter
 	logLimit   *limiter
 	logAll     *limiter
+	// siteAll caps the site's writes from everyone together: a site player
+	// is a cookie, and addresses are cheap.
+	siteAll *limiter
 
 	// tied remembers who has been tied to which chat's reveal, so a result
 	// polled again does not write to core every time.
@@ -136,6 +139,7 @@ func (s *Server) Handler() http.Handler {
 	// flood, and the journal is shared with every stack on the host.
 	s.logLimit = newLimiter(5, time.Minute)
 	s.logAll = newLimiter(30, time.Minute)
+	s.siteAll = newLimiter(120, time.Minute)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/today", s.today)
 	mux.HandleFunc("POST /api/guess", s.guess)

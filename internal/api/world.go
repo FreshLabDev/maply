@@ -64,7 +64,7 @@ type siteGuessBody struct {
 // siteGuess takes a site player's one answer of the day, making the player
 // on the first answer.
 func (s *Server) siteGuess(w http.ResponseWriter, r *http.Request) {
-	if !s.ipLimit.allowIP(clientIP(r)) {
+	if !s.ipLimit.allowIP(clientIP(r)) || !s.siteAll.allowKey("all") {
 		s.fail(w, r, errRateLimited)
 		return
 	}
@@ -117,9 +117,11 @@ func (s *Server) siteGuess(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
 }
 
-// siteName sets or clears the site player's name for the ranking.
+// siteName sets or clears the site player's name for the ranking. A browser
+// that has not answered yet is no player: its name comes with its answer,
+// and nothing is stored before that.
 func (s *Server) siteName(w http.ResponseWriter, r *http.Request) {
-	if !s.ipLimit.allowIP(clientIP(r)) {
+	if !s.ipLimit.allowIP(clientIP(r)) || !s.siteAll.allowKey("all") {
 		s.fail(w, r, errRateLimited)
 		return
 	}
@@ -136,15 +138,13 @@ func (s *Server) siteName(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errBadRequest)
 		return
 	}
-	player := playerID(r)
-	if player == "" {
-		player = newPlayerID()
+	if player := playerID(r); player != "" {
+		if err := s.Store.SitePlayer(r.Context(), player, &body.Name); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		setPlayer(w, player)
 	}
-	if err := s.Store.SitePlayer(r.Context(), player, &body.Name); err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	setPlayer(w, player)
 	writeJSON(w, http.StatusOK, map[string]string{"name": db.CleanName(body.Name)})
 }
 

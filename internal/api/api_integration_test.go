@@ -536,6 +536,10 @@ func TestSitePlayerIsRanked(t *testing.T) {
 		hs.h.ServeHTTP(rr, req)
 		return rr
 	}
+	// A name typed before any answer makes no player: nothing is stored.
+	if rr := send("POST", "/api/site/name", "", `{"name":"Lucía"}`); rr.Code != http.StatusOK || len(rr.Result().Cookies()) != 0 {
+		t.Fatalf("name before an answer = %d, cookies %v", rr.Code, rr.Result().Cookies())
+	}
 	rr := send("POST", "/api/site/guess?tz=Europe/Kyiv", "", `{"lat":49.9,"lon":24.1,"name":"  Lucía "}`)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("site guess = %d %s", rr.Code, rr.Body)
