@@ -121,3 +121,22 @@ func TestScenePinsRainInTheOrderTheyCame(t *testing.T) {
 		t.Errorf("podium %v, metres %q", w.Top, w.UnitM)
 	}
 }
+
+// A site winner is a guest on the podium, in English where the faces don't
+// write the language's word for it.
+func TestSiteWinnerIsAGuestInEveryLanguage(t *testing.T) {
+	store := &fakeStore{}
+	store.answer(1, "Ana", 3, time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC))
+	a, _ := store.Answer(context.Background(), 1)
+	w := store.world
+	w.Entries = append([]db.Entry{{Rank: 1, Player: "p1", Name: "anything typed", Km: 1, Points: 5000}}, w.Entries...)
+	for lang, want := range map[string]string{"zh": "Guest", "ja": "Guest", "ar": "Guest", "en": "Guest"} {
+		sc := Scene(lang, 3, a, w, store.pins, nil, true).(*anim.World)
+		if got := sc.Top[0].Name; got != want {
+			t.Errorf("%s: site winner named %q, want %q", lang, got, want)
+		}
+	}
+	if got := Scene("ru", 3, a, w, store.pins, nil, true).(*anim.World).Top[0].Name; got == "?" || got == "anything typed" {
+		t.Errorf("ru: site winner named %q", got)
+	}
+}

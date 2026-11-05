@@ -325,7 +325,11 @@ func Scene(lang string, dayNo int, answer db.Answer, w db.World, pins []db.World
 		// every DM, so the site is a guest there.
 		name := e.Name
 		if e.Site() {
-			name = i18n.T(lang, "app.guest")
+			// In a language the faces don't write (zh, ja, ar) the word
+			// would be filtered down to "?": English instead.
+			if name = i18n.T(lang, "app.guest"); !anim.Covers(name) {
+				name = i18n.T(i18n.DefaultLang, "app.guest")
+			}
 		}
 		top[i] = &anim.Winner{Name: anim.Name(name), Km: e.Km, Points: float64(e.Points)}
 		if !e.Site() {
