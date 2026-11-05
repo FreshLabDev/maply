@@ -25,15 +25,7 @@ import (
 func (s *Server) latestReveal(d round.Date) time.Time { return s.Zones.LastReveal(d) }
 
 // firstDate is the newest date that has begun in a zone maply offers.
-func (s *Server) firstDate() round.Date {
-	var first round.Date
-	for i, name := range round.ZoneChoices {
-		if d := round.DateIn(s.Now(), s.Zones.For(name, "")); i == 0 || first.Before(d) {
-			first = d
-		}
-	}
-	return first
-}
+func (s *Server) firstDate() round.Date { return s.Zones.Newest(s.Now()) }
 
 // siteZone is the visitor's zone as the browser names it, or the default.
 func (s *Server) siteZone(r *http.Request) *time.Location {

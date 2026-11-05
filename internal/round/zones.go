@@ -131,6 +131,18 @@ func (z Zones) With(name string, loc *time.Location) Zones {
 	return out
 }
 
+// Newest is the newest date that has begun at now in a zone maply offers,
+// or in UTC: east of UTC a new day's round runs hours before UTC midnight.
+func (z Zones) Newest(now time.Time) Date {
+	newest := DateIn(now, time.UTC)
+	for _, loc := range z.locs {
+		if d := DateIn(now, loc); newest.Before(d) {
+			newest = d
+		}
+	}
+	return newest
+}
+
 // FirstReveal is when d's place is first out, in the zone where 20:00 comes
 // earliest.
 func (z Zones) FirstReveal(d Date) time.Time {

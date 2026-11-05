@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -73,7 +74,15 @@ type key struct {
 
 type drawn struct {
 	version, path string
+	at            time.Time
 }
+
+// A picture drawn but not sent is kept on disk for keepFor, and at most
+// maxKept of them: one is a few megabytes, and new numbers make it stale.
+const (
+	keepFor = 6 * time.Hour
+	maxKept = 64
+)
 
 type drawing struct {
 	version string
@@ -175,7 +184,8 @@ func (s *Service) Draw(ctx context.Context, userID int64, lang string, workers i
 		if old, ok := s.drawn[k]; ok && old.path != path {
 			os.Remove(old.path)
 		}
-		s.drawn[k] = drawn{version: version, path: path}
+		s.drawn[k] = drawn{version: version, path: path, at: s.now()}
+		s.prune()
 	}
 	if s.busy[k] == d {
 		delete(s.busy, k)
@@ -201,9 +211,31 @@ func (s *Service) render(ctx context.Context, k key, version string, p *anim.Pro
 		return "", fmt.Errorf("profile of %d: %w", k.user, err)
 	}
 	if s.Log != nil {
-		s.Log.Info("profile drawn", "user", k.user, "lang", k.lang, "took", time.Since(start).Round(time.Millisecond))
+		s.Log.Info("profile drawn", "lang", k.lang, "took", time.Since(start).Round(time.Millisecond))
 	}
 	return path, nil
+}
+
+// prune drops the pictures kept too long, then the oldest beyond maxKept.
+// s.mu is held.
+func (s *Service) prune() {
+	for k, d := range s.drawn {
+		if s.now().Sub(d.at) > keepFor {
+			os.Remove(d.path)
+			delete(s.drawn, k)
+		}
+	}
+	for len(s.drawn) > maxKept {
+		var oldest key
+		first := true
+		for k, d := range s.drawn {
+			if first || d.at.Before(s.drawn[oldest].at) {
+				oldest, first = k, false
+			}
+		}
+		os.Remove(s.drawn[oldest].path)
+		delete(s.drawn, oldest)
+	}
 }
 
 // Keep records the file_id Telegram gave the picture once it was sent, and
@@ -240,15 +272,26 @@ func (s *Service) Run(ctx context.Context, every time.Duration) {
 			return
 		case <-t.C:
 		}
-		if err := s.Warm(ctx); err != nil && ctx.Err() == nil && s.Log != nil {
+		if err := s.warm(ctx); err != nil && ctx.Err() == nil && s.Log != nil {
 			s.Log.Warn("profiles not drawn ahead", "error", err)
 		}
 		t.Reset(every)
 	}
 }
 
-// Warm draws the pictures that are missing for the recent players, in their
-// own language.
+// warm is Warm that turns a panic into an error, so drawing ahead keeps
+// running after one bad picture.
+func (s *Service) warm(ctx context.Context) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("panic: %v\n%s", p, debug.Stack())
+		}
+	}()
+	return s.Warm(ctx)
+}
+
+// Warm draws the pictures that are missing for the recent players who look
+// at their statistics, in their own language.
 func (s *Service) Warm(ctx context.Context) error {
 	ids, err := s.Store.RecentPlayers(ctx, s.today().AddDays(-2))
 	if err != nil {
@@ -271,9 +314,11 @@ func (s *Service) Warm(ctx context.Context) error {
 	return nil
 }
 
-// today is the newest date a round can be on: the date in UTC. A round on it
-// shows on the strip only once the person has answered it.
-func (s *Service) today() round.Date { return round.DateIn(s.now(), time.UTC) }
+// today is the newest date a round can be on: the newest local date among
+// the zones maply offers, so a player in Tokyo sees the answer they gave this
+// morning before UTC midnight. A round on it shows on the strip only once the
+// person has answered it.
+func (s *Service) today() round.Date { return s.Zones.Newest(s.now()) }
 
 // picture builds the person's picture and its fingerprint.
 func (s *Service) picture(ctx context.Context, userID int64, lang string) (*anim.Profile, string, error) {

@@ -3,7 +3,10 @@ package profile
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -144,5 +147,38 @@ func TestDrawOnceThenTheFileID(t *testing.T) {
 	}
 	if c, err := s.Draw(ctx, 7, "ru", 0); err != nil || c.FileID != "file-1" {
 		t.Fatalf("drew again: %+v, %v", c, err)
+	}
+}
+
+// Pictures nobody took are dropped after keepFor, and the oldest go first
+// beyond maxKept.
+func TestKeptPicturesAreBounded(t *testing.T) {
+	dir := t.TempDir()
+	now := today.Time().Add(12 * time.Hour)
+	s := &Service{Dir: dir, Now: func() time.Time { return now }, drawn: map[key]drawn{}}
+	put := func(user int64, age time.Duration) string {
+		path := filepath.Join(dir, fmt.Sprintf("%d.mp4", user))
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s.drawn[key{user, "ru"}] = drawn{version: "v", path: path, at: now.Add(-age)}
+		return path
+	}
+	stale := put(1, keepFor+time.Minute)
+	for i := range maxKept + 1 {
+		put(int64(100+i), time.Duration(maxKept-i)*time.Second)
+	}
+	oldest := s.drawn[key{100, "ru"}].path
+	s.prune()
+	if len(s.drawn) != maxKept {
+		t.Fatalf("kept %d, want %d", len(s.drawn), maxKept)
+	}
+	for _, gone := range []string{stale, oldest} {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Errorf("%s still on disk", gone)
+		}
+	}
+	if _, ok := s.drawn[key{100 + maxKept, "ru"}]; !ok {
+		t.Error("the newest picture was dropped")
 	}
 }

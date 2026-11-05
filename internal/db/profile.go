@@ -145,10 +145,16 @@ func (s *Store) SetProfileCard(ctx context.Context, userID int64, lang, version,
 	return nil
 }
 
-// RecentPlayers are the Telegram players who answered on or after since, for
-// drawing their pictures ahead of time.
+// RecentPlayers are the Telegram players who answered on or after since and
+// were sent their statistics in the last week, for drawing their pictures
+// ahead of time. Someone who never opens them costs nothing: their first
+// press draws the picture while they wait.
 func (s *Store) RecentPlayers(ctx context.Context, since round.Date) ([]int64, error) {
-	rows, err := s.pool.Query(ctx, `SELECT DISTINCT user_id FROM guess WHERE date >= $1 ORDER BY user_id`, since.Time())
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT g.user_id FROM guess g
+		  JOIN profile_card c ON c.user_id = g.user_id AND c.updated_at > now() - interval '7 days'
+		 WHERE g.date >= $1
+		 ORDER BY g.user_id`, since.Time())
 	if err != nil {
 		return nil, fmt.Errorf("recent players: %w", err)
 	}

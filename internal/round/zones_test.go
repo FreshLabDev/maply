@@ -64,3 +64,22 @@ func TestReopens(t *testing.T) {
 		}
 	}
 }
+
+// The newest date runs ahead of UTC once midnight has passed in the east.
+func TestNewestRunsAheadOfUTC(t *testing.T) {
+	z, err := LoadZones()
+	if err != nil {
+		t.Fatal(err)
+	}
+	evening := time.Date(2026, time.November, 9, 18, 0, 0, 0, time.UTC)
+	if got, want := z.Newest(evening), NewDate(2026, 11, 10); got != want {
+		t.Errorf("Newest at 18:00 UTC = %v, want %v", got, want)
+	}
+	morning := time.Date(2026, time.November, 9, 6, 0, 0, 0, time.UTC)
+	if got, want := z.Newest(morning), NewDate(2026, 11, 9); got != want {
+		t.Errorf("Newest at 06:00 UTC = %v, want %v", got, want)
+	}
+	if got, want := (Zones{}).Newest(evening), NewDate(2026, 11, 9); got != want {
+		t.Errorf("Newest with no zones = %v, want the UTC date %v", got, want)
+	}
+}
