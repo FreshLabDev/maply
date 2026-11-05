@@ -127,6 +127,12 @@ type Server struct {
 	// polled again does not write to core every time.
 	tiedMu sync.Mutex
 	tied   map[string]bool
+
+	// closed keeps what a day that is over everywhere shows, which no longer
+	// changes: the days page and a day's ranking do not ask the database
+	// again for every visitor.
+	closedMu sync.Mutex
+	closed   map[round.Date]closedDay
 }
 
 func (s *Server) Handler() http.Handler {

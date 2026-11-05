@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,12 @@ const (
 	playerAge    = 365 * 24 * time.Hour
 	// daysShown is how far back the days page goes.
 	daysShown = 30
+	// rankShown is how many of a day's rows the ranking sends; the viewer's
+	// own row comes on top of them when it is further down.
+	rankShown = 500
+	// closedFor is how long a closed day is kept before it is read again: a
+	// name changed or an answer removed by hand shows within it.
+	closedFor = 10 * time.Minute
 )
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -258,10 +265,8 @@ func (s *Server) days(w http.ResponseWriter, r *http.Request) {
 				Rank   int     `json:"rank"`
 			}{m.Km, m.Points, m.Rank}
 		}
-		if rd, ok, err := s.Store.RoundOn(ctx, d.Date); err == nil && ok {
-			if a, err := s.Store.Answer(ctx, rd.PlaceID); err == nil {
-				x.City, x.Country = localized(a.City, v.lang), a.CountryISO
-			}
+		if c, err := s.closedPlace(ctx, d.Date); err == nil {
+			x.City, x.Country = localized(c.answer.City, v.lang), c.answer.CountryISO
 		}
 		out = append(out, x)
 	}
@@ -293,35 +298,18 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": errNotRevealed.code, "opens_at": opens.UTC()})
 		return
 	}
-	ctx := r.Context()
-	rd, ok, err := s.Store.RoundOn(ctx, d)
+	c, err := s.closedRanking(r.Context(), d)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if !ok {
-		s.fail(w, r, errNoRound)
-		return
-	}
-	answer, err := s.Store.Answer(ctx, rd.PlaceID)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	// A day nobody opened since its last reveal may still hold unscored answers.
-	if err := s.scoreDay(ctx, d, answer, s.Now()); err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	world, err := s.Store.World(ctx, d)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	ranking := make([]rankLine, 0, len(world.Entries))
-	for _, e := range world.Entries {
+	rd, answer, world := c.round, c.answer, *c.world
+	ranking := make([]rankLine, 0, min(len(world.Entries), rankShown+1))
+	for i, e := range world.Entries {
 		me := (v.user != 0 && e.UserID == v.user) || (v.player != "" && e.Player == v.player)
-		ranking = append(ranking, rankLine{Rank: e.Rank, Name: e.Name, Site: e.Site(), Km: e.Km, Points: e.Points, Me: me})
+		if i < rankShown || me {
+			ranking = append(ranking, rankLine{Rank: e.Rank, Name: e.Name, Site: e.Site(), Km: e.Km, Points: e.Points, Me: me})
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"date": d.String(), "day": rd.DayNo,
@@ -333,4 +321,66 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 		"median_km": world.MedianKm, "country_pct": world.CountryPct,
 		"ranking": ranking, "players": world.Players(),
 	})
+}
+
+// closedDay is what a day over everywhere shows; world is nil until the day's
+// ranking was asked for.
+type closedDay struct {
+	at     time.Time
+	round  db.Round
+	answer db.Answer
+	world  *db.World
+}
+
+// closedPlace is a closed day's round and place, read once per closedFor.
+func (s *Server) closedPlace(ctx context.Context, d round.Date) (closedDay, error) {
+	s.closedMu.Lock()
+	c, ok := s.closed[d]
+	s.closedMu.Unlock()
+	if ok && s.Now().Sub(c.at) < closedFor {
+		return c, nil
+	}
+	rd, ok, err := s.Store.RoundOn(ctx, d)
+	if err != nil {
+		return closedDay{}, err
+	}
+	if !ok {
+		return closedDay{}, errNoRound
+	}
+	answer, err := s.Store.Answer(ctx, rd.PlaceID)
+	if err != nil {
+		return closedDay{}, err
+	}
+	c = closedDay{at: s.Now(), round: rd, answer: answer}
+	s.keepClosed(d, c)
+	return c, nil
+}
+
+// closedRanking adds the day's world ranking to its place, scoring what
+// nobody scored since the last reveal first.
+func (s *Server) closedRanking(ctx context.Context, d round.Date) (closedDay, error) {
+	c, err := s.closedPlace(ctx, d)
+	if err != nil || c.world != nil {
+		return c, err
+	}
+	if err := s.scoreDay(ctx, d, c.answer, s.Now()); err != nil {
+		return closedDay{}, err
+	}
+	world, err := s.Store.World(ctx, d)
+	if err != nil {
+		return closedDay{}, err
+	}
+	c.world = &world
+	s.keepClosed(d, c)
+	return c, nil
+}
+
+func (s *Server) keepClosed(d round.Date, c closedDay) {
+	s.closedMu.Lock()
+	defer s.closedMu.Unlock()
+	// The days page shows daysShown of them; a few more for old links.
+	if s.closed == nil || len(s.closed) >= 2*daysShown {
+		s.closed = map[round.Date]closedDay{}
+	}
+	s.closed[d] = c
 }
