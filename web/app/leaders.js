@@ -46,7 +46,8 @@ window.Leaders = (() => {
 
   function show(el) {
     box = el;
-    box.innerHTML = '<div class="lead">' +
+    // On a page of its own the computer lays it out in columns; in the sheet it keeps the phone's one.
+    box.innerHTML = '<div class="lead' + (el.closest("#sheet") ? "" : " lead-wide") + '">' +
       '<header class="lead-head"><h2 class="lead-h">' + esc(T("lead.title")) + '</h2><p class="lead-sub">' + esc(T("lead.sub")) + '</p></header>' +
       '<div class="lead-boards" role="tablist" aria-label="' + esc(T("lead.title")) + '">' + BOARDS.map((b) =>
         '<button role="tab" id="lead-t-' + b.id + '" data-board="' + b.id + '" aria-controls="leadPanel"><b>' + esc(T(b.name)) + '</b><small>' + esc(T(b.what)) + '</small></button>').join("") + '</div>' +

@@ -11,11 +11,30 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/round"
 )
 
-// freeGame writes one player's finished free game and its result. A party
-// gets a second seat nobody holds a result for.
-func (hs *harness) freeGame(user int64, kind, mode string, seconds, rounds, score int, at time.Time) {
+// freeAccounts gives free_result the player column of free-game's
+// migration 024 until it lands: a result is a Telegram person's or an
+// account's site player's. It goes with the merge of 024.
+func (hs *harness) freeAccounts() {
+	hs.t.Helper()
+	for _, q := range []string{
+		`ALTER TABLE maply.free_result ADD COLUMN IF NOT EXISTS player UUID REFERENCES maply.site_player(id) ON DELETE CASCADE`,
+		`ALTER TABLE maply.free_result ALTER COLUMN user_id DROP NOT NULL`,
+	} {
+		if _, err := hs.pool.Exec(context.Background(), q); err != nil {
+			hs.t.Fatal(err)
+		}
+	}
+}
+
+// freeGame writes one player's finished free game and its result: who is a
+// Telegram id or a site player. A party gets a second seat nobody holds a
+// result for.
+func (hs *harness) freeGame(who any, kind, mode string, seconds, rounds, score int, at time.Time) {
 	hs.t.Helper()
 	ctx := context.Background()
 	null := func(n int) any {
@@ -24,17 +43,29 @@ func (hs *harness) freeGame(user int64, kind, mode string, seconds, rounds, scor
 		}
 		return n
 	}
+	var user, player any
+	switch w := who.(type) {
+	case int:
+		user = int64(w)
+	case int64:
+		user = w
+	case string:
+		player = w
+	}
 	var code, started, place, players, beaten, streak any
-	if kind != "solo" {
+	if kind == "party" {
 		var n int
 		if err := hs.pool.QueryRow(ctx, `SELECT count(*) FROM maply.free_game`).Scan(&n); err != nil {
 			hs.t.Fatal(err)
 		}
 		code, started, place, players, beaten = fmt.Sprintf("PARTY%03d", n), at.Add(-time.Minute), 1, 2, 1
 	}
-	points := score
-	if mode == "streak" {
+	points, countries := score, 3
+	switch mode {
+	case "streak":
 		streak, points = score, score*4000
+	case "timed":
+		countries, points = score, score*3000
 	}
 	var id int64
 	if err := hs.pool.QueryRow(ctx, `
@@ -44,15 +75,15 @@ func (hs *harness) freeGame(user int64, kind, mode string, seconds, rounds, scor
 		hs.t.Fatal(err)
 	}
 	if _, err := hs.pool.Exec(ctx, `
-		INSERT INTO maply.free_member (game, m, user_id, name, joined_at, last_seen_at) VALUES ($1, 1, $2, 'x', $3, $3)`,
-		id, user, at.Add(-2*time.Minute)); err != nil {
+		INSERT INTO maply.free_member (game, m, user_id, player, name, joined_at, last_seen_at) VALUES ($1, 1, $2, $3, 'x', $4, $4)`,
+		id, user, player, at.Add(-2*time.Minute)); err != nil {
 		hs.t.Fatal(err)
 	}
 	if _, err := hs.pool.Exec(ctx, `
-		INSERT INTO maply.free_result (game, m, user_id, kind, mode, seconds, rounds, points, points_base, km, km_rounds,
+		INSERT INTO maply.free_result (game, m, user_id, player, kind, mode, seconds, rounds, points, points_base, km, km_rounds,
 		                               time_ms, played, answered, countries, from_round, place, players, beaten, streak, finished_at)
-		VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $7, 100, '{100}', 60000, 5, 5, 3, 1, $8, $9, $10, $11, $12)`,
-		id, user, kind, mode, null(seconds), null(rounds), points, place, players, beaten, streak, at); err != nil {
+		VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $8, 100, '{100}', 60000, 5, 5, $9, 1, $10, $11, $12, $13, $14)`,
+		id, user, player, kind, mode, null(seconds), null(rounds), points, countries, place, players, beaten, streak, at); err != nil {
 		hs.t.Fatal(err)
 	}
 }
@@ -65,6 +96,7 @@ type topBody struct {
 	SecondsOf []int  `json:"seconds_of"`
 	RoundsOf  []int  `json:"rounds_of"`
 	Total     int    `json:"total"`
+	Guest     bool   `json:"guest"`
 	Rows      []struct {
 		Rank  int    `json:"rank"`
 		Name  string `json:"name"`
@@ -97,6 +129,7 @@ func (b topBody) line() string {
 // anyone outside their groups, and the profile has its places.
 func TestFreeLeaderboards(t *testing.T) {
 	hs := setup(t)
+	hs.freeAccounts()
 	hs.person(1, "Oksana", kyivGroup)
 	hs.person(2, "Ivan", kyivGroup)
 	hs.person(3, "Lena", minskGroup)
@@ -115,8 +148,12 @@ func TestFreeLeaderboards(t *testing.T) {
 	hs.freeGame(1, "solo", "classic", 30, 5, 11000, now.Add(-day))
 	hs.freeGame(3, "solo", "classic", 30, 5, 13000, now.Add(-20*day))
 	hs.freeGame(1, "solo", "classic", 30, 3, 9000, now.Add(-day))
-	// Without a timer a game is on no board.
+	// Without a timer a game is on no board, and an attempt at a challenge
+	// is on none either.
 	hs.freeGame(1, "solo", "classic", 0, 5, 24000, now.Add(-day))
+	hs.freeGame(2, "challenge", "classic", 30, 5, 20000, now.Add(-day))
+	hs.freeGame(1, "solo", "timed", 180, 0, 12, now.Add(-day))
+	hs.freeGame(2, "solo", "timed", 180, 0, 14, now.Add(-day))
 
 	get := func(auth, query string) topBody {
 		t.Helper()
@@ -151,12 +188,13 @@ func TestFreeLeaderboards(t *testing.T) {
 	check(get(oksana, "board=blitz&rounds=3"), 1, "1 Oksana 9000*<")
 	check(get(oksana, "board=blitz&period=week"), 2, "1 Ivan 12000*, 2 Oksana 11000*<")
 	check(get(oksana, "board=classic"), 0, "")
+	check(get(oksana, "board=timed"), 2, "1 Ivan 14*, 2 Oksana 12*<")
 
 	// A guest on the site sees the names, and Lena as a Telegram player.
 	req := httptest.NewRequest("GET", "/api/top?board=blitz&lang=en", nil)
 	rr := httptest.NewRecorder()
 	hs.h.ServeHTTP(rr, req)
-	if g := decode[topBody](t, rr.Body.String()); rr.Code != http.StatusOK || g.line() != "1 Telegram player 13000, 2 Ivan 12000*, 3 Oksana 11000*" {
+	if g := decode[topBody](t, rr.Body.String()); rr.Code != http.StatusOK || !g.Guest || g.line() != "1 Telegram player 13000, 2 Ivan 12000*, 3 Oksana 11000*" {
 		t.Fatalf("a guest sees %d %s", rr.Code, rr.Body.String())
 	}
 
@@ -186,7 +224,7 @@ func TestFreeLeaderboards(t *testing.T) {
 	own := decode[struct {
 		Top []place `json:"top"`
 	}](t, hs.expect("GET", "/api/profile", oksana, "", http.StatusOK))
-	if got := fmt.Sprint(own.Top); got != "[{streak 30 0 1 3 5} {blitz 30 3 1 1 9000} {blitz 30 5 3 3 11000}]" {
+	if got := fmt.Sprint(own.Top); got != "[{streak 30 0 1 3 5} {timed 180 0 2 2 12} {blitz 30 3 1 1 9000} {blitz 30 5 3 3 11000}]" {
 		t.Fatalf("her places = %s", got)
 	}
 }
@@ -194,6 +232,7 @@ func TestFreeLeaderboards(t *testing.T) {
 // A board shows its first hundred and the viewer's own row wherever it is.
 func TestFreeLeaderboardKeepsTheViewersRow(t *testing.T) {
 	hs := setup(t)
+	hs.freeAccounts()
 	hs.person(1, "Oksana")
 	for i := range 100 {
 		hs.freeGame(int64(1000+i), "solo", "streak", 60, 0, 10, hs.now.Add(-time.Duration(i+1)*time.Minute))
@@ -207,5 +246,81 @@ func TestFreeLeaderboardKeepsTheViewersRow(t *testing.T) {
 	// Equal streaks rank by who had theirs first: the oldest is first.
 	if b.Rows[0].Rank != 1 || b.Rows[0].Score != 10 {
 		t.Fatalf("first %+v", b.Rows[0])
+	}
+}
+
+// An account without Telegram is on the boards as itself: every site player
+// it holds in one row, under its name, and its profile has its places. An
+// account with Telegram is its person, its site players' games before the
+// link too. A site player no account holds is on no board.
+func TestFreeLeaderboardsOfAccounts(t *testing.T) {
+	hs := setup(t)
+	hs.freeAccounts()
+	const (
+		home  = "11111111-1111-4111-8111-111111111111"
+		work  = "22222222-2222-4222-8222-222222222222"
+		vanya = "33333333-3333-4333-8333-333333333333"
+		stray = "44444444-4444-4444-8444-444444444444"
+	)
+	hs.person(1, "Oksana", kyivGroup)
+	hs.person(2, "Ivan", kyivGroup)
+	ctx := context.Background()
+	for id, name := range map[string]string{home: "Marta", work: "Work", vanya: "Vanya", stray: "Stray"} {
+		if _, err := hs.pool.Exec(ctx, `INSERT INTO maply.site_player (id, name) VALUES ($1, $2)`, id, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	marta, acc := hs.signInGoogle("g-marta", home)
+	store := hs.srv.Store.(*db.Store)
+	if _, err := store.AdoptGuest(ctx, acc, work, db.Rules{Open: func(round.Date) bool { return false }}); err != nil {
+		t.Fatal(err)
+	}
+	ivan, _, err := store.SignIn(ctx, db.Identity{Kind: db.KindGoogle, GoogleSub: "g-ivan"}, vanya, db.Rules{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hs.pool.Exec(ctx, `UPDATE maply.account SET telegram_user_id = 2 WHERE id = $1`, ivan.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	day := 24 * time.Hour
+	hs.freeGame(home, "solo", "streak", 30, 0, 6, hs.now.Add(-3*day))
+	hs.freeGame(work, "solo", "streak", 30, 0, 7, hs.now.Add(-2*day))
+	hs.freeGame(vanya, "solo", "streak", 30, 0, 8, hs.now.Add(-day))
+	hs.freeGame(2, "solo", "streak", 30, 0, 3, hs.now.Add(-day))
+	hs.freeGame(1, "solo", "streak", 30, 0, 5, hs.now.Add(-day))
+	hs.freeGame(stray, "solo", "streak", 30, 0, 20, hs.now.Add(-day))
+
+	oksana := initData(1, "Oksana", "en", "")
+	b := decode[topBody](t, hs.expect("GET", "/api/top?board=streak", oksana, "", http.StatusOK))
+	if b.Total != 3 || b.line() != "1 Ivan 8*, 2 Marta 7, 3 Oksana 5*<" {
+		t.Fatalf("the streak seen in Telegram: %d [%s]", b.Total, b.line())
+	}
+	b = decode[topBody](t, hs.siteExpect("GET", "/api/top?board=streak&lang=en", marta, "", http.StatusOK))
+	if b.Guest || b.line() != "1 Ivan 8*, 2 Marta 7<, 3 Oksana 5*" {
+		t.Fatalf("the streak seen by Marta's account: %+v [%s]", b, b.line())
+	}
+
+	type place struct {
+		Board string `json:"board"`
+		Rank  int    `json:"rank"`
+		Of    int    `json:"of"`
+		Score int    `json:"score"`
+	}
+	// The profile's free play counts the same games: Marta's two site
+	// players', Ivan's own and his site player's.
+	type places struct {
+		Top  []place `json:"top"`
+		Free *struct {
+			Games int `json:"games"`
+		} `json:"free"`
+	}
+	if got := decode[places](t, hs.siteExpect("GET", "/api/profile?lang=en", marta, "", http.StatusOK)); fmt.Sprint(got.Top) != "[{streak 2 3 7}]" ||
+		got.Free == nil || got.Free.Games != 2 {
+		t.Fatalf("Marta's profile: places %+v, free %+v", got.Top, got.Free)
+	}
+	if got := decode[places](t, hs.expect("GET", "/api/profile", initData(2, "Ivan", "en", ""), "", http.StatusOK)); fmt.Sprint(got.Top) != "[{streak 1 3 8}]" ||
+		got.Free == nil || got.Free.Games != 2 {
+		t.Fatalf("Ivan's profile: places %+v, free %+v", got.Top, got.Free)
 	}
 }

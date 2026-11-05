@@ -110,8 +110,12 @@ For the operator:
   best, and an equal result ranks whoever reached it first. Only games with
   a timer count, and not an attempt at a challenge, whose places the friend
   who made it could have told. Names, "Hide me" and the mini profile work
-  as in the world's tables. The profile's free play tab shows the player's
-  place on each board they are on and opens that board.
+  as in the world's tables. An account with Google alone has a row of its
+  own under its site name; an account with Telegram is its person, the
+  games its site players finished before the link included. The profile's
+  free play tab shows the player's place on each board they are on and
+  opens that board, and it counts the same games: a site account without
+  Telegram now has the tab too.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
   the screen the address names. `/days` opens the days and `/days/<n>` (or

@@ -88,7 +88,7 @@ func (s *Server) publicPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, publicProfile{Name: name, Ranked: ranked, Free: s.free(ctx, ps, id)})
+	writeJSON(w, http.StatusOK, publicProfile{Name: name, Ranked: ranked, Free: s.free(ctx, ps, db.FreeWho{UserID: id})})
 }
 
 // publicCard is the page's picture for a link preview.

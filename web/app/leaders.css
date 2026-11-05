@@ -1,7 +1,8 @@
 /* Leaderboards (leaders.js): the free play's boards at /top. Same rules as the app: one field colour, white ink, gold
    for the first place only, no shadows, rounded corners or transparency.
-   Phone: one column, the boards two by two, your place above the table. Computer (html.desk): the boards in a column
-   at the start, the table in the middle, your place and the rules at the end from 1280 px, under the boards below. */
+   Phone, and the sheet anywhere: one column, the boards two by two, your place above the table. Computer (html.desk),
+   on a page of its own: the boards in a column at the start, the table in the middle, your place and the rules at the
+   end from 1280 px, under the boards below. */
 .lead { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; max-width: 1440px; margin: 0 auto; }
 .lead-head { order: 1; }
 .lead-boards { order: 2; }
@@ -77,25 +78,25 @@
 }
 
 /* ---------- Computer ---------- */
-/* The table spans the rows beside the boards and your place; the last row takes its height, so your place stays
-   right under the boards. */
-html.desk .lead { grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: auto auto 1fr; grid-template-areas: "head head" "boards main" "side main";
-                  gap: 24px; align-items: start; }
-html.desk .lead > * { order: 0; }
-html.desk .lead-head { grid-area: head; }
-html.desk .lead-h { font-size: 40px; }
-html.desk .lead-boards { grid-area: boards; grid-template-columns: minmax(0, 1fr); }
-html.desk .lead-boards button { padding: 14px 16px; }
-html.desk .lead-boards b { font-size: 24px; }
-html.desk .lead-main { grid-area: main; }
-html.desk .lead-side { grid-area: side; display: grid; gap: 14px; align-content: start; }
-html.desk .lead-you { padding: 20px; }
-html.desk .lead-you b { font-size: 34px; }
-html.desk .lead-rows li { padding: 11px 14px; }
-html.desk .lead-th { padding: 0 14px 8px; }
+/* On a page of its own (.lead-wide, not the sheet) the table spans the rows beside the boards and your place; the
+   last row takes its height, so your place stays right under the boards. */
+html.desk .lead-wide { grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: auto auto 1fr; grid-template-areas: "head head" "boards main" "side main";
+                       gap: 24px; align-items: start; }
+html.desk .lead-wide > * { order: 0; }
+html.desk .lead-wide .lead-head { grid-area: head; }
+html.desk .lead-wide .lead-h { font-size: 40px; }
+html.desk .lead-wide .lead-boards { grid-area: boards; grid-template-columns: minmax(0, 1fr); }
+html.desk .lead-wide .lead-boards button { padding: 14px 16px; }
+html.desk .lead-wide .lead-boards b { font-size: 24px; }
+html.desk .lead-wide .lead-main { grid-area: main; }
+html.desk .lead-wide .lead-side { grid-area: side; display: grid; gap: 14px; align-content: start; }
+html.desk .lead-wide .lead-you { padding: 20px; }
+html.desk .lead-wide .lead-you b { font-size: 34px; }
+html.desk .lead-wide .lead-rows li { padding: 11px 14px; }
+html.desk .lead-wide .lead-th { padding: 0 14px 8px; }
 @media (min-width: 1280px) {
-  html.desk .lead { grid-template-columns: 280px minmax(0, 1fr) 300px; grid-template-rows: auto 1fr; grid-template-areas: "head head head" "boards main side"; }
+  html.desk .lead-wide { grid-template-columns: 280px minmax(0, 1fr) 300px; grid-template-rows: auto 1fr; grid-template-areas: "head head head" "boards main side"; }
 }
 @media (min-width: 1440px) {
-  html.desk .lead { grid-template-columns: 320px minmax(0, 1fr) 340px; gap: 32px; }
+  html.desk .lead-wide { grid-template-columns: 320px minmax(0, 1fr) 340px; gap: 32px; }
 }

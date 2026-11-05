@@ -373,9 +373,11 @@ type FreeGame struct {
 	At                     time.Time
 }
 
-// FreeGames are the player's finished free games, oldest first. Nil while
-// free play has no results table.
-func (s *Store) FreeGames(ctx context.Context, userID int64) ([]FreeGame, error) {
+// FreeGames are the player's finished free games, oldest first: a Telegram
+// person's with those their account's site players finished before the
+// link, or an account's without Telegram. Nil while free play has no
+// results table.
+func (s *Store) FreeGames(ctx context.Context, w FreeWho) ([]FreeGame, error) {
 	var exists bool
 	if err := s.pool.QueryRow(ctx, `SELECT to_regclass('free_result') IS NOT NULL`).Scan(&exists); err != nil {
 		return nil, fmt.Errorf("free results: %w", err)
@@ -388,9 +390,11 @@ func (s *Store) FreeGames(ctx context.Context, userID int64) ([]FreeGame, error)
 		       COALESCE(place, 0), COALESCE(players, 0), COALESCE(beaten, 0), COALESCE(streak, 0), finished_at
 		  FROM free_result
 		 WHERE user_id = $1
-		 ORDER BY finished_at`, userID)
+		    OR player IN (SELECT sp.id FROM site_player sp JOIN account a ON a.id = sp.account_id
+		                   WHERE a.telegram_user_id = $1 OR (a.telegram_user_id IS NULL AND a.id = NULLIF($2, '')::uuid))
+		 ORDER BY finished_at`, w.UserID, w.Account)
 	if err != nil {
-		return nil, fmt.Errorf("free results of %d: %w", userID, err)
+		return nil, fmt.Errorf("free results: %w", err)
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (FreeGame, error) {
 		var g FreeGame

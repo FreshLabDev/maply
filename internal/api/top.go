@@ -16,12 +16,13 @@ import (
 // week or all time. Free play has no place in the day and nothing to reveal,
 // so the names are the world table's after the day: a player who hid
 // themselves is "Telegram player" to everyone outside their own groups, and
-// has no handle there.
+// has no handle there. An account without Telegram is named as on the site,
+// by its site player, and has no mini profile, so no handle either.
 
 // TopStore is what the leaderboards read. The store has it.
 type TopStore interface {
-	Top(ctx context.Context, b db.TopBoard, since time.Time, limit int, me free.Who) (db.TopTable, error)
-	TopPlaces(ctx context.Context, me free.Who, since time.Time) ([]db.TopPlace, error)
+	Top(ctx context.Context, b db.TopBoard, since time.Time, limit int, me db.FreeWho) (db.TopTable, error)
+	TopPlaces(ctx context.Context, me db.FreeWho, since time.Time) ([]db.TopPlace, error)
 }
 
 var _ TopStore = (*db.Store)(nil)
@@ -110,21 +111,22 @@ type topLine struct {
 	Me  bool   `json:"me,omitempty"`
 }
 
-// freeWho is the viewer as a free player: the Telegram person, or the site
-// player of an account without Telegram. A guest keeps no results.
-func (v profileViewer) freeWho() free.Who {
+// freeWho is the viewer in free play: the Telegram person, signed in on the
+// site with Telegram too, or an account without Telegram. A guest keeps no
+// results.
+func (v profileViewer) freeWho() db.FreeWho {
 	switch {
 	case v.user != 0:
-		return free.Who{UserID: v.user}
+		return db.FreeWho{UserID: v.user}
 	case v.account != "":
-		return free.Who{Player: v.player}
+		return db.FreeWho{Account: v.account}
 	}
-	return free.Who{}
+	return db.FreeWho{}
 }
 
 func (v profileViewer) ownsTop(r db.TopRow) bool {
 	me := v.freeWho()
-	return (me.UserID != 0 && r.UserID == me.UserID) || (me.Player != "" && r.Player == me.Player)
+	return (me.UserID != 0 && r.UserID == me.UserID) || (me.Account != "" && r.Account == me.Account)
 }
 
 // top is one board: GET /api/top?board=classic&seconds=60&rounds=5&period=week.
@@ -176,7 +178,7 @@ func (s *Server) top(w http.ResponseWriter, r *http.Request) {
 	}
 	k := topKinds[board]
 	out := topView{Board: board, Seconds: b.Seconds, Rounds: b.Rounds, Period: period,
-		SecondsOf: k.seconds, RoundsOf: k.rounds, Total: t.Total, Guest: v.freeWho() == (free.Who{}), Rows: make([]topLine, 0, len(t.Rows))}
+		SecondsOf: k.seconds, RoundsOf: k.rounds, Total: t.Total, Guest: v.freeWho() == (db.FreeWho{}), Rows: make([]topLine, 0, len(t.Rows))}
 	handles := s.handles()
 	scope := "top:" + board + ":" + strconv.Itoa(b.Seconds) + ":" + strconv.Itoa(b.Rounds) + ":" + period + ":" + strconv.FormatInt(v.chatID, 10)
 	for _, row := range t.Rows {
@@ -206,7 +208,7 @@ type topPlace struct {
 func (s *Server) topPlaces(ctx context.Context, v profileViewer) []topPlace {
 	ts, ok := s.Store.(TopStore)
 	me := v.freeWho()
-	if !ok || me == (free.Who{}) {
+	if !ok || me == (db.FreeWho{}) {
 		return nil
 	}
 	places, err := ts.TopPlaces(ctx, me, time.Time{})

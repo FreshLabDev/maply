@@ -98,7 +98,9 @@ player, and production-minded.
   or the site signed in with an account that has Telegram, which plays as
   the person and writes nothing to `core`.
   Its leaderboards (`/api/top`) count only games on a timer and never an
-  attempt at a challenge, one row a player with their best.
+  attempt at a challenge, one row a person or an account with their best:
+  an account's site players count for the account, or for its Telegram
+  person once it has one.
 
 ## Anti-Cheat Invariants
 
