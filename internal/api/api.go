@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -27,6 +28,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FreshLabDev/tg"
@@ -115,6 +117,11 @@ type Server struct {
 	shareLimit *limiter
 	logLimit   *limiter
 	logAll     *limiter
+
+	// tied remembers who has been tied to which chat's reveal, so a result
+	// polled again does not write to core every time.
+	tiedMu sync.Mutex
+	tied   map[string]bool
 }
 
 func (s *Server) Handler() http.Handler {
@@ -202,6 +209,27 @@ func (s *Server) touch(ctx context.Context, p play) error {
 		return s.Store.Touch(ctx, user, nil)
 	}
 	return s.Store.Touch(ctx, user, &tg.Chat{ID: p.chatID, Type: p.chatType})
+}
+
+// tieOnce is touch at most once per person, chat and date in this process.
+func (s *Server) tieOnce(ctx context.Context, p play) error {
+	key := fmt.Sprintf("%s:%d:%d:%s", p.kind, p.chatID, p.user.ID, p.date)
+	s.tiedMu.Lock()
+	done := s.tied[key]
+	s.tiedMu.Unlock()
+	if done {
+		return nil
+	}
+	if err := s.touch(ctx, p); err != nil {
+		return err
+	}
+	s.tiedMu.Lock()
+	defer s.tiedMu.Unlock()
+	if s.tied == nil || len(s.tied) >= 20000 {
+		s.tied = map[string]bool{}
+	}
+	s.tied[key] = true
+	return nil
 }
 
 // resolveAs is resolve that records the person and the chat in core only
@@ -740,6 +768,14 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		at := opens.UTC()
 		opensAt = &at
 	}
+	// Seeing the place without an answer ties the person to this chat's
+	// reveal, as /api/today does; a launch that skipped it is caught here,
+	// whatever version the app says it has.
+	if !answered {
+		if err := s.tieOnce(ctx, p); err != nil {
+			return resultResponse{}, err
+		}
+	}
 	// A poll that has this version already costs two counts, not the
 	// day's whole ranking.
 	if since != "" {
@@ -755,12 +791,6 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		}
 		if version := resultVersion(chatN, worldN, phase, worldOpen); since == version {
 			return resultResponse{Phase: phase, OpensAt: opensAt, Version: version, Same: true}, nil
-		}
-	} else if !answered {
-		// Seeing the place without an answer ties the person to this chat's
-		// reveal, as /api/today does; a launch that skipped it is caught here.
-		if err := s.touch(ctx, p); err != nil {
-			return resultResponse{}, err
 		}
 	}
 	var guesses []db.Guess

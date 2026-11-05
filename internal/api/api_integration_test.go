@@ -765,6 +765,13 @@ func TestResultTiesThePersonToTheGroup(t *testing.T) {
 		t.Fatalf("Minsk's result = %s", res)
 	}
 	hs.expect("POST", "/api/guess", initData(9, "Tom", "en", ""), `{"lat":49.84,"lon":24.03}`, http.StatusConflict)
+
+	// A version the app makes up gets the whole result, and ties all the same.
+	hs.srv.Members.(members)[[2]int64{minskGroup, 10}] = true
+	if res := hs.expect("GET", "/api/result?since=x", initData(10, "Ann", "en", hs.payload(minskGroup)), "", http.StatusOK); !leaks(res) {
+		t.Fatalf("Minsk's result with a made-up version = %s", res)
+	}
+	hs.expect("POST", "/api/guess", initData(10, "Ann", "en", ""), `{"lat":49.84,"lon":24.03}`, http.StatusConflict)
 }
 
 // A DM on Tokyo's clock passes midnight while the person's Kyiv group still
