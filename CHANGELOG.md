@@ -26,6 +26,8 @@ For the operator:
   `thumb-yaws.sql`, which sets the strip's direction only where none is set,
   with each strip beside it to look at first. It is optional: without it the
   service picks the direction itself when it draws the strip.
+- Migration 021 adds `profile_setting` (hide me, the public link) and an
+  index on `site_guess (player, date)` for a guest's profile.
 
 ### Added
 
@@ -60,6 +62,34 @@ For the operator:
   place from, so a slip of a flag cannot put free places in the queue of days
   or leave the pools free to overlap. The scripts refuse such a file too and
   say how many places they keep clear of.
+- The player's profile in the Mini App, behind the name's letter at the end of
+  the header and at `/me`: points, the 30-day average, streaks, the typical
+  miss, the share of countries and cities found, the best day and world place,
+  and the average percentile over the days that are over everywhere. Four
+  charts drawn in SVG (points over 30 days with the median, misses by
+  distance, continents, a map of one's own pins that opens a closed day), the
+  passport of countries found, the history by day and the free play numbers
+  once `free_result` exists. A site guest gets the same from the cookie,
+  closed days only, with a note to sign in.
+- A tap on a name in the world's tables opens a mini profile: days, streak,
+  the 30-day average, best world place, countries, and from free play the
+  average per place and duels. Inside a shared group it adds the photo and
+  "closer than you on 14 of 22 shared days", counted over the days that
+  group has seen the result of. Names carry an opaque handle, never an id.
+- "Hide me" in the profile: the world's tables, the site's result and the
+  days page read "Telegram player" instead of the name for everyone outside
+  the person's own groups, and the mini profile does not open. The bot's
+  posts keep the name.
+- The month's season: the sum of a player's 20 best days. The 07:00 post of
+  the 1st names the champion inside yesterday's look back, a group's own in
+  a group and the world's in a DM with the person's place; no new message.
+  The profile shows the place in the month so far, in the world and in the
+  group it was opened from.
+- A public link to the profile, off until the player turns it on: `/p/…`
+  opens their numbers over the days over everywhere for anyone with the
+  link, without pins, history or photo, and asks search engines to stay
+  away. "New link" ends the old one, and "Hide me" closes the page while
+  it is on. The link's preview is the profile picture without the pins.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
   the screen the address names. `/days` opens the days and `/days/<n>` (or

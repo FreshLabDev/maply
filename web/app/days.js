@@ -303,7 +303,9 @@ function dayHTML(d) {
     html += '<div class="dpt"><p class="up dth">' + esc(T("days.table")) + '</p><ol class="rkl">';
     for (const r of d.ranking) {
       const name = r.me ? T("you") : nameOf(r);
-      html += '<li' + (r.me ? ' class="me"' : '') + '><span class="n">' + fmt(r.rank) + '</span><span class="w"' + (r.me ? '' : ' lang="' + nameLang() + '"') + '>' +
+      // A named Telegram player's handle opens their mini profile (profile.js), by a tap or the keyboard.
+      html += '<li' + (r.me ? ' class="me"' : '') + '><span class="n">' + fmt(r.rank) + '</span><span class="w"' + (r.me ? '' : ' lang="' + nameLang() + '"') +
+        (r.who && !r.me ? ' data-who="' + esc(r.who) + '" role="button" tabindex="0"' : '') + '>' +
         (r.site ? SRC_SITE : SRC_TG) + esc(name) + '</span><span class="k">' + kmT(r.km) + '</span><b>' + fmt(r.points) + '</b></li>';
     }
     html += '</ol><p class="sh-legend"><span>' + SRC_TG + esc(T("from_tg")) + '</span><span>' + SRC_SITE + esc(T("from_site")) + '</span></p></div>';

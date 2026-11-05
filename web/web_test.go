@@ -60,7 +60,7 @@ func TestVendorIsImmutable(t *testing.T) {
 // hashed scripts as "/".
 func TestPages(t *testing.T) {
 	index := serve(t, "/", nil)
-	for _, p := range []string{"/days", "/days/", "/days/2026-11-04", "/days/14", "/me", "/play", "/party/K7QF", "/p/a1b2c3"} {
+	for _, p := range []string{"/days", "/days/", "/days/2026-11-04", "/days/14", "/me", "/play", "/party/K7QF"} {
 		rec := serve(t, p, nil)
 		if rec.Code != http.StatusOK || rec.Body.String() != index.Body.String() || rec.Header().Get("Content-Security-Policy") != CSP ||
 			rec.Header().Get("ETag") != index.Header().Get("ETag") {
@@ -111,6 +111,43 @@ func TestPageMeta(t *testing.T) {
 	}
 	if strings.Replace(body, head, "", 1) != strings.Replace(index.Body.String(), strings.SplitN(index.Body.String(), "</head>", 2)[0], "", 1) {
 		t.Fatal("the page's body changed")
+	}
+}
+
+// A public profile is the app too, kept out of search engines, with the
+// player's picture for a link's preview at the address it was asked by.
+func TestPublicPage(t *testing.T) {
+	h, err := Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(host string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/p/Ab_9-xYz0123456789abcd", nil)
+		req.Host = host
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	rec := get("maply.ws04.cc")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || rec.Header().Get("X-Robots-Tag") != "noindex, nofollow" || rec.Header().Get("Content-Security-Policy") != CSP ||
+		!strings.Contains(body, `<meta name="robots" content="noindex, nofollow">`) ||
+		!strings.Contains(body, `<meta property="og:image" content="https://maply.ws04.cc/api/p/Ab_9-xYz0123456789abcd/card.png">`) ||
+		!strings.Contains(body, `<script defer src="/app.js?v=`) {
+		t.Fatalf("GET /p/… = %d %v\n%s", rec.Code, rec.Header(), body)
+	}
+	if rec.Header().Get("ETag") == serve(t, "/", nil).Header().Get("ETag") {
+		t.Error("the public page shares the app's ETag")
+	}
+	if body := get("127.0.0.1:8416").Body.String(); !strings.Contains(body, `content="http://127.0.0.1:8416/api/p/`) {
+		t.Errorf("the stand's preview address:\n%s", body)
+	}
+	// A Host that could break out of the attribute names no picture.
+	if body := get(`x"><script>`).Body.String(); strings.Contains(body, "og:image") || !strings.Contains(body, `name="robots"`) {
+		t.Errorf("odd Host:\n%s", body)
+	}
+	if rec := serve(t, "/", nil); rec.Header().Get("X-Robots-Tag") != "" || strings.Contains(rec.Body.String(), "og:image") {
+		t.Error("the app's own page is marked as a public profile")
 	}
 }
 
@@ -227,7 +264,9 @@ func TestAppKeysExist(t *testing.T) {
 		}
 	}
 	for _, key := range []string{"compass_n", "compass_ne", "compass_e", "compass_se", "compass_s", "compass_sw", "compass_w", "compass_nw",
-		"loading", "on_water", "on_land", "moved", "error.network", "error.left", "error.unavailable", "error.bad_request", "error.internal"} {
+		"loading", "on_water", "on_land", "moved", "error.network", "error.left", "error.unavailable", "error.bad_request", "error.internal",
+		// The profile's keys that the pattern above does not catch: with a digit, or picked at run time.
+		"prof.avg30", "prof.stamp_streak30", "prof.stamp_city1km", "prof.tab_ranked", "prof.tab_free", "prof.no_days_guest", "error.hidden"} {
 		if !known[key] {
 			t.Errorf("the app builds %q, which internal/i18n does not have", key)
 		}

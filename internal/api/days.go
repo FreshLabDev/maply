@@ -181,6 +181,9 @@ type rankLine struct {
 	Km     float64 `json:"km"`
 	Points int     `json:"points"`
 	Me     bool    `json:"me,omitempty"`
+	// Who is the player's handle for the mini profile, for a named Telegram
+	// player only.
+	Who string `json:"who,omitempty"`
 }
 
 // dayMe is the viewer's own answer on a closed day, with the parts of its
@@ -280,12 +283,34 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 	if more.Thumb != "" {
 		resp.Thumb = thumbPath(more.Thumb, true)
 	}
+	// A player who asked to be hidden is a Telegram player to whoever is not
+	// in their groups, and has no handle there.
+	var ids []int64
+	for i, e := range world.Entries {
+		if e.UserID != 0 && e.UserID != v.user && i < rankShown {
+			ids = append(ids, e.UserID)
+		}
+	}
+	hidden, err := s.maskHidden(ctx, v.chatID, v.user, ids)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	handles := s.handles()
+	scope := handleScope("day", d, v.chatID)
 	misses := make([]float64, len(world.Entries))
 	for i, e := range world.Entries {
 		misses[i] = e.Km
 		me := v.owns(e.UserID, e.Player)
 		if i < rankShown || me {
-			resp.Ranking = append(resp.Ranking, rankLine{Rank: e.Rank, Name: e.Name, Site: e.Site(), Km: e.Km, Points: e.Points, Me: me})
+			l := rankLine{Rank: e.Rank, Name: e.Name, Site: e.Site(), Km: e.Km, Points: e.Points, Me: me}
+			switch {
+			case hidden[e.UserID]:
+				l.Name = tgPlayer(v.lang)
+			case e.UserID != 0:
+				l.Who = handles.Of(e.UserID, scope)
+			}
+			resp.Ranking = append(resp.Ranking, l)
 		}
 		if me {
 			resp.Me = &dayMe{Rank: e.Rank, Km: e.Km, Points: e.Points, Bonus: e.Bonus, Speed: e.Speed}

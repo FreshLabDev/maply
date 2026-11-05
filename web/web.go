@@ -30,6 +30,7 @@ import (
 )
 
 //go:generate go run gen_land.go -step 4 -o app/land.js
+//go:generate go run gen_profland.go -step 2 -o app/profland.js
 
 //go:embed app
 var embedded embed.FS
@@ -176,6 +177,27 @@ func HandlerWithMeta(meta MetaFunc) (http.Handler, error) {
 // page is served on every address in Pages, so it names them from the root.
 var localRef = regexp.MustCompile(`(src|href)="([^":?#]+\.(?:js|css))"`)
 
+// host is a Host header fit to name the preview's address with.
+var host = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$`)
+
+// publicPage is index.html for a player's public page /p/<slug>: kept out of
+// search engines, with the player's picture for a link's preview, which
+// needs an absolute address. slug is a path segment isPage accepted.
+func publicPage(f file, slug string, r *http.Request) file {
+	meta := `<meta name="robots" content="noindex, nofollow">`
+	if host.MatchString(r.Host) {
+		scheme := "https"
+		if h, _, _ := strings.Cut(r.Host, ":"); h == "127.0.0.1" || h == "localhost" {
+			scheme = "http"
+		}
+		meta += `<meta property="og:image" content="` + scheme + "://" + r.Host + "/api/p/" + slug + `/card.png">` +
+			`<meta name="twitter:card" content="summary_large_image">`
+	}
+	data := bytes.Replace(f.data, []byte("</head>"), []byte(meta+"</head>"), 1)
+	sum := sha256.Sum256(data)
+	return file{data: data, etag: `"` + hex.EncodeToString(sum[:12]) + `"`, ctype: f.ctype}
+}
+
 func (h *handler) add(name string, data []byte, immutable bool) {
 	sum := sha256.Sum256(data)
 	ctype, ok := contentTypes[path.Ext(name)]
@@ -215,8 +237,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := path.Clean(r.URL.Path)
-	page := isPage(name)
-	if page && h.meta != nil {
+	page := name
+	app := isPage(name)
+	if app && h.meta != nil {
 		if m, ok := h.meta(r, name); ok {
 			// The preview's words follow the reader's language.
 			w.Header().Set("Vary", "Accept-Language")
@@ -224,13 +247,17 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if name == "/" || page {
+	if name == "/" || app {
 		name = "/index.html"
 	}
 	f, ok := h.files[name]
 	if !ok {
 		http.NotFound(w, r)
 		return
+	}
+	if slug, ok := strings.CutPrefix(page, "/p/"); ok && name == "/index.html" {
+		f = publicPage(f, slug, r)
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	}
 	h.serve(w, r, f)
 }

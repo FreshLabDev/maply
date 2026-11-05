@@ -127,8 +127,11 @@ type Server struct {
 	Free    *free.Service
 	People  People
 	Invites Inviter
-	Log     *slog.Logger
-	Now     func() time.Time
+	// Stills draws the preview of a public profile; nil leaves the link
+	// without a picture.
+	Stills Stills
+	Log    *slog.Logger
+	Now    func() time.Time
 
 	ipLimit    *limiter
 	userLimit  *limiter
@@ -151,6 +154,11 @@ type Server struct {
 	// The free game's own limits: a party polls every two seconds, which
 	// the day's limit per person would not survive.
 	freeLimit, pollLimit, makeLimit, inviteLimit, freeSiteAll *limiter
+	// profAll caps the profiles read without signing in, from everyone
+	// together: one is a few queries over a player's whole history.
+	profAll *limiter
+	// cardAll caps the public profiles' previews drawn, from everyone.
+	cardAll *limiter
 
 	// tied remembers who has been tied to which chat's reveal, so a result
 	// polled again does not write to core every time.
@@ -193,6 +201,8 @@ func (s *Server) Handler() http.Handler {
 	s.logLimit = newLimiter(5, time.Minute)
 	s.logAll = newLimiter(30, time.Minute)
 	s.siteAll = newLimiter(120, time.Minute)
+	s.profAll = newLimiter(600, time.Minute)
+	s.cardAll = newLimiter(60, time.Minute)
 	// An app open fetches one picture; Cloudflare keeps the .jpg, so a
 	// loop of fetches past it is all that reaches the bot.
 	s.imgLimit = newLimiter(120, time.Minute)
@@ -215,6 +225,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/day", s.day)
 	mux.HandleFunc("/api/me", s.accounts)
 	mux.HandleFunc("/api/account/", s.accounts)
+	mux.HandleFunc("GET /api/profile", s.profile)
+	mux.HandleFunc("GET /api/profile/who", s.mini)
+	mux.HandleFunc("POST /api/profile/settings", s.profileSettings)
+	mux.HandleFunc("POST /api/profile/public", s.profilePublic)
+	mux.HandleFunc("GET /api/p/{slug}", s.publicPage)
+	mux.HandleFunc("GET /api/p/{slug}/card.png", s.publicCard)
 	mux.HandleFunc("GET /img/{key}", s.image)
 	mux.HandleFunc("GET /thumb/{name}", s.thumb)
 	mux.HandleFunc("GET /og/day/{name}", s.og)
@@ -674,6 +690,8 @@ type line struct {
 	Me    bool `json:"me,omitempty"`
 	// Photo is a data: URL of the profile photo, for the mark on the map.
 	Photo string `json:"photo,omitempty"`
+	// Who is the player's handle for the mini profile, next to a name only.
+	Who string `json:"who,omitempty"`
 }
 
 // worldNow is where the person stands among everyone who has answered so far,
@@ -703,6 +721,8 @@ type boardLine struct {
 	Hidden bool    `json:"hidden,omitempty"`
 	Site   bool    `json:"site,omitempty"`
 	Photo  string  `json:"photo,omitempty"`
+	// Who is the player's handle for the mini profile, next to a name only.
+	Who string `json:"who,omitempty"`
 }
 
 // boardShown is how many of the world's best rows go to the app. Your own row
@@ -938,6 +958,8 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 	}
 	secret := s.boardSecret()
 	viewer := p.viewer()
+	handles := s.handles()
+	scope := handleScope("result", p.date, viewer)
 	for _, g := range guesses {
 		me := g.UserID == p.user.ID
 		l := line{Key: boardKey(secret, p.date, viewer, db.Entry{UserID: g.UserID}), Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Me: me}
@@ -946,7 +968,7 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 			l.Points, l.Bonus, l.Speed = &total, g.PtsBonus, g.Speed()
 		}
 		if me || !live {
-			l.Name = g.FirstName
+			l.Name, l.Who = g.FirstName, handles.Of(g.UserID, scope)
 		}
 		if b := photos[g.UserID]; b != nil {
 			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
@@ -963,7 +985,21 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		}
 	}
 	isMe := func(e db.Entry) bool { return e.UserID != 0 && e.UserID == p.user.ID }
-	resp.Board = board(secret, p.date, viewer, world, isMe, group, photos, !live, worldOpen)
+	names := nameRule{who: func(id int64) string { return handles.Of(id, scope) }, as: tgPlayer(p.lang)}
+	if worldOpen {
+		// Named for everyone now: a player who hid themselves is not, outside
+		// their own group, whose rows are named above.
+		var ids []int64
+		for i, e := range world.Entries {
+			if e.UserID != 0 && !group[e.UserID] && !isMe(e) && i < boardShown {
+				ids = append(ids, e.UserID)
+			}
+		}
+		if names.hidden, err = s.maskHidden(ctx, 0, p.user.ID, ids); err != nil {
+			return resultResponse{}, err
+		}
+	}
+	resp.Board = board(secret, p.date, viewer, world, isMe, group, photos, !live, worldOpen, names)
 	resp.Players = world.Players()
 	return resp, nil
 }
@@ -1026,7 +1062,7 @@ func worldNowOf(p play, w db.World, pins [][2]float64) *worldNow {
 // Your group's names open at the chat's reveal, groupOpen; everyone else's
 // once the day has closed in every zone, worldOpen, so a group in Tokyo does
 // not learn who is who in a Kyiv group still guessing.
-func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.Entry) bool, group map[int64]bool, photos map[int64][]byte, groupOpen, worldOpen bool) []boardLine {
+func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.Entry) bool, group map[int64]bool, photos map[int64][]byte, groupOpen, worldOpen bool, names nameRule) []boardLine {
 	out := make([]boardLine, 0, min(len(w.Entries), boardShown+len(group)+1))
 	for i, e := range w.Entries {
 		me := isMe(e)
@@ -1036,9 +1072,15 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 		}
 		l := boardLine{Key: boardKey(secret, d, viewer, e), Rank: e.Rank, Km: e.Km, Points: e.Points, Bonus: e.Bonus, Speed: e.Speed,
 			Me: me, Group: inGroup && !me, Site: e.Site()}
-		if me || worldOpen || groupOpen && inGroup {
+		switch {
+		case !me && !(groupOpen && inGroup) && worldOpen && names.hidden[e.UserID]:
+			l.Name = names.as
+		case me || worldOpen || groupOpen && inGroup:
 			l.Name = e.Name
-		} else {
+			if e.UserID != 0 && names.who != nil {
+				l.Who = names.who(e.UserID)
+			}
+		default:
 			l.Hidden = true
 		}
 		if b := photos[e.UserID]; b != nil && e.UserID != 0 {
@@ -1047,6 +1089,20 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 		out = append(out, l)
 	}
 	return out
+}
+
+// nameRule is how the world's table names players once it may: hidden
+// players are called as, and a named Telegram player carries their handle.
+type nameRule struct {
+	hidden map[int64]bool
+	as     string
+	who    func(userID int64) string
+}
+
+// handleScope names the table a handle stands in: a kind of view, its day
+// and its viewer.
+func handleScope(kind string, d round.Date, viewer int64) string {
+	return kind + ":" + d.String() + ":" + strconv.FormatInt(viewer, 10)
 }
 
 // scoreDay scores the day's answers that have no score yet: every Telegram
@@ -1202,8 +1258,13 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	// The error comes from the store or Telegram; neither includes request
-	// bodies, so no pin reaches the log.
-	s.Log.Error("api request failed", "path", r.URL.Path, "error", err)
+	// bodies, so no pin reaches the log. The route's pattern, not the path:
+	// a public page's path is its only key.
+	path := r.URL.Path
+	if r.Pattern != "" {
+		path = r.Pattern
+	}
+	s.Log.Error("api request failed", "path", path, "error", err)
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 }
 

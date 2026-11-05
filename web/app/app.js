@@ -671,7 +671,7 @@ function boardRow(r, i, cls, count) {
   const wait = T(r.grp && PHASE === "live" ? "anon_row" : "anon_world");
   const label = r.anon ? ' aria-label="' + esc([wait, r.grp ? T("in_group") : "", kmT(r.d), fmt(r.pts)].filter(Boolean).join(", ")) + '"' : "";
   return '<div class="r' + (r.me ? " me" : "") + (r.anon ? " anon" : "") + cls + '" data-key="' + esc(r.key || "") + '"' + label + '><em' + (n <= 3 ? ' class="m' + n + '"' : "") + '>' + (typeof n === "number" ? fmt(n) : n) + '</em>' + face +
-    '<span>' + (r.anon ? "•••" : esc(r.who)) + '</span>' +
+    '<span' + (r.handle && !r.anon ? ' data-who="' + esc(r.handle) + '"' + (count ? '' : ' role="button" tabindex="0"') : '') + '>' + (r.anon ? "•••" : esc(r.who)) + '</span>' +
     '<span class="hit" data-rest="' + esc(r.anon ? wait : T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
     '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '" data-sp="' + r.sp + '">' + v(r.pts) + '</b><span class="k">' + kmT(r.d) + '</span></div>';
 }
@@ -906,7 +906,7 @@ const rowsOf = (res) => res.table.map((r) => {
 function boardOf(res) {
   const rows = (res.board || []).map((r) => ({ who: r.me ? T("you") : r.name || (r.site ? T("guest") : ""), name: r.name || "",
     d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0, me: !!r.me, grp: !!r.group, photo: r.photo,
-    anon: !!r.hidden, key: r.key, rank: r.rank }));
+    anon: !!r.hidden, key: r.key, rank: r.rank, handle: r.who || "" }));
   // An answer the site kept only in the browser is scored on the spot and has no place in the world: it shows as your
   // row without a rank, rather than "you didn't answer".
   const own = !rows.some((r) => r.me) && (res.table || []).find((r) => r.me && r.points != null);
