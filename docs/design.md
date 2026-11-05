@@ -211,6 +211,14 @@ Planned by the owner on 23 October, not part of the MVP. A site player can sign 
 
 Open: whether Telegram on the site is the Login Widget or the OAuth flow, and what happens when a Google account and a Telegram account have both answered the same day before they are linked.
 
+## Profile
+
+Planned by the owner on 5 November (plan v2, "Профиль игрока"). In the Mini App the profile opens from the name's letter at the end of the header; the logo still opens the days. A site guest gets a profile from the cookie with a note to sign in so the history is not lost.
+
+- **The player.** Two tabs. The daily game: total points, the 30-day average, days, the current and best streak, the typical miss (median km), the share of countries and cities found, the best day, the best world place, and the average percentile, "better than 78% of players". Players are compared by percentile, not place: each day has a different number of players, and site players have no speed bonus, so the percentile counts points without it. Charts drawn in SVG: points over the last 30 rounds with gaps and the median, misses in bins from 1 to 2,500 km, continents with the best and the worst, and a map of one's own pins where a tap opens that day. Under them the passport (countries found turn gold; stamps for 30 days in a row and a city pin within 1 km), the history by day and the settings. Free play shows only means, medians and records, never sums: games are unlimited, and a sum would reward quantity.
+- **Others, on a tap on a name.** Name and letter, days, streak, the 30-day average, best world place, countries; from free play the average per place and duels. Only days over in every zone count. Inside a group both are in, the photo and "closer than you on 14 of 22 shared days".
+- **Hide me.** The name reads "Telegram player" in the world's tables and on the site outside the person's own groups, and the mini profile does not open. The plan scopes it to the site's tables, so the bot's posts keep the name, the world's podium in a DM too.
+
 ## Where places come from
 
 ### Sources

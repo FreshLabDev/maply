@@ -1,0 +1,146 @@
+/* Profile: the player's numbers, charts drawn in SVG, the map of their pins and the passport. Same rules as the app:
+   one field colour, white ink, gold only for the best, no shadows, rounded corners or transparency. */
+
+/* The letter at the end of the header, after the timer. */
+.top .timer { margin-inline-start: auto; }
+.mebtn { flex: none; width: 30px; height: 30px; margin-inline-start: 14px; display: grid; place-items: center; background: var(--field-deep); color: var(--ink);
+         outline: 2px solid var(--field-tint); outline-offset: -2px; font: 700 17px/1 var(--display); text-transform: uppercase; }
+.mebtn:focus-visible { outline-color: var(--ink); }
+.framed .mebtn { width: 28px; height: 28px; }
+/* At 320 px the timer's label would break into three lines beside the letter. */
+@media (max-width: 360px) {
+  html:not(.framed) .mebtn { margin-inline-start: 8px; width: 28px; height: 28px; }
+  html:not(.framed) .timer { gap: 6px; }
+  html:not(.framed) .timer b { font-size: 22px; }
+}
+
+.prof { max-width: 1080px; margin: 0 auto; }
+.pcard { display: flex; align-items: center; gap: 12px; margin: 6px 0 14px; }
+.pcard .av { width: 52px; height: 52px; font: 700 30px/1 var(--display); outline: 0; }
+.pcard b { display: block; font: 700 28px/1.05 var(--display); letter-spacing: .02em; overflow-wrap: anywhere; }
+.pcard .up { display: block; margin-top: 4px; color: var(--ink-muted); font-size: 11px; }
+
+.pnote { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 14px; padding: 12px; background: var(--panel); color: var(--on-panel); }
+.pnote p { flex: 1 1 200px; margin: 0; font-weight: 600; }
+.pbtn { padding: 10px 14px; background: var(--field); color: var(--ink); font: 700 13px/1 var(--label); letter-spacing: .08em; text-transform: uppercase; }
+.pbtn.wide { display: block; width: 100%; margin-top: 10px; text-align: start; background: var(--field-deep); }
+
+.ptabs { display: flex; gap: 2px; margin: 0 0 14px; background: var(--field-deep); padding: 2px; }
+.ptabs button { flex: 1; height: 40px; font: 700 13px/1 var(--label); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-muted); }
+.ptabs button[aria-selected="true"] { background: var(--ink); color: var(--field-deep); }
+
+.pbig { margin: 0 0 12px; padding: 14px 12px; background: var(--field-deep); }
+.pbig b { display: block; font: 700 30px/1.05 var(--display); letter-spacing: .02em; }
+.pbig span { display: block; margin-top: 6px; color: var(--ink-muted); font-size: 14px; }
+.pbig-s { margin: 0 0 8px; font: 700 22px/1.1 var(--display); letter-spacing: .02em; }
+
+.ptiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; margin: 0 0 16px; }
+.pt { min-width: 0; padding: 10px 12px 12px; background: var(--field-deep); }
+.pt .up { display: block; color: var(--ink-muted); font-size: 11px; letter-spacing: .08em; line-height: 1.2; }
+.pt b { display: block; margin-top: 6px; font: 700 28px/1 var(--display); letter-spacing: .02em; overflow-wrap: anywhere; }
+.pt small { display: block; margin-top: 4px; color: var(--ink-soft); font-size: 13px; }
+.pt.gold b { color: var(--speed); }
+
+.pcharts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 24px; }
+.psec { margin: 0 0 20px; }
+.psec h3 { margin: 0 0 8px; color: var(--ink-muted); font-size: 12px; }
+.pnote-s { margin: 8px 0 0; color: var(--ink-soft); font-size: 14px; }
+
+/* Charts keep their own left to right: day numbers and distances read the same way in every language. */
+.pchart { display: block; width: 100%; height: auto; direction: ltr; overflow: visible; }
+.pchart .grid { stroke: var(--field-tint); stroke-width: 1; fill: none; }
+.pchart .bar { fill: var(--ink-muted); }
+.pchart .bar.hi { fill: var(--ink); }
+.pchart .miss { fill: var(--field-tint); }
+.pchart .med { stroke: var(--speed); stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; }
+.pchart .mt { fill: var(--speed); font: 700 11px/1 var(--label); letter-spacing: .04em; }
+.pchart .ax { fill: var(--ink-muted); font: 700 10px/1 var(--label); letter-spacing: .04em; }
+.pchart .ct { fill: var(--ink); font: 700 12px/1 var(--display); }
+
+.pconts { display: grid; gap: 6px; }
+.pc { display: grid; grid-template-columns: minmax(0, 9em) 1fr 3.2em; align-items: center; gap: 10px; }
+.pc span { min-width: 0; }
+.pc span b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pc small { display: block; color: var(--ink-muted); font-size: 12px; }
+.pc i { display: block; height: 8px; }
+.pc svg { display: block; width: 100%; height: 8px; }
+[dir="rtl"] .pc svg { transform: scaleX(-1); }
+.pc .bg { fill: var(--field-deep); }
+.pc .fg { fill: var(--ink-muted); }
+.pc.best .fg { fill: var(--speed); }
+.pc.worst .fg { fill: var(--field-tint); }
+.pc > b { text-align: end; font: 700 18px/1 var(--display); }
+
+.pmap { display: block; width: 100%; height: auto; background: var(--field-deep); direction: ltr; }
+.pmap .land { fill: none; stroke: var(--field-tint); stroke-linecap: round; }
+.pmap .land.gold { stroke: var(--speed); }
+.pmap .pp { stroke: var(--field-deep); }
+/* A pin that opens its day: a wide invisible target, and a ring when it has the keyboard's focus. */
+.pmap .go { cursor: pointer; outline: none; }
+.pmap .hit { fill: none; pointer-events: all; }
+.pmap .ring { fill: none; stroke: none; }
+.pmap .go:focus-visible .ring { stroke: var(--ink); }
+.p1 { fill: var(--speed); background: var(--speed); }
+.p2 { fill: var(--ink); background: var(--ink); }
+.p3 { fill: var(--ink-muted); background: var(--ink-muted); }
+/* The farthest are hollow: filled, they would read as the land's dots. */
+.pmap .pp.p4 { fill: var(--field-deep); stroke: var(--ink-muted); }
+.plegend .p4 { background: var(--field-deep); outline: 1.5px solid var(--ink-muted); outline-offset: -1.5px; }
+.plegend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 0; color: var(--ink-soft); font-size: 13px; }
+.plegend span { display: inline-flex; align-items: center; gap: 6px; }
+.plegend i { width: 10px; height: 10px; }
+
+.pflags { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.pflags span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; background: var(--field-deep); font-size: 14px; }
+.pflag { font-style: normal; font-size: 18px; line-height: 1; }
+.pflag.code { padding: 2px 3px; background: var(--speed); color: var(--field-deep); font: 700 10px/1 var(--label); letter-spacing: .04em; }
+.pstamps { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.pstamp { padding: 7px 10px; outline: 1.5px dashed var(--field-tint); outline-offset: -1.5px; color: var(--ink-muted); font: 700 12px/1.1 var(--label); letter-spacing: .06em; text-transform: uppercase; }
+.pstamp.on { outline: 2px solid var(--speed); outline-offset: -2px; color: var(--speed); }
+
+.phist { list-style: none; margin: 0; padding: 0; }
+.phist li { margin: 0 0 2px; }
+.phist li > * { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; width: 100%; padding: 10px 12px; text-align: start; background: var(--field-deep); }
+.phist button { padding-inline-end: 34px !important; }
+.phist .up { color: var(--ink-muted); font-size: 11px; }
+.phist .w { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phist .n { grid-column: 2; grid-row: 1 / span 2; align-self: center; text-align: end; color: var(--ink-soft); font-size: 14px; white-space: nowrap; }
+.phist .n b { font: 700 22px/1 var(--display); color: var(--ink); }
+.phist .r { grid-column: 1 / -1; color: var(--ink-muted); font-size: 13px; }
+.phist em { position: absolute; inset-inline-end: 12px; top: 50%; transform: translateY(-50%); font-style: normal; color: var(--ink-muted); }
+
+.precs { list-style: none; margin: 0; padding: 0; }
+.precs li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 2px; border-bottom: 1px solid var(--field-tint); }
+.precs b { font: 700 20px/1 var(--display); }
+
+.pswitch { display: flex; align-items: flex-start; gap: 12px; padding: 12px; background: var(--field-deep); cursor: pointer; }
+.pswitch input { flex: none; appearance: none; -webkit-appearance: none; width: 44px; height: 24px; margin: 0; position: relative; background: var(--field); outline: 2px solid var(--field-tint); outline-offset: -2px; cursor: pointer; }
+.pswitch input::after { content: ""; position: absolute; top: 4px; left: 4px; width: 16px; height: 16px; background: var(--ink-muted); transition: transform .15s var(--ease); }
+.pswitch input:checked { background: var(--ink); outline-color: var(--ink); }
+.pswitch input:checked::after { transform: translateX(20px); background: var(--field-deep); }
+[dir="rtl"] .pswitch input::after { left: auto; right: 4px; }
+[dir="rtl"] .pswitch input:checked::after { transform: translateX(-20px); }
+.pswitch input:focus-visible { outline-color: var(--speed); }
+.pswitch input:disabled { cursor: wait; }
+.pswitch b { display: block; font-weight: 700; }
+.pswitch small { display: block; margin-top: 4px; color: var(--ink-muted); font-size: 13px; line-height: 1.35; }
+
+.prof.mini .pcard .av.ph { background: var(--field-deep); }
+
+@media (min-width: 560px) {
+  .ptiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+/* Charts are drawn a phone wide and scale with their column: two columns keep their text near its size. */
+@media (min-width: 700px) {
+  .pcharts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .psec.wide { grid-column: 1 / -1; }
+}
+@media (min-width: 1024px) {
+  .pmap.world { max-height: 400px; }
+  .pbig b { font-size: 36px; }
+}
+@media (prefers-reduced-motion: reduce) { .pswitch input::after { transition: none; } }
+
+/* A name the server gave a handle opens that player's mini profile. */
+[data-who] { cursor: pointer; }
+.rk .w[data-who], .lb.all [data-who] { text-decoration: underline dotted var(--field-tint); text-underline-offset: 3px; }

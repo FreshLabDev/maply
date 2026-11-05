@@ -84,7 +84,7 @@ func TestNoThirdPartyHosts(t *testing.T) {
 	allowed := map[string]bool{"https://telegram.org": true, TileHost: true}
 	// Links people tap (attribution, the share sheet) open in Telegram, not from the page.
 	links := map[string]bool{"https://t.me": true, "https://www.mapillary.com": true, "https://panoramax.fr": true, "https://www.openstreetmap.org": true, "https://openfreemap.org": true}
-	for _, name := range []string{"index.html", "app.css", "app.js", "tg.js", "map.js", "loader.js"} {
+	for _, name := range []string{"index.html", "app.css", "app.js", "tg.js", "map.js", "loader.js", "profile.css", "profile.js", "profland.js"} {
 		data, err := fs.ReadFile(embedded, "app/"+name)
 		if err != nil {
 			t.Fatal(err)
@@ -136,7 +136,7 @@ func TestAppKeysExist(t *testing.T) {
 	}
 	uses := regexp.MustCompile(`\b(?:T|lines)\("([a-z_.]*[a-z_])"|data-(?:t|aria)="([a-z_.]+)"|LOOK = \{([^}]*)\}`)
 	quoted := regexp.MustCompile(`"([a-z_]+)"`)
-	for _, name := range []string{"index.html", "app.js", "map.js", "tg.js"} {
+	for _, name := range []string{"index.html", "app.js", "map.js", "tg.js", "profile.js"} {
 		data, err := fs.ReadFile(embedded, "app/"+name)
 		if err != nil {
 			t.Fatal(err)
@@ -160,7 +160,9 @@ func TestAppKeysExist(t *testing.T) {
 		}
 	}
 	for _, key := range []string{"compass_n", "compass_ne", "compass_e", "compass_se", "compass_s", "compass_sw", "compass_w", "compass_nw",
-		"loading", "on_water", "on_land", "moved", "error.network", "error.left", "error.unavailable", "error.bad_request", "error.internal"} {
+		"loading", "on_water", "on_land", "moved", "error.network", "error.left", "error.unavailable", "error.bad_request", "error.internal",
+		// The profile's keys that the pattern above does not catch: with a digit, or picked at run time.
+		"prof.avg30", "prof.stamp_streak30", "prof.stamp_city1km", "prof.tab_ranked", "prof.tab_free", "prof.no_days_guest", "error.hidden"} {
 		if !known[key] {
 			t.Errorf("the app builds %q, which internal/i18n does not have", key)
 		}

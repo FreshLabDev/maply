@@ -153,7 +153,19 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 	player := playerID(r)
 	isMe := func(e db.Entry) bool { return player != "" && e.Player == player }
 	secret := s.boardSecret()
-	resp.Board = board(secret, d, 0, world, isMe, nil, nil, true, true)
+	handles := s.handles()
+	names := nameRule{who: func(id int64) string { return handles.Of(id, handleScope("site", d, 0)) }, as: tgPlayer(lang)}
+	var ids []int64
+	for i, e := range world.Entries {
+		if e.UserID != 0 && i < boardShown {
+			ids = append(ids, e.UserID)
+		}
+	}
+	if names.hidden, err = s.maskHidden(ctx, 0, 0, ids); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	resp.Board = board(secret, d, 0, world, isMe, nil, nil, true, true, names)
 	resp.Players = world.Players()
 	if player != "" {
 		g, ok, err := s.Store.SiteGuessOf(ctx, d, player)

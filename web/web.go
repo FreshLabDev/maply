@@ -28,6 +28,7 @@ import (
 )
 
 //go:generate go run gen_land.go -step 4 -o app/land.js
+//go:generate go run gen_profland.go -step 2 -o app/profland.js
 
 //go:embed app
 var embedded embed.FS

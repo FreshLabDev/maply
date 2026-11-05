@@ -125,6 +125,23 @@ the diff looks like.
   site has sign-in.
 - A name typed on the site is not checked: bot posts call that player "Guest".
   The site's write endpoints take only JSON from maply's own pages.
+- A profile shows its owner every scored day, today's too; anyone else, and
+  a site guest looking at their own, gets only days over in every zone
+  (`profile.LatestClosed`), with no pins, history or answer times. A world
+  place and the percentile count only days over everywhere. A mini profile
+  opens by an opaque handle (`profile.Handles`) that the server puts only
+  next to a name it already shows, never on an anonymous row, so a handle
+  cannot name a row before its reveal. The photo goes out only inside a
+  group both are in, and the head to head counts only the days whose result
+  that group has seen.
+- "Hide me" (`profile_setting.hide_me`) replaces the name with "Telegram
+  player" in the world's tables, the site's result and the days page for
+  everyone outside the person's own groups, from a DM too, and the mini
+  profile answers `404 hidden`. A group's own table and card, which a
+  player may forward, and the bot's posts, the world's podium in a DM
+  included, keep the name. A handle is scoped to its table
+  (`profile.Handles.Of`), so one player's rows in two tables cannot be
+  matched by it.
 - `/api/log` strips query strings, which can carry `initData`, and is rate
   limited per address and in total.
 - The `startapp` payload is signed with HMAC; group membership is checked with

@@ -284,6 +284,9 @@ type rankLine struct {
 	Km     float64 `json:"km"`
 	Points int     `json:"points"`
 	Me     bool    `json:"me,omitempty"`
+	// Who is the player's handle for the mini profile, for a named Telegram
+	// player only.
+	Who string `json:"who,omitempty"`
 }
 
 // day is one closed day: the place and everyone's place in the ranking.
@@ -308,11 +311,31 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rd, answer, world := c.round, c.answer, *c.world
+	var ids []int64
+	for i, e := range world.Entries {
+		if e.UserID != 0 && e.UserID != v.user && i < rankShown {
+			ids = append(ids, e.UserID)
+		}
+	}
+	hidden, err := s.maskHidden(r.Context(), v.chatID, v.user, ids)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	handles := s.handles()
+	scope := handleScope("day", d, v.chatID)
 	ranking := make([]rankLine, 0, min(len(world.Entries), rankShown+1))
 	for i, e := range world.Entries {
 		me := (v.user != 0 && e.UserID == v.user) || (v.player != "" && e.Player == v.player)
 		if i < rankShown || me {
-			ranking = append(ranking, rankLine{Rank: e.Rank, Name: e.Name, Site: e.Site(), Km: e.Km, Points: e.Points, Me: me})
+			l := rankLine{Rank: e.Rank, Name: e.Name, Site: e.Site(), Km: e.Km, Points: e.Points, Me: me}
+			switch {
+			case hidden[e.UserID]:
+				l.Name = tgPlayer(v.lang)
+			case e.UserID != 0:
+				l.Who = handles.Of(e.UserID, scope)
+			}
+			ranking = append(ranking, l)
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

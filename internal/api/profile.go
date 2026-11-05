@@ -1,0 +1,433 @@
+// SPDX-License-Identifier: Apache-2.0
+package api
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"time"
+
+	"github.com/FreshLabDev/tg"
+
+	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/FreshLabDev/maply/internal/profile"
+	"github.com/FreshLabDev/maply/internal/round"
+)
+
+// The profile: a player's own numbers, and the mini profile anyone who sees
+// a player's name may open by tapping it.
+//
+// Who sees what:
+//   - The player in Telegram sees every scored day of theirs, today's too:
+//     they saw the place when they answered. World places and percentiles
+//     come only from days over everywhere.
+//   - A site player sees only days over everywhere, as the site shows no
+//     place before then.
+//   - Anyone else sees a few numbers over the days over everywhere, so a
+//     profile tells nobody what a player did on a day still being guessed.
+//     The photo comes only inside a group both are in, and the head to head
+//     only there and over the days the group's reveal has opened.
+//   - A player who hid themselves has no mini profile, and the site's tables
+//     call them "Telegram player".
+
+// ProfileStore is what the profile reads and writes. The store has it.
+type ProfileStore interface {
+	PlayedDays(ctx context.Context, who db.Who, upTo round.Date) ([]db.PlayedDay, error)
+	Standings(ctx context.Context, who db.Who, dates []round.Date) ([]db.Standing, error)
+	LastRounds(ctx context.Context, upTo round.Date, n int) ([]db.RoundDay, error)
+	NameOf(ctx context.Context, userID int64) (string, error)
+	ProfileSettingOf(ctx context.Context, userID int64) (db.ProfileSetting, error)
+	SetHideMe(ctx context.Context, userID int64, on bool) error
+	SetPublicSlug(ctx context.Context, userID int64, slug string) error
+	PublicOwner(ctx context.Context, slug string) (int64, bool, error)
+	Hidden(ctx context.Context, ids []int64) (map[int64]bool, error)
+	Present(ctx context.Context, chatID int64, ids []int64) (map[int64]bool, error)
+	SharesGroup(ctx context.Context, viewer int64, ids []int64) (map[int64]bool, error)
+	HeadToHead(ctx context.Context, me, other int64, upTo round.Date) (int, int, error)
+	FreeGames(ctx context.Context, userID int64) ([]db.FreeGame, error)
+	TouchPerson(ctx context.Context, user tg.User) error
+}
+
+// The store must have the profile's side: without it the site's tables
+// would name players who hid themselves.
+var _ ProfileStore = (*db.Store)(nil)
+
+var errHidden = apiError{http.StatusNotFound, "hidden"}
+
+// profileStore is the store's profile side, nil when it has none.
+func (s *Server) profileStore() ProfileStore {
+	ps, _ := s.Store.(ProfileStore)
+	return ps
+}
+
+// testHandles key the handles of a server without a signer, in tests.
+var testHandles = profile.RandomHandles()
+
+// handles names players without their ids. The key comes from the bot's
+// signer, so a handle in a page left open keeps working after a restart.
+func (s *Server) handles() *profile.Handles {
+	if s.Payloads == nil {
+		return testHandles
+	}
+	return profile.NewHandles(s.Payloads.Key("maply-profile-handle-v1"))
+}
+
+// profileViewer is who opens a profile: a Telegram player from the Mini App,
+// with the group it was opened from, or a site visitor by the cookie.
+type profileViewer struct {
+	user   int64
+	name   string
+	person tg.User
+	player string
+	chatID int64
+	zone   *time.Location
+	lang   string
+}
+
+func (s *Server) profileViewer(r *http.Request) (profileViewer, error) {
+	if r.Header.Get("Authorization") != "" {
+		p, err := s.resolveAs(r, false)
+		if err != nil {
+			return profileViewer{}, err
+		}
+		person := tg.User{ID: p.user.ID, FirstName: p.user.FirstName, LastName: p.user.LastName,
+			Username: p.user.Username, LanguageCode: p.user.LanguageCode}
+		return profileViewer{user: p.user.ID, name: p.user.FirstName, person: person, chatID: p.chatID, zone: p.zone, lang: p.lang}, nil
+	}
+	// Anyone may read a profile without signing in: by address, and all of
+	// them together.
+	if !s.ipLimit.allowIP(clientIP(r)) || !s.profAll.allowKey("") {
+		return profileViewer{}, errRateLimited
+	}
+	// When accounts land, a signed-in visitor's Telegram id comes from the
+	// request here; until then the site has only the cookie's player.
+	return profileViewer{player: playerID(r), lang: i18n.Resolve(r.URL.Query().Get("lang"))}, nil
+}
+
+func (s *Server) closedAt(now time.Time) func(round.Date) bool {
+	return func(d round.Date) bool { return !s.Zones.LastReveal(d).After(now) }
+}
+
+type ownProfile struct {
+	Name string `json:"name"`
+	// Guest is a site player known only by the cookie: clearing it loses the
+	// history, so the page says to sign in.
+	Guest    bool            `json:"guest,omitempty"`
+	Ranked   profile.Ranked  `json:"ranked"`
+	Free     *profile.Free   `json:"free"`
+	Settings *profileSetting `json:"settings,omitempty"`
+}
+
+type profileSetting struct {
+	HideMe bool `json:"hide_me"`
+	// Public is the path of the public page, empty while it is off.
+	Public string `json:"public"`
+}
+
+func settingView(ps db.ProfileSetting) *profileSetting {
+	out := &profileSetting{HideMe: ps.HideMe}
+	if ps.PublicSlug != "" {
+		out.Public = "/p/" + ps.PublicSlug
+	}
+	return out
+}
+
+// rankedAsk is which numbers of whose a ranked tab holds: the days up to
+// upTo, a streak and a 30-day window that end at the player's own date (zero
+// is upTo), the history, and the percentile, which reads every answer of
+// every closed day the player has.
+type rankedAsk struct {
+	who        db.Who
+	upTo, ref  round.Date
+	history    bool
+	percentile bool
+}
+
+// ranked reads and works out a ranked tab.
+func (s *Server) ranked(ctx context.Context, ps ProfileStore, ask rankedAsk, lang string) (profile.Ranked, error) {
+	now := s.Now()
+	closed := s.closedAt(now)
+	days, err := ps.PlayedDays(ctx, ask.who, ask.upTo)
+	if err != nil {
+		return profile.Ranked{}, err
+	}
+	var standings []db.Standing
+	if ask.percentile {
+		var over []round.Date
+		for _, d := range days {
+			if closed(d.Date) {
+				over = append(over, d.Date)
+			}
+		}
+		if standings, err = ps.Standings(ctx, ask.who, over); err != nil {
+			return profile.Ranked{}, err
+		}
+	}
+	ref := ask.ref
+	if ref.IsZero() || ask.upTo.Before(ref) {
+		ref = ask.upTo
+	}
+	// A day answered in a group whose date runs ahead of the player's own
+	// is theirs too: the streak runs to it.
+	if n := len(days); n > 0 && ref.Before(days[n-1].Date) {
+		ref = days[n-1].Date
+	}
+	rounds, err := ps.LastRounds(ctx, ask.upTo, profile.SeriesDays)
+	if err != nil {
+		return profile.Ranked{}, err
+	}
+	return profile.Rank(profile.Input{Days: days, Standings: standings, Rounds: rounds, Ref: ref,
+		Closed: closed, Lang: lang, WithHistory: ask.history}), nil
+}
+
+// free reads the free tab. A failure there leaves the tab empty rather than
+// the profile: free play is another part of the service.
+func (s *Server) free(ctx context.Context, ps ProfileStore, userID int64) *profile.Free {
+	games, err := ps.FreeGames(ctx, userID)
+	if err != nil {
+		s.Log.Warn("free results not read", "error", err)
+		return nil
+	}
+	f := profile.FreeOf(games)
+	return &f
+}
+
+// profile is the viewer's own profile.
+func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
+	ps := s.profileStore()
+	if ps == nil {
+		s.fail(w, r, errUnavailable)
+		return
+	}
+	v, err := s.profileViewer(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	ctx := r.Context()
+	now := s.Now()
+	out := ownProfile{}
+	switch {
+	case v.user != 0:
+		// Up to the newest date anywhere, as a group far east may be on it;
+		// the streak as of the player's own date, else it would break each
+		// afternoon in the west once Sydney's tomorrow began.
+		ask := rankedAsk{who: db.Who{UserID: v.user}, upTo: s.Zones.Newest(now), history: true, percentile: true}
+		if v.zone != nil {
+			ask.ref = round.DateIn(now, v.zone)
+		}
+		if out.Ranked, err = s.ranked(ctx, ps, ask, v.lang); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if out.Name, err = ps.NameOf(ctx, v.user); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if out.Name == "" {
+			out.Name = v.name
+		}
+		set, err := ps.ProfileSettingOf(ctx, v.user)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		out.Settings = settingView(set)
+		out.Free = s.free(ctx, ps, v.user)
+	default:
+		// A site player sees what the site shows: days over everywhere.
+		out.Guest = true
+		upTo := profile.LatestClosed(s.Zones, now)
+		if v.player == "" {
+			out.Ranked = profile.Rank(profile.Input{Ref: upTo, Closed: s.closedAt(now)})
+			break
+		}
+		if out.Ranked, err = s.ranked(ctx, ps, rankedAsk{who: db.Who{Player: v.player}, upTo: upTo, history: true, percentile: true}, v.lang); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if out.Name, err = s.Store.SiteName(ctx, v.player); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type miniProfile struct {
+	profile.Mini
+	// Me says the handle is the viewer's own: the app opens the whole profile.
+	Me bool `json:"me,omitempty"`
+	// Photo is a data: URL, sent only inside a group both are in.
+	Photo string `json:"photo,omitempty"`
+	// Duel is the head to head with the viewer over the group's open days.
+	Duel *headToHead `json:"duel,omitempty"`
+}
+
+type headToHead struct {
+	Closer int `json:"closer"`
+	Of     int `json:"of"`
+}
+
+// mini is the mini profile of the player a handle names.
+func (s *Server) mini(w http.ResponseWriter, r *http.Request) {
+	ps := s.profileStore()
+	if ps == nil {
+		s.fail(w, r, errUnavailable)
+		return
+	}
+	v, err := s.profileViewer(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	id, ok := s.handles().User(r.URL.Query().Get("id"))
+	if !ok {
+		s.fail(w, r, errHidden)
+		return
+	}
+	if v.user != 0 && id == v.user {
+		writeJSON(w, http.StatusOK, miniProfile{Me: true})
+		return
+	}
+	ctx := r.Context()
+	set, err := ps.ProfileSettingOf(ctx, id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// Hidden or unknown read the same: the handle says nothing more.
+	if set.HideMe {
+		s.fail(w, r, errHidden)
+		return
+	}
+	now := s.Now()
+	// The mini profile has no percentile, so it does not read every answer
+	// of the player's days.
+	ranked, err := s.ranked(ctx, ps, rankedAsk{who: db.Who{UserID: id}, upTo: profile.LatestClosed(s.Zones, now)}, v.lang)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	name, err := ps.NameOf(ctx, id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	free := s.free(ctx, ps, id)
+	if free == nil {
+		free = &profile.Free{}
+	}
+	out := miniProfile{Mini: profile.MiniOf(name, ranked, *free)}
+	if v.chatID != 0 && v.user != 0 {
+		in, err := ps.Present(ctx, v.chatID, []int64{id})
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if in[id] {
+			if s.Avatars != nil {
+				if b := s.Avatars.Kept(ctx, []int64{id})[id]; b != nil {
+					out.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
+				}
+			}
+			// The days the group has seen the result of: today only once
+			// the group's own reveal has passed.
+			upTo := round.DateIn(now, v.zone)
+			if now.Before(upTo.Reveal(v.zone)) {
+				upTo = upTo.AddDays(-1)
+			}
+			closer, of, err := ps.HeadToHead(ctx, v.user, id, upTo)
+			if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			if of > 0 {
+				out.Duel = &headToHead{Closer: closer, Of: of}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// profileSettings changes the player's own choices. Only a Telegram player
+// has them: the site's players are not named by Telegram.
+func (s *Server) profileSettings(w http.ResponseWriter, r *http.Request) {
+	ps := s.profileStore()
+	if ps == nil {
+		s.fail(w, r, errUnavailable)
+		return
+	}
+	v, err := s.profileViewer(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if v.user == 0 {
+		s.fail(w, r, errUnauthorized)
+		return
+	}
+	var body struct {
+		HideMe *bool `json:"hide_me"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil || body.HideMe == nil {
+		s.fail(w, r, errBadRequest)
+		return
+	}
+	ctx := r.Context()
+	// The setting refers to the person in core, who may not be there yet.
+	if err := ps.TouchPerson(ctx, v.person); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := ps.SetHideMe(ctx, v.user, *body.HideMe); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	set, err := ps.ProfileSettingOf(ctx, v.user)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, settingView(set))
+}
+
+// tgPlayer is what the site's tables call a player who hid themselves.
+func tgPlayer(lang string) string { return i18n.T(lang, "app.prof.tg_player") }
+
+// maskHidden is which of the Telegram players among ids asked to be hidden
+// from a viewer: their own groups still see them, whether the viewer looks
+// from the group (chatID), from a DM or from another group they share.
+// viewer is the Telegram id, zero on the site.
+func (s *Server) maskHidden(ctx context.Context, chatID, viewer int64, ids []int64) (map[int64]bool, error) {
+	ps := s.profileStore()
+	if ps == nil || len(ids) == 0 {
+		return map[int64]bool{}, nil
+	}
+	hidden, err := ps.Hidden(ctx, ids)
+	if err != nil || len(hidden) == 0 || chatID == 0 && viewer == 0 {
+		return hidden, err
+	}
+	var asked []int64
+	for id := range hidden {
+		asked = append(asked, id)
+	}
+	in, err := ps.Present(ctx, chatID, asked)
+	if err != nil {
+		return nil, err
+	}
+	shared, err := ps.SharesGroup(ctx, viewer, asked)
+	if err != nil {
+		return nil, err
+	}
+	for id := range hidden {
+		if in[id] || shared[id] {
+			delete(hidden, id)
+		}
+	}
+	return hidden, nil
+}
