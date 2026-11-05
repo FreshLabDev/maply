@@ -94,9 +94,10 @@ player, and production-minded.
   challenge are screens inside `/play`) is outside the day:
   its own `free_*` tables, no place in the world, no stats shared with the
   day, and no bot message in groups. Its rules are in `docs/design.md` →
-  "Free play". Records and friends need a Telegram person: the Mini App,
-  or the site signed in with an account that has Telegram, which plays as
-  the person and writes nothing to `core`.
+  "Free play". Records and friends need an account: a Telegram person (the
+  Mini App, or the site with an account that has Telegram, which plays as
+  the person and writes nothing to `core`) or an account with Google alone,
+  which plays as its own site player. A guest plays alone, without records.
 
 ## Anti-Cheat Invariants
 
@@ -218,9 +219,10 @@ the diff looks like.
   `archive`: no record, and never a row of the day's table.
 - A challenge (`free_challenge`) shows names and sums only, never a place:
   an attempt gets each place as a solo game does, when it starts it, on its
-  own clock. A Telegram person takes it once (`free_attempt`); a place they
-  have had is played and counted as seen in the table. The day's game opened
-  from `startapp=c<code>` is the DM's, as from a party's invitation.
+  own clock. A player with an account takes it once (`free_attempt`); a
+  place they have had is played and counted as seen in the table. The day's
+  game opened from `startapp=c<code>` is the DM's, as from a party's
+  invitation.
 - Against the clock gives no speed bonus, and every place ends when the
   game's three minutes do, so no place stays open past them.
 - The `startapp` payload is signed with HMAC; group membership is checked with
