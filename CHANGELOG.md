@@ -31,13 +31,20 @@ For the operator:
 - `scripts/curation/screen.py` drops frames near or inside an OSM military
   area and in the parts of a country left out, and draws review sheets of the
   whole panorama instead of the 120° the game opens on. `choose.py` turns the
-  reviewers' verdicts into `reviews.json` with at most 15 places a country,
-  and writes a report of the batch.
+  reviewers' verdicts into `reviews.json` with at most 15 places a country
+  and 500 in all, counted over every batch it is given, and writes a report
+  of them.
 - `harvest.py` passes over a soft panorama for another frame of the tile.
   `pool.py` plans in more countries, with rules for their troubled borders,
   and `MAPLY_CAP` limits the entries a country gets.
 - `maply-places` writes `sharpen.csv`, the input of `-sharpen`, next to
   `places.sql`.
+- The app's screens have addresses: the server answers `/days`, `/days/<day>`,
+  `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
+  the screen the address names. `/days` opens the days and `/days/<date>` a
+  closed day, so a day can be linked and Back in the browser closes it. An
+  address without a screen yet shows today. In Telegram the address changes
+  without adding history, so Back stays Telegram's.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 
