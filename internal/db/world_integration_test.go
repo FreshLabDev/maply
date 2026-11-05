@@ -21,9 +21,10 @@ const (
 	otherSitePlayer = "6a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 )
 
-// Telegram and site players stand in one list, best first. A Telegram answer
-// is scored at once; a site answer still waiting for its deadline is counted
-// but not ranked.
+// Telegram and site players stand in one list: Telegram's best first, then
+// the site's, so the site's pin nearest the place is fourth here. A Telegram
+// answer is scored at once; a site answer still waiting for its deadline is
+// counted but not ranked.
 func TestWorldRanksEveryoneTogether(t *testing.T) {
 	store := testStore(t)
 	seedRound(t, store)
@@ -76,10 +77,10 @@ func TestWorldRanksEveryoneTogether(t *testing.T) {
 	if w.Players() != 4 || w.Pending != 1 {
 		t.Fatalf("players %d, pending %d", w.Players(), w.Pending)
 	}
-	if first := w.Entries[0]; !first.Site() || first.Name != "Lucía" || first.Rank != 1 {
-		t.Fatalf("first = %+v", first)
+	if site := w.Entries[3]; !site.Site() || site.Name != "Lucía" || site.Rank != 4 {
+		t.Fatalf("site = %+v", site)
 	}
-	if w.RankOf(8) != 2 || w.RankOf(7) != 3 || w.RankOf(9) != 4 || w.PlaceOf(sitePlayer) != 1 || w.PlaceOf(otherSitePlayer) != 0 {
+	if w.RankOf(8) != 1 || w.RankOf(7) != 2 || w.RankOf(9) != 3 || w.PlaceOf(sitePlayer) != 4 || w.PlaceOf(otherSitePlayer) != 0 {
 		t.Fatalf("ranks = %+v", w.Entries)
 	}
 	if w.MedianKm == nil {
@@ -95,8 +96,8 @@ func TestWorldRanksEveryoneTogether(t *testing.T) {
 			t.Errorf("pin %d at %.1f km, entry at %.1f km", i, p.Km, w.Entries[i].Km)
 		}
 	}
-	if pins[0].Lat != 50.4 || !pins[0].AnsweredAt.Equal(early) {
-		t.Errorf("first pin = %+v", pins[0])
+	if pins[3].Lat != 50.4 || !pins[3].AnsweredAt.Equal(early) {
+		t.Errorf("site pin = %+v", pins[3])
 	}
 
 	// The world picture is kept per language, the last version winning.
@@ -120,11 +121,11 @@ func TestWorldRanksEveryoneTogether(t *testing.T) {
 		t.Fatalf("days = %+v, %v", days, err)
 	}
 	mine, err := store.MyDays(ctx, 7, days)
-	if err != nil || mine[d].Rank != 3 {
+	if err != nil || mine[d].Rank != 2 {
 		t.Fatalf("my days = %+v, %v", mine, err)
 	}
 	site, err := store.SiteDays(ctx, sitePlayer, days)
-	if err != nil || site[d].Rank != 1 {
+	if err != nil || site[d].Rank != 4 {
 		t.Fatalf("site days = %+v, %v", site, err)
 	}
 	if name, err := store.SiteName(ctx, sitePlayer); err != nil || name != "Lucía" {
@@ -192,10 +193,10 @@ func TestCleanName(t *testing.T) {
 	}
 }
 
-// A site answer given after the day's first reveal may have been looked up,
-// and a new browser is a new player: it does not take the first place. It
-// still ranks second when it scored best, in every list that ranks the day.
-func TestALateSiteAnswerIsNotFirst(t *testing.T) {
+// A Telegram player sees the place on answering and a new browser is a new
+// player, so a site answer, in time or late, ranks after every Telegram one in
+// every list that ranks the day, however well it scored.
+func TestSiteAnswersRankAfterTelegram(t *testing.T) {
 	store := testStore(t)
 	seedRound(t, store)
 	ctx := context.Background()
@@ -217,8 +218,8 @@ func TestALateSiteAnswerIsNotFirst(t *testing.T) {
 	if err := store.InsertSiteGuess(ctx, NewSiteGuess{Date: d, Player: sitePlayer, Pin: geo.Point{Lat: 50.45, Lon: 30.52}, AnsweredAt: early.Add(2 * time.Hour), Deadline: closes, Late: true}); err != nil {
 		t.Fatal(err)
 	}
-	// Far off, in the morning.
-	if err := store.InsertSiteGuess(ctx, NewSiteGuess{Date: d, Player: otherSitePlayer, Pin: geo.Point{Lat: 40, Lon: -74}, AnsweredAt: early, Deadline: closes}); err != nil {
+	// The exact spot too, in the morning, before any reveal.
+	if err := store.InsertSiteGuess(ctx, NewSiteGuess{Date: d, Player: otherSitePlayer, Pin: geo.Point{Lat: 50.45, Lon: 30.52}, AnsweredAt: early, Deadline: closes}); err != nil {
 		t.Fatal(err)
 	}
 	kyiv := scoring.Place{Point: geo.Point{Lat: 50.45, Lon: 30.52}, Country: "UA", Continent: "europe"}
@@ -229,11 +230,11 @@ func TestALateSiteAnswerIsNotFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w.RankOf(8) != 1 || w.PlaceOf(sitePlayer) != 2 || w.PlaceOf(otherSitePlayer) != 3 {
+	if w.RankOf(8) != 1 || w.PlaceOf(otherSitePlayer) != 2 || w.PlaceOf(sitePlayer) != 3 {
 		t.Fatalf("ranks = %+v", w.Entries)
 	}
 	if w.Entries[1].Points <= w.Entries[0].Points {
-		t.Fatalf("the late answer did not score best: %+v", w.Entries)
+		t.Fatalf("the site answer did not score best: %+v", w.Entries)
 	}
 	pins, err := store.WorldPins(ctx, d)
 	if err != nil || len(pins) != 3 || pins[0].Km != w.Entries[0].Km || pins[1].Km != w.Entries[1].Km {
@@ -243,14 +244,14 @@ func TestALateSiteAnswerIsNotFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mine, err := store.SiteDays(ctx, sitePlayer, days); err != nil || mine[d].Rank != 2 {
+	if mine, err := store.SiteDays(ctx, sitePlayer, days); err != nil || mine[d].Rank != 3 {
 		t.Fatalf("site day = %+v, %v", mine, err)
 	}
 	if mine, err := store.MyDays(ctx, 8, days); err != nil || mine[d].Rank != 1 {
 		t.Fatalf("Ana's day = %+v, %v", mine, err)
 	}
 
-	// With nothing in time, the late answer is first all the same.
+	// With no Telegram answer, the site's best is first.
 	exec(t, store, `DELETE FROM maply.guess`)
 	exec(t, store, `DELETE FROM maply.site_guess WHERE player = $1`, otherSitePlayer)
 	if w, err := store.World(ctx, d); err != nil || w.PlaceOf(sitePlayer) != 1 {

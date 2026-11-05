@@ -117,9 +117,10 @@ the diff looks like.
   resolves to coordinates through the public API, and Panoramax HD frames carry
   GPS in EXIF.
 - The site shows today's place only after the latest reveal across every
-  language. A site answer sent after the day's first reveal is marked late
-  (`site_guess.late`): it is scored, but it cannot be first in the world
-  (`day_rank`), since the place was already out in Telegram.
+  language. A Telegram player sees the place on answering and a new browser
+  is a new player, so `day_rank` puts every site answer after every Telegram
+  one: a site row never takes a Telegram player's place. Keep it so until the
+  site has sign-in.
 - A name typed on the site is not checked: bot posts call that player "Guest".
   The site's write endpoints take only JSON from maply's own pages.
 - `/api/log` strips query strings, which can carry `initData`, and is rate
