@@ -22,6 +22,9 @@
   /* ---------- Requests ---------- */
   // In Telegram the signed launch; on the site the cookie player, JSON only, as the server asks.
   const signed = () => typeof inTg !== "undefined" && inTg && !!tg.initData;
+  // A Telegram person: in the Mini App, or on the site signed in with an account that has Telegram (SITE is false
+  // then). They keep records and play with friends; a site guest and an account with Google alone play alone.
+  const person = () => signed() || (typeof inTg !== "undefined" && !inTg && typeof SITE !== "undefined" && !SITE);
   async function req(path, body) {
     const headers = {};
     if (signed()) headers.Authorization = "tma " + tg.initData;
@@ -409,10 +412,10 @@
     html += settings(s, false, false);
     const best = h.best && h.best[key(s)];
     // A record of nothing is not shown; the line keeps its height so the buttons do not jump between settings.
-    if (signed()) html += '<p class="fr-best">' + (best ? esc(T(s.mode === "streak" ? "free.best_streak" : "free.best", { set: setLabel(s), n: fmt(best) })) : "") + '</p>';
+    if (person()) html += '<p class="fr-best">' + (best ? esc(T(s.mode === "streak" ? "free.best_streak" : "free.best", { set: setLabel(s), n: fmt(best) })) : "") + '</p>';
     else html += '<p class="fr-hint">' + esc(T("free.guest_note")) + '</p>';
     html += '<div class="fr-go"><button class="fr-pri" data-act="go">' + esc(T("free.go")) + '</button>';
-    if (signed()) html += '<button class="fr-sec" data-act="friends">' + esc(T("free.friends")) + '</button>';
+    if (person()) html += '<button class="fr-sec" data-act="friends">' + esc(T("free.friends")) + '</button>';
     page(html + '</div>', "fr-home", keep);
   }
   const ACTS = {
@@ -525,7 +528,7 @@
     else html += '<b>' + fmt(f.points || 0) + '</b>';
     html += '</div>';
     if (f.record) html += '<p class="fr-rec">' + esc(T("free.record", { n: fmt(f.best) })) + '</p>';
-    else if (f.best == null) html += signed() ? '<p class="fr-best">' + esc(T("free.first_set")) + '</p>' : "";
+    else if (f.best == null) html += person() ? '<p class="fr-best">' + esc(T("free.first_set")) + '</p>' : "";
     else if (f.best) html += '<p class="fr-best">' + esc(T(s.mode === "streak" ? "free.best_streak" : "free.best", { set: setLabel(s), n: fmt(f.best) })) + '</p>';
     html += '<ol class="fr-list">';
     for (const d of GAME.done) {
@@ -533,7 +536,7 @@
         (d.guess.lat != null ? kmT(d.guess.km) : "") + '</span><b>' + fmt(d.guess.points) + '</b></li>';
     }
     html += '</ol><div class="fr-go"><button class="fr-pri" data-act="again">' + esc(T("free.again")) + '</button>' +
-      (signed() ? '<button class="fr-sec" data-act="friends">' + esc(T("free.friends")) + '</button>' : '') +
+      (person() ? '<button class="fr-sec" data-act="friends">' + esc(T("free.friends")) + '</button>' : '') +
       '<button class="fr-link" data-act="settings">' + esc(T("free.settings")) + '</button></div>';
     page(html, "fr-final");
     HOME = Object.assign({}, HOME || {}, { open: null });

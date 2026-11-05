@@ -154,8 +154,9 @@ For the operator:
   bonus, up to +200, counts the share of the time left, so it is the same on
   every timer. The bot writes nothing about free play in groups. A free
   place never becomes a day's place, and its picture goes out only once the
-  place has started, under the round's own address. Site guests play alone
-  without records; with friends needs Telegram.
+  place has started, under the round's own address. On the site an account
+  with Telegram plays as the person, records and friends included; a guest
+  or an account with Google alone plays alone without records.
 - The app has a computer's layout. From 1024 px wide and 600 px high the
   panorama fills the screen and the map opens beside it as a panel, on hover, a
   click or M, in three sizes; after answering the map fills the screen and the
