@@ -11,6 +11,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+For the operator:
+
+- Apply core migration 021 (`core.touch_person`) before deploying. The
+  service refuses to start without it and names the migration.
+
+### Added
+
+- `Store.TouchPerson` records a person in core without a chat or presence,
+  for a person met outside the bot's chats: a website sign-in with Telegram
+  or a guest who joins a game with friends from a link. `Touch` would count
+  them as talking to maply in a DM, which closes their answer window by the
+  DM's zone and puts them on the morning DM post.
+
 ## v0.0.1-alpha.15 - 2026-11-05
 
 Fixes from a review of the whole project on 5 November: security, the

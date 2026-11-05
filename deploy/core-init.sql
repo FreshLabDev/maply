@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: Apache-2.0
--- LOCAL-DEV ONLY. Minimal core.person/core.chat/core.presence/core.touch plus the
+-- LOCAL-DEV ONLY. Minimal core.person/core.chat/core.presence/core.touch/core.touch_person plus the
 -- maply schema. Production gets all of this from the core repository
 -- (migrations 001 and 018).
 CREATE SCHEMA IF NOT EXISTS core;
@@ -70,6 +70,34 @@ BEGIN
   ON CONFLICT (telegram_user_id, bot, chat_id) DO UPDATE SET
     last_seen_at = GREATEST(pr.last_seen_at, EXCLUDED.last_seen_at),
     event_count = pr.event_count + 1;
+  IF p_tg_lang IS NOT NULL AND btrim(p_tg_lang) <> '' THEN
+    INSERT INTO core.language_observation AS o (source_bot, scope, subject_id, language, source)
+    VALUES (p_bot, 'user', p_user_id, lower(split_part(btrim(p_tg_lang), '-', 1)), 'client')
+    ON CONFLICT (source_bot, scope, subject_id) DO UPDATE SET
+      language = CASE WHEN o.source = 'manual' THEN o.language ELSE EXCLUDED.language END,
+      source   = CASE WHEN o.source = 'manual' THEN o.source ELSE 'client' END,
+      observed_at = clock_timestamp();
+  END IF;
+END $$;
+
+-- core migration 021: the person without a chat and without presence. A
+-- website sign-in or a game with friends is not a DM with the bot, and maply
+-- reads presence to close an answer window and to send its morning DM post.
+CREATE OR REPLACE FUNCTION core.touch_person(
+  p_bot text, p_user_id bigint,
+  p_username text DEFAULT NULL, p_first_name text DEFAULT NULL, p_last_name text DEFAULT NULL,
+  p_tg_lang text DEFAULT NULL, p_is_bot boolean DEFAULT false, p_at timestamptz DEFAULT now()
+) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO core.person AS pe (telegram_user_id, username, first_name, last_name, is_bot, tg_language_code, last_seen_at, updated_at)
+  VALUES (p_user_id, p_username, p_first_name, p_last_name, p_is_bot, p_tg_lang, p_at, p_at)
+  ON CONFLICT (telegram_user_id) DO UPDATE SET
+    username = COALESCE(EXCLUDED.username, pe.username),
+    first_name = COALESCE(EXCLUDED.first_name, pe.first_name),
+    last_name = COALESCE(EXCLUDED.last_name, pe.last_name),
+    is_bot = EXCLUDED.is_bot,
+    tg_language_code = COALESCE(EXCLUDED.tg_language_code, pe.tg_language_code),
+    last_seen_at = GREATEST(pe.last_seen_at, EXCLUDED.last_seen_at), updated_at = EXCLUDED.updated_at;
   IF p_tg_lang IS NOT NULL AND btrim(p_tg_lang) <> '' THEN
     INSERT INTO core.language_observation AS o (source_bot, scope, subject_id, language, source)
     VALUES (p_bot, 'user', p_user_id, lower(split_part(btrim(p_tg_lang), '-', 1)), 'client')
