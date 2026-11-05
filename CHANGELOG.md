@@ -94,6 +94,16 @@ For the operator:
   link, without pins, history or photo, and asks search engines to stay
   away. "New link" ends the old one, and "Hide me" closes the page while
   it is on. The link's preview is the profile picture without the pins.
+- The profile on the site follows the account. Signed in with Telegram it
+  is the Telegram player's, with every day, the season and the settings, as
+  in the bot; with Google alone it holds the account's site days from every
+  browser it has taken in, one answer a day. A Telegram player's profile
+  also counts the days their account's guest played on the site before the
+  sign-in, where there is no Telegram answer. The site's header keeps one
+  button: the account's menu opens the profile, and a guest's sign-in
+  dialog has "My profile without signing in".
+- In Telegram, Back goes to the page before, as it does in a browser: a day
+  opened from the profile comes back to the profile, where it was.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
   the screen the address names. `/days` opens the days and `/days/<n>` (or
@@ -136,20 +146,6 @@ For the operator:
 - The country flags come from `country-flag-icons` 1.6.20, served by the
   service.
 
-### Changed
-
-- The days page reads a page of thirty days in one query instead of about
-  sixty, and pages back by a cursor to the first day.
-- A day's row no longer shows the group's numbers beside the world's.
-
-### Fixed
-
-- `maply-places` wrote a heading of 359.96° as `360.0`, which the schema
-  refuses, and the whole `places.sql` failed to load. It is written as `0.0`.
-- `pool.py` leaves out the west coast of Sinai and the Russian strip east of
-  occupied Luhansk, which its rules let through, and a plan no longer dies
-  or spins when every country is used up. `screen.py` checks a frame outside
-  every outline by its plan's country instead of letting it pass.
 - Free play, outside the day's ranking, at `/play`: from the DM's `/start`
   panel and from the top of the days. Alone it is a Classic of 3, 5 or 10
   places on Blitz 30, 60, 90 or 120 s or no timer, or a Country streak on 30
@@ -165,6 +161,17 @@ For the operator:
   place has started, under the round's own address. On the site an account
   with Telegram plays as the person, records and friends included; a guest
   or an account with Google alone plays alone without records.
+- The app has a computer's layout. From 1024 px wide and 600 px high the
+  panorama fills the screen and the map opens beside it as a panel, on hover, a
+  click or M, in three sizes; after answering the map fills the screen and the
+  score, the world's table and the buttons are in a sidebar. A header links
+  Today, Days and Free play. On a tablet the phone's layout gets a bigger globe
+  and centred buttons. The phone's layout is unchanged.
+- Keys: the arrows or WASD turn the panorama, + and − zoom it, Space drops a pin
+  on the focused map, Enter answers, Esc folds the map, ? lists the keys. Hints
+  follow the pointer, so a mouse is no longer told to use a finger.
+- Telegram Desktop can switch the app to full screen from its header, and the
+  computer's layout follows.
 - Free play gets three more ways to play. "Against the clock": three minutes
   for as many countries as one can find, with skipping and no speed bonus,
   and a record of its own. The archive: every day over in every zone that
@@ -174,6 +181,25 @@ For the operator:
   their own time, once each, and the challenge's table shows the sums and
   marks the places someone had seen before. Challenges are Telegram's, as
   parties are; a site guest plays the archive.
+
+### Changed
+
+- The panorama and the globe moved out of the day's game into `pano.js` and
+  `globe.js`, each with a small API that the free game and the profile can
+  reuse. The game looks and behaves as before; a double click no longer zooms
+  the panorama by itself.
+- The days page reads a page of thirty days in one query instead of about
+  sixty, and pages back by a cursor to the first day.
+- A day's row no longer shows the group's numbers beside the world's.
+
+### Fixed
+
+- `maply-places` wrote a heading of 359.96° as `360.0`, which the schema
+  refuses, and the whole `places.sql` failed to load. It is written as `0.0`.
+- `pool.py` leaves out the west coast of Sinai and the Russian strip east of
+  occupied Luhansk, which its rules let through, and a plan no longer dies
+  or spins when every country is used up. `screen.py` checks a frame outside
+  every outline by its plan's country instead of letting it pass.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

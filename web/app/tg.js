@@ -29,7 +29,10 @@ function haptic(kind) {
 }
 // Telegram's system Back button is shown while the globe is open and returns to the photo.
 // Telegram's Back closes the days page first, then goes from the map to the photo.
-function syncBack() { if (tgAt("6.1")) view === "map" || document.body.classList.contains("is-sheet") ? tg.BackButton.show() : tg.BackButton.hide(); }
+// On a computer the guess's map is a panel beside the panorama, opened by hovering: not a screen to go back from.
+function syncBack() {
+  if (tgAt("6.1")) (view === "map" && !(Desk.on && state === "guess")) || document.body.classList.contains("is-sheet") ? tg.BackButton.show() : tg.BackButton.hide();
+}
 // External links open in Telegram's browser, otherwise the page leaves the Mini App.
 document.addEventListener("click", (e) => {
   const a = e.target.closest("a[href^='http']");

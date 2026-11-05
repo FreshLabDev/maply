@@ -258,6 +258,31 @@ Site sections:
 
 The site is a single game page. An ecosystem landing page is not part of it.
 
+### Phone, tablet and computer
+
+The same page lays itself out by the window:
+
+- **Phone**, under 768 px wide or under 500 px high (a phone on its side): as described above.
+- **Tablet**, from 768 px wide and 500 px high, short of the computer's: the phone's layout with a 168 px globe, the buttons at most 560 px wide and centred, the days sheet at most 640 px.
+- **Computer**, from 1024 px wide and 600 px high: a header with Today, Days and Free play. While guessing, the panorama fills the screen and the map is a panel in the bottom corner. It folds into the globe and opens on hover, a click or M, and folds 600 ms after the mouse leaves unless it is pinned or the keyboard is in it. It comes in three sizes, 480×360, 640×480 (the default from 1440 px) and half the screen but at least 768 px wide, kept in the browser. The answer bar is under the map and says "Drop a pin first" until there is one, then names Enter when there is a keyboard. A touch screen this wide gets the same layout: a tap on the globe opens the map and a tap on the panorama folds it. After answering, the map fills the screen and the result is in a sidebar: the place and its fact, the score with its parts, the world's table, the legend and the buttons. A row lights its pin on the map, and a pin its row.
+
+Hints follow the pointer: a mouse is told to drag with the mouse and to use the wheel, a finger to drag and to pinch. On a computer:
+
+| Key | Does |
+|---|---|
+| Arrows, WASD | turn the panorama while held |
+| + and −, 0 | zoom the panorama, reset the zoom |
+| N | face north |
+| M | open or fold the map |
+| Space | drop a pin in the middle of the focused map |
+| Enter | answer, once a pin is down |
+| Esc | fold the map, close the list of keys |
+| ? | the list of keys |
+
+Letters work in any keyboard layout. Space never answers: it is the key a player presses by accident.
+
+Telegram Desktop opens the Mini App in a 384×694 window, which gets the phone's layout with the mouse's hints. Stretched past 1024 px, or full screen from the header's button (Telegram Desktop and the web clients, Bot API 8.0), it gets the computer's. The game keeps its state across the switch: the pin, the open map, the result.
+
 Temporary domain: `maply.ws04.cc`.
 
 ### Accounts on the site
@@ -276,7 +301,7 @@ Planned by the owner on 23 October, built after v0.0.1-alpha.15. A site player c
 
 ## Profile
 
-Planned by the owner on 5 November (plan v2, "Профиль игрока"). In the Mini App the profile opens from the name's letter at the end of the header, and its address is `/me`; the logo still opens the days. A site guest gets a profile from the cookie with a note to sign in so the history is not lost.
+Planned by the owner on 5 November (plan v2, "Профиль игрока"). In the Mini App the profile opens from the name's letter at the end of the header, and its address is `/me`; the logo still opens the days. A site guest gets a profile from the cookie with a note to sign in so the history is not lost. Signed in on the site with Telegram, the profile is the Telegram player's, settings included; with Google alone it is the account's site days from every browser it took in, one a day. A Telegram player's profile, in the bot too, also counts the site days their account took in on the days without a Telegram answer, so the guest's history stays with the sign-in. On the site the account's button is the header's only one: its menu opens the profile, and a guest's sign-in dialog has a link to it.
 
 - **The player.** Two tabs. The daily game: total points, the 30-day average, days, the current and best streak, the typical miss (median km), the share of countries and cities found, the best day, the best world place, and the average percentile, "better than 78% of players". Players are compared by percentile, not place: each day has a different number of players, and site players have no speed bonus, so the percentile counts points without it. Charts drawn in SVG: points over the last 30 rounds with gaps and the median, misses in bins from 1 to 2,500 km, continents with the best and the worst, and a map of one's own pins where a tap opens that day. Under them the passport (countries found turn gold; stamps for 30 days in a row and a city pin within 1 km), the history by day and the settings. Free play shows only means, medians and records, never sums: games are unlimited, and a sum would reward quantity.
 - **Others, on a tap on a name.** Name and letter, days, streak, the 30-day average, best world place, countries; from free play the average per place and duels. Only days over in every zone count. Inside a group both are in, the photo and "closer than you on 14 of 22 shared days".

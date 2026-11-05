@@ -22,6 +22,11 @@ player, and production-minded.
   `web.Pages` with `index.html`, and `web/app/router.js` maps the path to a
   screen. A screen registers itself there from its own file; a new address
   goes into `Pages`. `index.html` names its files from the root.
+- `desktop.css` lays the app out on a tablet and a computer over `app.css`.
+  `html.desk` (from 1024×600, set by `desk.js`) marks the computer's layout;
+  the file's header documents the base a screen builds its own on. A screen
+  in the computer's header passes `nav: { href, t }` to `Router.screen`. The
+  phone's layout must not change.
 - The result is a map card when `CARD_RENDERER_URL` names a headless Chromium:
   `internal/card` serves the page `/card/result/<chat>/<date>`, the renderer
   photographs it, and `schedule` sends the PNG. Any renderer failure falls back
@@ -158,10 +163,12 @@ the diff looks like.
   ticket links Google but never merges two accounts.
 - A name typed on the site is not checked: bot posts call that player "Guest".
   The site's write endpoints take only JSON from maply's own pages.
-- A profile shows its owner every scored day, today's too; anyone else, and
-  a site guest looking at their own, gets only days over in every zone
-  (`profile.LatestClosed`), with no pins, history or answer times. A world
-  place and the percentile count only days over everywhere. A mini profile
+- A profile shows its owner every scored day, today's too, signed in on
+  the site with Telegram as well; anyone else, and a site guest or an
+  account without Telegram looking at their own, gets only days over in
+  every zone (`profile.LatestClosed`), with no pins, history or answer
+  times. A world place and the percentile count only days over everywhere.
+  A mini profile
   opens by an opaque handle (`profile.Handles`) that the server puts only
   next to a name it already shows, never on an anonymous row, so a handle
   cannot name a row before its reveal. The photo goes out only inside a

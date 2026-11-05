@@ -7,6 +7,8 @@
 //     open(m, from) {},  // m is the path's match, m[1] the day; from is the screen before, "" on the first page.
 //                        // open runs again when the path changes within the screen: /days, then /days/14.
 //     close(to) {},      // optional: put away what open drew; to is the next screen's name.
+//     nav: { href: "/days", t: "days", at: 2 }, // optional: a link in the computer's header, its words under
+//                        // app.<t>, at its place among the links (Today 1, Days 2, Free play 3)
 //   });
 //
 //   Router.go("/days/14")            a new page from code: a history entry on the site
@@ -14,6 +16,7 @@
 //   Router.back("/days")             the page's own Back: the previous entry if it is ours, else the parent named
 //   Router.on((name, from) => {})    after every change of screen, for the header's navigation
 //   Router.current                   the screen on show: "today", "days", …
+//   Router.nav()                     the header's links in their order: [{ name, href, t }]
 //
 // A name registered again replaces the screen in its place: a file that takes over an address only registers it.
 // Paths are tried in the order the screens came. An address no screen claims shows today and says so in the
@@ -23,10 +26,10 @@
 // button the browser opens its own new tab.
 //
 // In Telegram there is no browser history: its Back button is the only one, and the page's history would go back
-// out of the app on some clients. There the router only replaces the address, keeping Telegram's hash, and Back
-// goes to the parent.
+// out of the app on some clients. There the router only replaces the address, keeping Telegram's hash, and keeps
+// the pages it went through itself: Back goes to the page before, as on the site, and to the parent at the first.
 const Router = (() => {
-  const screens = [], listeners = [];
+  const screens = [], listeners = [], trail = [];
   let current = null, started = false;
   const telegram = () => { const w = window.Telegram && Telegram.WebApp; return !!w && w.platform !== "unknown"; };
   const depth = () => (history.state && history.state.maply) || 0;
@@ -34,7 +37,7 @@ const Router = (() => {
   const safely = (fn) => { try { fn(); } catch (e) { setTimeout(() => { throw e; }); } };
 
   function screen(name, pattern, s) {
-    const it = { name, pattern, open: s.open, close: s.close };
+    const it = { name, pattern, open: s.open, close: s.close, nav: s.nav };
     const at = screens.findIndex((x) => x.name === name);
     if (at >= 0) screens[at] = it; else screens.push(it);
     if (current && current.name === name) current = it;
@@ -63,12 +66,15 @@ const Router = (() => {
   }
   function go(path, opts) {
     const to = url(path), same = to === location.pathname + location.search + location.hash;
-    if (!started || telegram() || same || (opts && opts.replace)) history.replaceState({ maply: depth() }, "", to);
+    const replace = !started || same || (opts && opts.replace);
+    if (telegram() && !replace && trail.push(location.pathname) > 50) trail.shift();
+    if (replace || telegram()) history.replaceState({ maply: depth() }, "", to);
     else history.pushState({ maply: depth() + 1 }, "", to);
     if (started) route();
   }
   function back(parent) {
-    if (!telegram() && depth() > 0) history.back();
+    if (telegram() && trail.length) go(trail.pop(), { replace: true });
+    else if (!telegram() && depth() > 0) history.back();
     else go(parent || "/", { replace: true });
   }
   function start() {
@@ -87,6 +93,7 @@ const Router = (() => {
   return {
     screen, go, back, start,
     on(fn) { listeners.push(fn); },
+    nav: () => screens.filter((x) => x.nav).sort((a, b) => (a.nav.at || 0) - (b.nav.at || 0)).map((x) => ({ name: x.name, href: x.nav.href, t: x.nav.t })),
     get current() { return current ? current.name : ""; },
   };
 })();
