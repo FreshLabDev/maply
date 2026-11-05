@@ -176,6 +176,9 @@ For the operator:
   occupied Luhansk, which its rules let through, and a plan no longer dies
   or spins when every country is used up. `screen.py` checks a frame outside
   every outline by its plan's country instead of letting it pass.
+- The result's pin, target and the others' marks stood off their points, up
+  to 40 px from the dashed line on a computer, after the map opened straight
+  on a city. They are set again once the camera stops.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

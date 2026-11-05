@@ -408,6 +408,14 @@ const createGlobe = (() => {
       const lead = it.group === null ? [...friendAt.values()].find((x) => x.group && x.group.includes(it)) : it;
       (lead || it).e.classList.add("lit");
     }
+    // MapLibre works out how flat the globe is while drawing, after the camera's last move: a jump from the whole globe
+    // to a city left the HTML markers where the globe would have put them, the pin a dozen pixels off its line. The
+    // first frame after the camera stops puts them back.
+    function settleMarks() {
+      [marker, marks && marks.targetMarker, ...[...friendAt.values()].map((f) => f.m)].forEach((m) => { if (m) m.setLngLat(m.getLngLat()); });
+      layoutMarks();
+    }
+    map.on("moveend", () => { map.off("render", settleMarks); map.once("render", settleMarks); });
 
     // The answer: the place's target, the others' marks, the line from your pin. Layer order: the world's pins, the
     // others, the target above them, your own pin on top.
