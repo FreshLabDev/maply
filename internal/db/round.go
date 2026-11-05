@@ -13,6 +13,8 @@ import (
 )
 
 // ErrNoPlace means the queue has no approved place left for a new round.
+// Only the days' pool is the queue: a place of the free game is never a
+// day's place, and the free game never sees a future day's.
 var ErrNoPlace = errors.New("no approved place in the queue")
 
 type Round struct {
@@ -62,7 +64,7 @@ func (s *Store) EnsureRound(ctx context.Context, d round.Date) (Round, error) {
 	var placeID int64
 	err = tx.QueryRow(ctx, `
 		SELECT id FROM place
-		 WHERE status = 'approved'
+		 WHERE status = 'approved' AND pool = 'daily'
 		 ORDER BY abs(difficulty - $1), md5(id::text), id
 		 LIMIT 1
 		 FOR UPDATE`, round.TargetDifficulty(d.Weekday())).Scan(&placeID)
