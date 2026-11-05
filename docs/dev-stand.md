@@ -83,5 +83,11 @@ the stand listens (and again after `/dev/fresh`). `Env` gives the store,
 the clock, the players, the launch URLs and the whole handler, so a fake
 provider or a bot player calls the real API.
 
+The days page has one (`cmd/maply-dev/days.go`): it runs the strip service
+every five seconds, so a day closed by moving the clock gets its strip a few
+seconds later, and its button drops every strip to draw them again. The
+stand's `AppURL` is its own address, so `/days/<n>` carries the preview tags
+and `/og/day/<n>-<lang>.jpg` draws the picture.
+
 The fake bot token signs everything, so nothing from the stand verifies
 anywhere else, and nothing real verifies on the stand.

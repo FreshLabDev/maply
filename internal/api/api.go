@@ -65,10 +65,10 @@ type Store interface {
 	AdoptDMZone(context.Context, int64, string) (bool, error)
 	FixZone(context.Context, int64, string) error
 	ChatActive(context.Context, int64) (bool, error)
-	Days(context.Context, round.Date, int) ([]db.Day, error)
-	ChatDays(context.Context, int64, []db.Day) (map[round.Date]db.ChatDay, error)
-	MyDays(context.Context, int64, []db.Day) (map[round.Date]db.Mine, error)
-	SiteDays(context.Context, string, []db.Day) (map[round.Date]db.Mine, error)
+	DaysPage(context.Context, db.DaysQuery) (db.DaysPage, error)
+	RoundNo(context.Context, int) (db.Round, bool, error)
+	ClosedDay(context.Context, round.Date, round.Date) (db.ClosedDay, error)
+	ThumbByKey(context.Context, string) (db.Thumb, bool, error)
 	SitePlayer(ctx context.Context, id string, name *string) error
 	SiteName(ctx context.Context, id string) (string, error)
 	InsertSiteGuess(context.Context, db.NewSiteGuess) error
@@ -77,7 +77,6 @@ type Store interface {
 	AccountSitePlayer(ctx context.Context, accountID, id string, name *string) (string, error)
 	SetAccountName(ctx context.Context, accountID, name string) error
 	AccountPlayers(ctx context.Context, accountID string) ([]string, error)
-	AccountDays(ctx context.Context, userID int64, players []string, days []db.Day) (map[round.Date]db.Mine, error)
 	AccountSiteGuessOf(ctx context.Context, d round.Date, accountID string) (db.SiteGuess, bool, error)
 }
 
@@ -113,6 +112,9 @@ type Server struct {
 	ImagesDir string
 	// BotUsername is where the site sends a visitor to play in Telegram.
 	BotUsername string
+	// AppURL is the service's public address, which a link's preview names
+	// its picture by; empty leaves the days' pages without previews.
+	AppURL string
 	// Avatars gives the players' kept photos for the result's marks; nil
 	// keeps the letters.
 	Avatars Avatars
@@ -129,8 +131,16 @@ type Server struct {
 	// siteAll caps the site's writes from everyone together: a site player
 	// is a cookie, and addresses are cheap.
 	siteAll *limiter
-	// imgLimit bounds the place's pictures per address.
-	imgLimit *limiter
+	// imgLimit bounds the place's pictures per address, thumbLimit the
+	// days' strips, of which a page of the list asks for thirty.
+	imgLimit   *limiter
+	thumbLimit *limiter
+	// ogLimit bounds the days' link pictures per address and ogAll those
+	// drawn for everyone, which are drawn on demand; metaLimit the pages'
+	// previews, which read the day.
+	ogLimit   *limiter
+	ogAll     *limiter
+	metaLimit *limiter
 
 	// tied remembers who has been tied to which chat's reveal, so a result
 	// polled again does not write to core every time.
@@ -148,6 +158,16 @@ type Server struct {
 	// per new answer, not once each.
 	liveMu sync.Mutex
 	live   map[round.Date]liveDay
+
+	// thumbs keeps the strips last served; they never change.
+	thumbsMu sync.Mutex
+	thumbs   map[string]db.Thumb
+
+	// ogs keeps the days' link pictures drawn; ogTurn lets one be drawn at
+	// a time.
+	ogMu   sync.Mutex
+	ogs    map[string][]byte
+	ogTurn chan struct{}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -166,6 +186,11 @@ func (s *Server) Handler() http.Handler {
 	// An app open fetches one picture; Cloudflare keeps the .jpg, so a
 	// loop of fetches past it is all that reaches the bot.
 	s.imgLimit = newLimiter(120, time.Minute)
+	s.thumbLimit = newLimiter(600, time.Minute)
+	s.ogLimit = newLimiter(30, time.Minute)
+	s.ogAll = newLimiter(20, time.Minute)
+	s.metaLimit = newLimiter(60, time.Minute)
+	s.ogTurn = make(chan struct{}, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/today", s.today)
 	mux.HandleFunc("POST /api/guess", s.guess)
@@ -181,6 +206,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/me", s.accounts)
 	mux.HandleFunc("/api/account/", s.accounts)
 	mux.HandleFunc("GET /img/{key}", s.image)
+	mux.HandleFunc("GET /thumb/{name}", s.thumb)
+	mux.HandleFunc("GET /og/day/{name}", s.og)
 	return s.withViewer(mux)
 }
 

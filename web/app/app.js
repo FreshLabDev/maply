@@ -1165,24 +1165,15 @@ async function share() {
   } finally { sharing = false; $("go").classList.remove("busy"); }
   shareLink();
 }
-/* ---------- Days ---------- */
-// The home page, the same in Telegram and on the site: every day newest first with the world's numbers, and for a
-// closed day its whole ranking. A day closes after the last zone's reveal; until then it shows only how many answered.
-// Each avatar carries where the player came from: Telegram or the site.
+/* ---------- The sheet ---------- */
+// A page over the game: the days (days.js) and every answer of the day. Each avatar in a table carries where the player
+// came from: Telegram or the site.
 const SRC_TG = '<svg class="src" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#2AABEE"/><path fill="#fff" d="M5.4 11.7l10.9-4.2c.5-.2 1 .1.8.9l-1.9 8.8c-.1.6-.5.8-1 .5l-2.8-2.1-1.4 1.3c-.2.2-.3.3-.6.3l.2-2.9 5.3-4.8c.2-.2 0-.3-.3-.1l-6.5 4.1-2.8-.9c-.6-.2-.6-.6.1-.9z"/></svg>';
 const SRC_SITE = '<svg class="src" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#FFFFFF"/><g fill="none" stroke="#245A3C" stroke-width="1.6"><circle cx="12" cy="12" r="6.5"/><path d="M5.5 12h13M12 5.5c-2.4 2.4-2.4 10.6 0 13M12 5.5c2.4 2.4 2.4 10.6 0 13"/></g></svg>';
 // A distance as the bot writes it: metres under a kilometre, one decimal under ten.
 const kmIn = (tx, lang, km) => km < 1 ? textIn(tx, "unit.m", { m: numIn(lang, km * 1000) })
   : textIn(tx, "unit.km", { km: numIn(lang, km, km >= 10 ? 0 : 1) });
 const kmT = (km) => kmIn(TX, LANG, km);
-const dayDate = (iso) => { try { return new Intl.DateTimeFormat(numLang(), { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(iso + "T00:00:00Z")); } catch { return iso; } };
-// clock is a time in the zone the app shows today's reveal in, with that
-// zone's name, so it reads the same as the reveal line.
-const clock = (iso) => {
-  let t;
-  try { t = new Intl.DateTimeFormat(numLang(), { timeZone: TODAY && TODAY.zone || undefined, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso)); } catch { return ""; }
-  return withZone(t);
-};
 const nameOf = (r) => r.name || (r.site ? T("guest") : "?");
 // Sofia Sans draws Cyrillic in its Bulgarian forms unless told the language. A name can be in any script; in an interface
 // that is not Cyrillic, Russian forms are the likelier right ones for a Cyrillic name.
@@ -1217,93 +1208,8 @@ function closeDays() {
 }
 // Escape is the sheet's own back button: from a day to the days, from the days out.
 addEventListener("keydown", (e) => { if (e.key === "Escape" && $("sheet").classList.contains("on")) { e.preventDefault(); $("shBack").click(); } });
-// The days are the page /days and a day is /days/<date>: closing the sheet goes back to the page before it.
-const leaveDays = () => Router.back("/");
-async function openDays() {
-  haptic("light");
-  const ticket = sheet(esc(T("days")), '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>', null, leaveDays);
-  let data;
-  try { data = await getJSON("/api/days"); } catch (e) { if (ticket === SHEET) sheet(esc(T("days")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', null, leaveDays); return; }
-  if (ticket !== SHEET) return;
-  const days = data.days || [];
-  let html = "";
-  if (SITE) html += '<label class="sh-name"><span class="up">' + esc(T("your_name")) + '</span><input id="shName" lang="' + nameLang() + '" maxlength="24" autocomplete="nickname" placeholder="' + esc(T("guest")) + '" value="' + esc(siteName()) + '"></label>';
-  if (typeof accountEntry === "function") html += accountEntry();
-  if (!days.length) html += '<p class="sh-wait">' + esc(T("no_days")) + '</p>';
-  for (const d of days) {
-    const head = '<span class="up">#' + d.day + ' · ' + esc(dayDate(d.date)) + '</span>';
-    if (!d.final) {
-      html += '<div class="dd open">' + head + '<p>' + esc(T("day_open", { time: clock(d.opens_at) })) + ' · ' + esc(T("day_answered", { n: fmt(d.pending) })) + '</p></div>';
-      continue;
-    }
-    const where = [d.city, d.country && regionName(d.country)].filter(Boolean).join(", ");
-    let rows = '<p>' + esc(T("day_world", { n: fmt(d.players), km: d.median_km != null ? kmT(d.median_km) : "…", pct: d.country_pct })) + '</p>';
-    if (d.group) rows += '<p>' + esc(T("day_group", { n: fmt(d.group.answered), total: fmt(d.group.members) })) + (d.group.best_name ? ' · <span lang="' + nameLang() + '">' + esc(d.group.best_name) + "</span>, " + kmT(d.group.best_km) : "") + '</p>';
-    if (d.me) rows += '<p class="me">' + esc(T("day_me", { rank: fmt(d.me.rank), points: fmt(d.me.points) })) + '</p>';
-    html += '<button class="dd" data-date="' + esc(d.date) + '">' + head + '<b>' + esc(where) + '</b>' + rows + '<em>' + fwd() + '</em></button>';
-  }
-  DAYS = { html, scroll: 0 };
-  showDays();
-}
-// The days as they were drawn last: Back from a day comes back to them where they were scrolled, without asking again.
-let DAYS = null;
-function showDays() {
-  sheet(esc(T("days")), DAYS.html, null, leaveDays);
-  const body = $("sheet").querySelector(".sh-body");
-  body.scrollTop = DAYS.scroll;
-  $("sheet").querySelectorAll(".dd[data-date]").forEach((b) => { b.onclick = () => { DAYS.scroll = body.scrollTop; Router.go("/days/" + b.dataset.date); }; });
-  if (typeof accountBind === "function") accountBind();
-  const name = $("shName");
-  if (name) name.value = siteName();
-  if (name) name.onchange = async () => {
-    try {
-      localStorage.setItem(NAME, name.value.trim());
-      await reply(await get("/api/site/name", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.value }) }));
-      toast(T("name_saved"));
-    } catch (e) { toast(errorText(e)); }
-  };
-}
-// A later tap wins over an earlier one whose reply comes last; the tapped day says it is on its way. A day opened by its
-// address has no list under it: the sheet waits for it on its own, and Back goes to the list.
-async function openDay(date) {
-  haptic("select");
-  const btn = $("sheet").classList.contains("on") && [...$("sheet").querySelectorAll(".dd[data-date]")].find((b) => b.dataset.date === date);
-  const toDays = () => Router.back("/days");
-  const ticket = btn ? ++SHEET : sheet(esc(T("days")), '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>', toDays);
-  $("sheet").querySelectorAll(".dd.busy").forEach((b) => { b.classList.remove("busy"); b.removeAttribute("aria-busy"); });
-  if (btn) { btn.classList.add("busy"); btn.setAttribute("aria-busy", "true"); }
-  let d;
-  try { d = await getJSON("/api/day?date=" + encodeURIComponent(date)); } catch (e) {
-    if (ticket !== SHEET) return;
-    // The list stays, and so does its address.
-    if (btn) { toast(errorText(e)); btn.classList.remove("busy"); btn.removeAttribute("aria-busy"); Router.go("/days", { replace: true }); }
-    else sheet(esc(T("days")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', toDays);
-    return;
-  }
-  if (ticket !== SHEET) return;
-  const P = d.place, where = [P.city, regionName(P.country)].filter(Boolean).join(", ");
-  let html = '<p class="sh-sub">' + esc(T("day_world", { n: fmt(d.players), km: d.median_km != null ? kmT(d.median_km) : "…", pct: d.country_pct })) + '</p><ol class="rk">';
-  for (const r of d.ranking) {
-    const name = nameOf(r);
-    html += '<li class="' + (r.me ? "me" : "") + '"><span class="n">' + fmt(r.rank) + '</span><span class="a">' + av(name) + (r.site ? SRC_SITE : SRC_TG) +
-      '</span><span class="w" lang="' + nameLang() + '">' + esc(name) + (r.me ? ' <em>· ' + esc(T("you")) + '</em>' : '') + '</span><span class="k">' + kmT(r.km) + '</span><b>' + fmt(r.points) + '</b></li>';
-  }
-  html += '</ol><p class="sh-legend"><span>' + SRC_TG + esc(T("from_tg")) + '</span><span>' + SRC_SITE + esc(T("from_site")) + '</span></p>';
-  sheet("#" + d.day + " · " + esc(where), html, toDays);
-}
-// The game is the page under every other: today has nothing of its own to open or close. Until days.js takes /days
-// over, the days are the sheet above; Back from a day comes back to the list as it was scrolled, without asking again.
+// The game is the page under every other: today has nothing of its own to open or close. The days are days.js's.
 Router.screen("today", /^\/(?:index\.html)?$/, { open() {} });
-let dayShown = false;
-Router.screen("days", /^\/days(?:\/(\d{4}-\d{2}-\d{2}))?$/, {
-  open(m) {
-    if (m[1]) openDay(m[1]);
-    else if (dayShown && DAYS) showDays();
-    else openDays();
-    dayShown = !!m[1];
-  },
-  close() { dayShown = false; closeDays(); },
-});
 
 /* ---------- Start ---------- */
 // Opened inside Telegram without initData (a plain link in the in-app browser) there is nothing to play as.

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"regexp"
 	"strings"
 	"testing"
@@ -65,6 +66,51 @@ func TestPages(t *testing.T) {
 			rec.Header().Get("ETag") != index.Header().Get("ETag") {
 			t.Errorf("GET %s = %d", p, rec.Code)
 		}
+	}
+}
+
+// A page the meta hook knows carries its preview in the head, escaped, and
+// is otherwise the same app; one it does not know is the plain page.
+func TestPageMeta(t *testing.T) {
+	h, err := HandlerWithMeta(func(r *http.Request, p string) (Meta, bool) {
+		if p != "/days/14" {
+			return Meta{}, false
+		}
+		return Meta{Title: `maply #14 · "Bar" <b>`, Description: "a & b", URL: "https://maply.test/days/14",
+			Image: "https://maply.test/og/day/14-en.jpg", ImageW: 1200, ImageH: 630}, true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(target string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		return rec
+	}
+	index := serve(t, "/", nil)
+	if plain := get("/days/13"); plain.Body.String() != index.Body.String() || plain.Header().Get("Vary") != "" {
+		t.Fatalf("a page without a preview changed")
+	}
+	rec := get("/days/14")
+	body := rec.Body.String()
+	for _, want := range []string{
+		`<meta property="og:title" content="maply #14 · &#34;Bar&#34; &lt;b&gt;">`,
+		`<meta property="og:description" content="a &amp; b">`,
+		`<meta property="og:image" content="https://maply.test/og/day/14-en.jpg">`,
+		`<meta property="og:image:width" content="1200">`,
+		`<meta name="twitter:card" content="summary_large_image">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("no %s", want)
+		}
+	}
+	head, _, _ := strings.Cut(body, "</head>")
+	if !strings.Contains(head, "og:url") || strings.Contains(head, `"Bar"`) || rec.Header().Get("Content-Security-Policy") != CSP ||
+		rec.Header().Get("ETag") == index.Header().Get("ETag") || rec.Header().Get("Vary") != "Accept-Language" {
+		t.Fatalf("GET /days/14 = %d %v", rec.Code, rec.Header())
+	}
+	if strings.Replace(body, head, "", 1) != strings.Replace(index.Body.String(), strings.SplitN(index.Body.String(), "</head>", 2)[0], "", 1) {
+		t.Fatal("the page's body changed")
 	}
 }
 
@@ -152,7 +198,7 @@ func TestAppKeysExist(t *testing.T) {
 	for key := range i18n.WithPrefix("en", "unit.") {
 		known[key] = true
 	}
-	uses := regexp.MustCompile(`\b(?:T|lines)\("([a-z_.]*[a-z_])"|data-(?:t|aria)="([a-z_.]+)"|LOOK = \{([^}]*)\}`)
+	uses := regexp.MustCompile(`\b(?:TN?|lines)\("([a-z_.]*[a-z_])"|data-(?:t|aria)="([a-z_.]+)"|LOOK = \{([^}]*)\}`)
 	quoted := regexp.MustCompile(`"([a-z_]+)"`)
 	for _, name := range appFiles(t) {
 		if strings.HasSuffix(name, ".css") {
@@ -184,6 +230,35 @@ func TestAppKeysExist(t *testing.T) {
 		"loading", "on_water", "on_land", "moved", "error.network", "error.left", "error.unavailable", "error.bad_request", "error.internal"} {
 		if !known[key] {
 			t.Errorf("the app builds %q, which internal/i18n does not have", key)
+		}
+	}
+}
+
+// The days page draws a flag only for a code it knows a file for, and its
+// letters otherwise: the list in days.js is the vendored files, no more.
+func TestFlagsAreTheVendoredFiles(t *testing.T) {
+	data, err := fs.ReadFile(embedded, "app/days.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?s)const FLAGS = new Set\(\((.*?)\)\.split`).FindSubmatch(data)
+	if m == nil {
+		t.Fatal("no FLAGS in days.js")
+	}
+	listed := map[string]bool{}
+	for _, code := range regexp.MustCompile(`[A-Z]{2}`).FindAllString(string(m[1]), -1) {
+		listed[code] = true
+	}
+	files, err := fs.Glob(embedded, "app/vendor/country-flag-icons-1.6.20/3x2/*.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != len(listed) {
+		t.Errorf("%d flag files, %d codes in days.js", len(files), len(listed))
+	}
+	for _, f := range files {
+		if code := strings.TrimSuffix(path.Base(f), ".svg"); !listed[code] {
+			t.Errorf("%s is served but days.js does not know it", code)
 		}
 	}
 }

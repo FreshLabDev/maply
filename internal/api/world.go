@@ -2,37 +2,24 @@
 package api
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
+	"sort"
 	"time"
 
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
 )
-
-// The days page is the same for the site and the Mini App: every past day
-// with its world numbers, and each closed day's full ranking. A day opens
-// only after the last zone's reveal, when its place is out everywhere.
 
 // playerCookie holds a site player's random id for a year.
 const (
 	playerCookie = "maply_player"
 	playerAge    = 365 * 24 * time.Hour
-	// daysShown is how far back the days page goes.
-	daysShown = 30
-	// rankShown is how many of a day's rows the ranking sends; the viewer's
-	// own row comes on top of them when it is further down.
-	rankShown = 500
-	// closedFor is how long a closed day is kept before it is read again: a
-	// name changed or an answer removed by hand shows within it.
-	closedFor = 10 * time.Minute
 )
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -192,32 +179,6 @@ func (s *Server) siteName(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"name": db.CleanName(body.Name)})
 }
 
-type dayView struct {
-	Date       string   `json:"date"`
-	Day        int      `json:"day"`
-	Final      bool     `json:"final"`
-	OpensAt    string   `json:"opens_at,omitempty"`
-	Players    int      `json:"players"`
-	Pending    int      `json:"pending"`
-	MedianKm   *float64 `json:"median_km,omitempty"`
-	BestKm     *float64 `json:"best_km,omitempty"`
-	CountryPct int      `json:"country_pct"`
-	// Place is set once the day is final.
-	City    string `json:"city,omitempty"`
-	Country string `json:"country,omitempty"`
-	Group   *struct {
-		Answered int      `json:"answered"`
-		Members  int      `json:"members"`
-		BestName string   `json:"best_name,omitempty"`
-		BestKm   *float64 `json:"best_km,omitempty"`
-	} `json:"group,omitempty"`
-	Me *struct {
-		Km     float64 `json:"km"`
-		Points int     `json:"points"`
-		Rank   int     `json:"rank"`
-	} `json:"me,omitempty"`
-}
-
 // viewer is who asks for the days page: a Telegram player from the Mini App,
 // an account, a site player from the cookie, or nobody.
 type viewer struct {
@@ -229,6 +190,8 @@ type viewer struct {
 	// player it has taken in.
 	account string
 	players map[string]bool
+	// zone is where the viewer is: the chat's, or the browser's own.
+	zone *time.Location
 }
 
 func (s *Server) viewer(r *http.Request) (viewer, error) {
@@ -237,13 +200,13 @@ func (s *Server) viewer(r *http.Request) (viewer, error) {
 		if err != nil {
 			return viewer{}, err
 		}
-		return viewer{user: p.user.ID, chatID: p.chatID, lang: p.lang}, nil
+		return viewer{user: p.user.ID, chatID: p.chatID, lang: p.lang, zone: p.zone}, nil
 	}
 	if !s.ipLimit.allowIP(clientIP(r)) {
 		return viewer{}, errRateLimited
 	}
 	sv := s.siteViewer(r)
-	out := viewer{player: sv.Player, lang: i18n.Resolve(r.URL.Query().Get("lang"))}
+	out := viewer{player: sv.Player, lang: i18n.Resolve(r.URL.Query().Get("lang")), zone: s.siteZone(r)}
 	if sv.SignedIn() {
 		players, err := s.sitePlayers(r, sv)
 		if err != nil {
@@ -254,193 +217,19 @@ func (s *Server) viewer(r *http.Request) (viewer, error) {
 	return out, nil
 }
 
-// days lists the last daysShown dates, newest first. A day still open
-// somewhere shows only how many have answered and when it closes.
-func (s *Server) days(w http.ResponseWriter, r *http.Request) {
-	v, err := s.viewer(r)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	ctx := r.Context()
-	now := s.Now()
-	list, err := s.Store.Days(ctx, s.firstDate(), daysShown)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	var chat map[round.Date]db.ChatDay
-	if v.chatID != 0 {
-		if chat, err = s.Store.ChatDays(ctx, v.chatID, list); err != nil {
-			s.fail(w, r, err)
-			return
-		}
-	}
-	var mine map[round.Date]db.Mine
-	switch {
-	case v.account != "":
-		players := make([]string, 0, len(v.players))
-		for p := range v.players {
-			players = append(players, p)
-		}
-		mine, err = s.Store.AccountDays(ctx, v.user, players, list)
-	case v.user != 0:
-		mine, err = s.Store.MyDays(ctx, v.user, list)
-	case v.player != "":
-		mine, err = s.Store.SiteDays(ctx, v.player, list)
-	}
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	out := make([]dayView, 0, len(list))
-	for _, d := range list {
-		opens := s.latestReveal(d.Date)
-		x := dayView{Date: d.Date.String(), Day: d.DayNo, Final: !now.Before(opens), Pending: d.Players + d.Pending}
-		if !x.Final {
-			// Nothing scored is shown before the day closes: an early zone's
-			// numbers would hint at the place to a later one.
-			x.OpensAt = opens.UTC().Format(time.RFC3339)
-			out = append(out, x)
-			continue
-		}
-		x.Pending = d.Pending
-		x.Players, x.MedianKm, x.BestKm, x.CountryPct = d.Players, d.MedianKm, d.BestKm, d.CountryPct
-		if c, ok := chat[d.Date]; ok {
-			x.Group = &struct {
-				Answered int      `json:"answered"`
-				Members  int      `json:"members"`
-				BestName string   `json:"best_name,omitempty"`
-				BestKm   *float64 `json:"best_km,omitempty"`
-			}{c.Answered, c.Members, c.BestName, c.BestKm}
-		}
-		if m, ok := mine[d.Date]; ok {
-			x.Me = &struct {
-				Km     float64 `json:"km"`
-				Points int     `json:"points"`
-				Rank   int     `json:"rank"`
-			}{m.Km, m.Points, m.Rank}
-		}
-		// A day without its place still shows: the rest of the page is
-		// worth more than one name, and the failure is in the log.
-		if c, err := s.closedPlace(ctx, d.Date); err == nil {
-			x.City, x.Country = localized(c.answer.City, v.lang), c.answer.CountryISO
-		} else {
-			s.Log.Warn("day's place not read", "date", d.Date, "error", err)
-		}
-		out = append(out, x)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"days": out})
+// owns says a row of the world's ranking is the viewer's own.
+func (v viewer) owns(userID int64, player string) bool {
+	return (v.user != 0 && userID == v.user) || (player != "" && (player == v.player || v.players[player]))
 }
 
-type rankLine struct {
-	Rank   int     `json:"rank"`
-	Name   string  `json:"name"`
-	Site   bool    `json:"site,omitempty"`
-	Km     float64 `json:"km"`
-	Points int     `json:"points"`
-	Me     bool    `json:"me,omitempty"`
-}
-
-// day is one closed day: the place and everyone's place in the ranking.
-func (s *Server) day(w http.ResponseWriter, r *http.Request) {
-	v, err := s.viewer(r)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	d, err := round.ParseDate(r.URL.Query().Get("date"))
-	if err != nil {
-		s.fail(w, r, errBadRequest)
-		return
-	}
-	if opens := s.latestReveal(d); s.Now().Before(opens) {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": errNotRevealed.code, "opens_at": opens.UTC()})
-		return
-	}
-	c, err := s.closedRanking(r.Context(), d)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	rd, answer, world := c.round, c.answer, *c.world
-	ranking := make([]rankLine, 0, min(len(world.Entries), rankShown+1))
-	for i, e := range world.Entries {
-		me := (v.user != 0 && e.UserID == v.user) || (v.player != "" && e.Player == v.player) || (e.Player != "" && v.players[e.Player])
-		if i < rankShown || me {
-			ranking = append(ranking, rankLine{Rank: e.Rank, Name: e.Name, Site: e.Site(), Km: e.Km, Points: e.Points, Me: me})
+// more is the account's site players besides the cookie's.
+func (v viewer) more() []string {
+	out := make([]string, 0, len(v.players))
+	for p := range v.players {
+		if p != v.player {
+			out = append(out, p)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"date": d.String(), "day": rd.DayNo,
-		"place": placeView{
-			Lat: answer.Point.Lat, Lon: answer.Point.Lon, Country: answer.CountryISO,
-			City: localized(answer.City, v.lang), Fact: localized(answer.Fact, v.lang),
-			Author: answer.Author, License: answer.License, Source: answer.Source,
-		},
-		"median_km": world.MedianKm, "country_pct": world.CountryPct,
-		"ranking": ranking, "players": world.Players(),
-	})
-}
-
-// closedDay is what a day over everywhere shows; world is nil until the day's
-// ranking was asked for.
-type closedDay struct {
-	at     time.Time
-	round  db.Round
-	answer db.Answer
-	world  *db.World
-}
-
-// closedPlace is a closed day's round and place, read once per closedFor.
-func (s *Server) closedPlace(ctx context.Context, d round.Date) (closedDay, error) {
-	s.closedMu.Lock()
-	c, ok := s.closed[d]
-	s.closedMu.Unlock()
-	if ok && s.Now().Sub(c.at) < closedFor {
-		return c, nil
-	}
-	rd, ok, err := s.Store.RoundOn(ctx, d)
-	if err != nil {
-		return closedDay{}, err
-	}
-	if !ok {
-		return closedDay{}, errNoRound
-	}
-	answer, err := s.Store.Answer(ctx, rd.PlaceID)
-	if err != nil {
-		return closedDay{}, err
-	}
-	c = closedDay{at: s.Now(), round: rd, answer: answer}
-	s.keepClosed(d, c)
-	return c, nil
-}
-
-// closedRanking adds the day's world ranking to its place, scoring what
-// nobody scored since the last reveal first.
-func (s *Server) closedRanking(ctx context.Context, d round.Date) (closedDay, error) {
-	c, err := s.closedPlace(ctx, d)
-	if err != nil || c.world != nil {
-		return c, err
-	}
-	if err := s.scoreDay(ctx, d, c.answer, s.Now()); err != nil {
-		return closedDay{}, err
-	}
-	world, err := s.Store.World(ctx, d)
-	if err != nil {
-		return closedDay{}, err
-	}
-	c.world = &world
-	s.keepClosed(d, c)
-	return c, nil
-}
-
-func (s *Server) keepClosed(d round.Date, c closedDay) {
-	s.closedMu.Lock()
-	defer s.closedMu.Unlock()
-	// The days page shows daysShown of them; a few more for old links.
-	if s.closed == nil || len(s.closed) >= 2*daysShown {
-		s.closed = map[round.Date]closedDay{}
-	}
-	s.closed[d] = c
+	sort.Strings(out)
+	return out
 }

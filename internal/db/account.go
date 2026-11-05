@@ -795,53 +795,6 @@ func (s *Store) UseTicket(ctx context.Context, hash [32]byte, now time.Time) (st
 	return id, true, nil
 }
 
-// AccountDays is MyDays for an account: its Telegram answers and those of
-// every site player it has taken in. On a date with both, from before they
-// were one account, the earlier answer is the one shown.
-func (s *Store) AccountDays(ctx context.Context, userID int64, players []string, days []Day) (map[round.Date]Mine, error) {
-	out := map[round.Date]Mine{}
-	if len(days) == 0 || (userID == 0 && len(players) == 0) {
-		return out, nil
-	}
-	dates := make([]time.Time, len(days))
-	for i, d := range days {
-		dates[i] = d.Date.Time()
-	}
-	if players == nil {
-		players = []string{}
-	}
-	rows, err := s.pool.Query(ctx, `
-		WITH mine AS (
-		  SELECT dp.date, dp.km, dp.points, dp.rank, g.answered_at
-		    FROM day_place dp JOIN guess g ON g.date = dp.date AND g.user_id = dp.user_id
-		   WHERE dp.date = ANY($3::date[]) AND dp.user_id = $1
-		  UNION ALL
-		  SELECT dp.date, dp.km, dp.points, dp.rank, sg.answered_at
-		    FROM day_place dp JOIN site_guess sg ON sg.date = dp.date AND sg.player = dp.player
-		   WHERE dp.date = ANY($3::date[]) AND dp.player = ANY($2::uuid[])
-		  UNION ALL
-		  SELECT r.date, r.km, r.points, r.rank, r.answered_at
-		    FROM day_rank r
-		   WHERE r.date = ANY($3::date[]) AND (r.user_id = $1 OR r.player = ANY($2::uuid[]))
-		     AND NOT EXISTS (SELECT 1 FROM day_closed c WHERE c.date = r.date))
-		SELECT DISTINCT ON (date) date, km, points, rank FROM mine ORDER BY date, answered_at`, userID, players, dates)
-	if err != nil {
-		return nil, fmt.Errorf("account days: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			at time.Time
-			m  Mine
-		)
-		if err := rows.Scan(&at, &m.Km, &m.Points, &m.Rank); err != nil {
-			return nil, fmt.Errorf("account days: %w", err)
-		}
-		out[round.DateIn(at, time.UTC)] = m
-	}
-	return out, rows.Err()
-}
-
 // AccountSiteGuessOf is SiteGuessOf for every player of an account: its answer of
 // d from any of them, the earliest when there are two.
 func (s *Store) AccountSiteGuessOf(ctx context.Context, d round.Date, accountID string) (SiteGuess, bool, error) {

@@ -113,49 +113,6 @@ func (s *Store) World(ctx context.Context, d round.Date) (World, error) {
 	return w, nil
 }
 
-// Day is one date's numbers for the Days tab: the world's, and a group's or
-// a person's when asked for.
-type Day struct {
-	Date     round.Date
-	DayNo    int
-	Players  int
-	Pending  int
-	MedianKm *float64
-	BestKm   *float64
-	// CountryPct is the share of scored answers inside the right country.
-	CountryPct int
-}
-
-// Days are the world's numbers for the n dates up to and including last,
-// newest first. A date without a round is left out.
-func (s *Store) Days(ctx context.Context, last round.Date, n int) ([]Day, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT r.date, r.day_no,
-		       count(ds.km),
-		       (SELECT count(*) FROM guess g WHERE g.date = r.date AND g.km IS NULL)
-		     + (SELECT count(*) FROM site_guess sg WHERE sg.date = r.date AND sg.km IS NULL),
-		       percentile_cont(0.5) WITHIN GROUP (ORDER BY ds.km),
-		       min(ds.km),
-		       COALESCE(round(100.0 * count(*) FILTER (WHERE ds.pts_bonus >= 800) / NULLIF(count(ds.km), 0)), 0)::int
-		  FROM round r
-		  LEFT JOIN day_score ds ON ds.date = r.date
-		 WHERE r.date <= $1 AND r.date > $1::date - $2::int
-		 GROUP BY r.date, r.day_no
-		 ORDER BY r.date DESC`, last.Time(), n)
-	if err != nil {
-		return nil, fmt.Errorf("days to %s: %w", last, err)
-	}
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Day, error) {
-		var (
-			x  Day
-			at time.Time
-		)
-		err := row.Scan(&at, &x.DayNo, &x.Players, &x.Pending, &x.MedianKm, &x.BestKm, &x.CountryPct)
-		x.Date = round.DateIn(at, time.UTC)
-		return x, err
-	})
-}
-
 // ChatDay is a group's part of a date: how many of the people core has seen
 // there with maply answered, and the best of them by points.
 type ChatDay struct {
@@ -163,51 +120,6 @@ type ChatDay struct {
 	Members  int
 	BestName string
 	BestKm   *float64
-}
-
-// ChatDays are the group's numbers for the dates in days, keyed by date.
-func (s *Store) ChatDays(ctx context.Context, chatID int64, days []Day) (map[round.Date]ChatDay, error) {
-	out := map[round.Date]ChatDay{}
-	if len(days) == 0 {
-		return out, nil
-	}
-	dates := make([]time.Time, len(days))
-	for i, d := range days {
-		dates[i] = d.Date.Time()
-	}
-	rows, err := s.pool.Query(ctx, `
-		WITH m AS (SELECT telegram_user_id AS id FROM core.maply_presence WHERE chat_id = $1)
-		SELECT d.date,
-		       (SELECT count(*) FROM m),
-		       count(g.user_id),
-		       (array_agg(COALESCE(pe.first_name, '') ORDER BY ds.points DESC, ds.km, ds.answered_at, ds.user_id)
-		          FILTER (WHERE ds.points IS NOT NULL))[1],
-		       (array_agg(ds.km ORDER BY ds.points DESC, ds.km, ds.answered_at, ds.user_id)
-		          FILTER (WHERE ds.points IS NOT NULL))[1]
-		  FROM unnest($2::date[]) AS d(date)
-		  LEFT JOIN guess g ON g.date = d.date AND g.user_id IN (SELECT id FROM m)
-		  LEFT JOIN day_score ds ON ds.date = g.date AND ds.user_id = g.user_id
-		  LEFT JOIN core.person pe ON pe.telegram_user_id = g.user_id
-		 GROUP BY d.date`, chatID, dates)
-	if err != nil {
-		return nil, fmt.Errorf("chat days %d: %w", chatID, err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			at   time.Time
-			x    ChatDay
-			best *string
-		)
-		if err := rows.Scan(&at, &x.Members, &x.Answered, &best, &x.BestKm); err != nil {
-			return nil, fmt.Errorf("chat days %d: %w", chatID, err)
-		}
-		if best != nil {
-			x.BestName = *best
-		}
-		out[round.DateIn(at, time.UTC)] = x
-	}
-	return out, rows.Err()
 }
 
 // Mine is a person's own line on a date: their score and place in the world.
@@ -228,54 +140,6 @@ func (s *Store) KeepDay(ctx context.Context, d round.Date) error {
 		return fmt.Errorf("keep day %s: %w", d, err)
 	}
 	return nil
-}
-
-// MyDays are a Telegram player's scored answers on the dates in days, with
-// the place each had in that day's ranking.
-func (s *Store) MyDays(ctx context.Context, userID int64, days []Day) (map[round.Date]Mine, error) {
-	return s.myDays(ctx, "user_id = $1", userID, days)
-}
-
-// SiteDays is MyDays for a site player.
-func (s *Store) SiteDays(ctx context.Context, player string, days []Day) (map[round.Date]Mine, error) {
-	return s.myDays(ctx, "player = $1::uuid", player, days)
-}
-
-func (s *Store) myDays(ctx context.Context, who string, id any, days []Day) (map[round.Date]Mine, error) {
-	out := map[round.Date]Mine{}
-	if len(days) == 0 {
-		return out, nil
-	}
-	dates := make([]time.Time, len(days))
-	for i, d := range days {
-		dates[i] = d.Date.Time()
-	}
-	// A kept day is read as it was kept; only a day still open is ranked.
-	var open []time.Time
-	if err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(array_agg(d), '{}') FROM unnest($1::date[]) d
-		 WHERE NOT EXISTS (SELECT 1 FROM day_closed c WHERE c.date = d)`, dates).Scan(&open); err != nil {
-		return nil, fmt.Errorf("my days: %w", err)
-	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT date, km, points, rank FROM day_place WHERE date = ANY($2::date[]) AND `+who+`
-		UNION ALL
-		SELECT date, km, points, rank FROM day_rank WHERE date = ANY($3::date[]) AND `+who, id, dates, open)
-	if err != nil {
-		return nil, fmt.Errorf("my days: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			at time.Time
-			m  Mine
-		)
-		if err := rows.Scan(&at, &m.Km, &m.Points, &m.Rank); err != nil {
-			return nil, fmt.Errorf("my days: %w", err)
-		}
-		out[round.DateIn(at, time.UTC)] = m
-	}
-	return out, rows.Err()
 }
 
 // NameLimit is the longest name a site player may give.

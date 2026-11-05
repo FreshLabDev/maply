@@ -231,17 +231,20 @@ func run(logger *slog.Logger, dsn, addr, places, state string, days int, fresh, 
 		Countries:   countries,
 		ImagesDir:   e.ImagesDir,
 		BotUsername: "maplyin_bot",
+		AppURL:      "http://" + e.Addr,
 		Log:         logger,
 		Now:         e.Clock.Now,
 	}
 	game := e.API.Handler()
-	app, err := web.Handler()
+	app, err := web.HandlerWithMeta(e.API.PageMeta)
 	if err != nil {
 		return err
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/api/", game)
 	mux.Handle("/img/", game)
+	mux.Handle("/thumb/", game)
+	mux.Handle("/og/", game)
 	mux.Handle("/", app)
 	e.Handler = mux
 	mountDev(e, mux)
