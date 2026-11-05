@@ -120,6 +120,8 @@ type Server struct {
 	// siteAll caps the site's writes from everyone together: a site player
 	// is a cookie, and addresses are cheap.
 	siteAll *limiter
+	// imgLimit bounds the place's pictures per address.
+	imgLimit *limiter
 
 	// tied remembers who has been tied to which chat's reveal, so a result
 	// polled again does not write to core every time.
@@ -140,6 +142,9 @@ func (s *Server) Handler() http.Handler {
 	s.logLimit = newLimiter(5, time.Minute)
 	s.logAll = newLimiter(30, time.Minute)
 	s.siteAll = newLimiter(120, time.Minute)
+	// An app open fetches one picture; Cloudflare keeps the .jpg, so a
+	// loop of fetches past it is all that reaches the bot.
+	s.imgLimit = newLimiter(120, time.Minute)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/today", s.today)
 	mux.HandleFunc("POST /api/guess", s.guess)
@@ -456,7 +461,7 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := todayResponse{
-		Date: p.date.String(), Day: rd.DayNo, Image: "/img/" + puzzle.ImageKey, Kind: puzzle.Kind,
+		Date: p.date.String(), Day: rd.DayNo, Image: imagePath(puzzle.ImageKey), Kind: puzzle.Kind,
 		Heading: puzzle.Heading, Zone: p.zone.String(), Lang: p.lang, Deadline: deadline.UTC(), Reveal: opens.UTC(),
 		ZoneSet: zoneSet,
 	}
@@ -1028,10 +1033,21 @@ func localized(m map[string]string, lang string) string {
 // says nothing about the place.
 var imageKey = regexp.MustCompile(`^[A-Za-z0-9_-]{16,64}$`)
 
+// imagePath is where the app fetches a place's picture. The .jpg is for
+// Cloudflare, which caches by extension: without it every open reached the
+// bot over the home uplink. The path without it still works for apps opened
+// before the change.
+func imagePath(key string) string { return "/img/" + key + ".jpg" }
+
 func (s *Server) image(w http.ResponseWriter, r *http.Request) {
-	key := r.PathValue("key")
+	key := strings.TrimSuffix(r.PathValue("key"), ".jpg")
 	if s.ImagesDir == "" || !imageKey.MatchString(key) {
 		http.NotFound(w, r)
+		return
+	}
+	if !s.imgLimit.allowIP(clientIP(r)) {
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "too many requests", http.StatusTooManyRequests)
 		return
 	}
 	f, err := os.Open(filepath.Join(s.ImagesDir, key))

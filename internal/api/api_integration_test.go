@@ -258,7 +258,7 @@ func TestADayAcrossZones(t *testing.T) {
 	}
 	// Oksana opened it from the Kyiv group: the zone is the group's, not the place's.
 	// Neither group has a language yet, so the app speaks hers.
-	if td.Day != 1 || td.Image != "/img/"+testImageKey || td.Answer != nil || td.Zone != "Europe/Kyiv" ||
+	if td.Day != 1 || td.Image != "/img/"+testImageKey+".jpg" || td.Answer != nil || td.Zone != "Europe/Kyiv" ||
 		td.Lang != "uk" || td.Heading == nil || *td.Heading != 164.5 {
 		t.Fatalf("today = %+v", td)
 	}
@@ -450,13 +450,15 @@ func TestADayAcrossZones(t *testing.T) {
 
 func TestImages(t *testing.T) {
 	hs := setup(t)
-	req := httptest.NewRequest("GET", "/img/"+testImageKey, nil)
-	rr := httptest.NewRecorder()
-	hs.h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK || rr.Header().Get("Last-Modified") != "" || !strings.Contains(rr.Header().Get("Cache-Control"), "immutable") {
-		t.Fatalf("image: %d %v", rr.Code, rr.Header())
+	// The .jpg the app asks for now, and the bare key apps opened before it.
+	for _, path := range []string{"/img/" + testImageKey + ".jpg", "/img/" + testImageKey} {
+		rr := httptest.NewRecorder()
+		hs.h.ServeHTTP(rr, httptest.NewRequest("GET", path, nil))
+		if rr.Code != http.StatusOK || rr.Header().Get("Last-Modified") != "" || !strings.Contains(rr.Header().Get("Cache-Control"), "immutable") {
+			t.Fatalf("%s: %d %v", path, rr.Code, rr.Header())
+		}
 	}
-	for _, path := range []string{"/img/short", "/img/..%2F..%2Fetc%2Fpasswd", "/img/" + strings.Repeat("a", 65), "/img/AAAAAAAAAAAAAAAAAAAA"} {
+	for _, path := range []string{"/img/short", "/img/..%2F..%2Fetc%2Fpasswd", "/img/" + strings.Repeat("a", 65), "/img/AAAAAAAAAAAAAAAAAAAA", "/img/" + testImageKey + ".png", "/img/" + testImageKey + ".jpg.jpg"} {
 		rr := httptest.NewRecorder()
 		hs.h.ServeHTTP(rr, httptest.NewRequest("GET", path, nil))
 		if rr.Code != http.StatusNotFound {
@@ -481,7 +483,7 @@ func TestSiteWaitsForTheLatestReveal(t *testing.T) {
 		if err := json.Unmarshal([]byte(body), &today); err != nil {
 			t.Fatal(err)
 		}
-		if today.Date != "2026-12-10" || today.Bot != "maplyin_bot" || today.Image != "/img/"+testImageKey {
+		if today.Date != "2026-12-10" || today.Bot != "maplyin_bot" || today.Image != "/img/"+testImageKey+".jpg" {
 			t.Fatalf("site today for %q = %+v", tz, today)
 		}
 	}
