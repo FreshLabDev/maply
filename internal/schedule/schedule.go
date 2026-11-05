@@ -394,7 +394,7 @@ func (s *Scheduler) runJob(parent context.Context, j db.Job) {
 			s.Log.Error("migrate chat failed", "chat", j.ChatID, "error", mErr)
 		}
 		err = s.Store.FinishJob(ctx, j.ID, "skipped", err.Error())
-	case errors.As(err, &apiErr) && apiErr.IsUnreachableDestination():
+	case errors.As(err, &apiErr) && (apiErr.IsUnreachableDestination() || dmForbidden(j.ChatID, apiErr)):
 		// Blocked, kicked or deleted: the chat stops getting the day.
 		s.Log.Info("chat unreachable, leaving it", "chat", j.ChatID, "error", err)
 		if leaveErr := s.Store.LeaveChat(ctx, j.ChatID); leaveErr != nil {
@@ -411,6 +411,13 @@ func (s *Scheduler) runJob(parent context.Context, j db.Job) {
 	if err != nil {
 		s.Log.Error("job bookkeeping failed", "key", j.Key, "error", err)
 	}
+}
+
+// dmForbidden is a person maply may not write to: blocked, deactivated, or
+// never started, which is someone who opened the Mini App from a shared
+// result and not the bot. Any message they send maply brings the DM back.
+func dmForbidden(chatID int64, apiErr *tg.APIError) bool {
+	return chatID > 0 && (apiErr.StatusCode == http.StatusForbidden || apiErr.ErrorCode == http.StatusForbidden)
 }
 
 // chatOf is the job's chat as the planner last saw it, with its zone and

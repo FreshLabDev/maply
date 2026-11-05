@@ -422,37 +422,45 @@ func TestGroupWithoutPictureRights(t *testing.T) {
 	}
 }
 
-// A chat that blocked maply is left, not retried.
+// A chat that blocked maply is left, not retried, and so is a person who
+// opened the Mini App from a shared result but never started the bot.
 func TestBlockedChatIsLeft(t *testing.T) {
-	store, pool := testDB(t)
-	ctx := context.Background()
-	images := t.TempDir()
-	if err := os.WriteFile(filepath.Join(images, "k1"), []byte("jpeg"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
-	                                       country_iso, continent, difficulty, reviewed_at)
-	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
-	if err := store.Touch(ctx, tg.User{ID: alone, FirstName: "Solo"}, nil); err != nil {
-		t.Fatal(err)
-	}
-	zones, _ := round.LoadZones()
-	countries, _ := geo.World()
-	kyiv, _ := time.LoadLocation("Europe/Kyiv")
-	clock := time.Date(2026, 11, 2, 9, 0, 0, 0, kyiv)
-	fake := &fakeTG{fail: map[int64]error{alone: &tg.APIError{ErrorCode: 403, Description: "Forbidden: bot was blocked by the user"}}}
-	s := &Scheduler{Store: store, TG: fake, Payloads: auth.NewSigner("123:abc"), Zones: zones, Countries: countries,
-		ImagesDir: images, Username: "maplyin_bot", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Now: func() time.Time { return clock }}
-	s.Step(ctx)
-	clock = clock.Add(time.Minute)
-	s.Step(ctx)
-	if n := len(fake.log); n != 0 {
-		t.Fatalf("sent %d messages to a chat that blocked maply", n)
-	}
-	chats, err := store.ActiveChats(ctx)
-	if err != nil || len(chats) != 0 {
-		t.Fatalf("active chats after the block = %+v, %v", chats, err)
+	for _, desc := range []string{
+		"Forbidden: bot was blocked by the user",
+		"Forbidden: bot can't initiate conversation with a user",
+	} {
+		t.Run(desc, func(t *testing.T) {
+			store, pool := testDB(t)
+			ctx := context.Background()
+			images := t.TempDir()
+			if err := os.WriteFile(filepath.Join(images, "k1"), []byte("jpeg"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+			                                       country_iso, continent, difficulty, reviewed_at)
+			               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+			if err := store.Touch(ctx, tg.User{ID: alone, FirstName: "Solo"}, nil); err != nil {
+				t.Fatal(err)
+			}
+			zones, _ := round.LoadZones()
+			countries, _ := geo.World()
+			kyiv, _ := time.LoadLocation("Europe/Kyiv")
+			clock := time.Date(2026, 11, 2, 9, 0, 0, 0, kyiv)
+			fake := &fakeTG{fail: map[int64]error{alone: &tg.APIError{StatusCode: 403, ErrorCode: 403, Description: desc}}}
+			s := &Scheduler{Store: store, TG: fake, Payloads: auth.NewSigner("123:abc"), Zones: zones, Countries: countries,
+				ImagesDir: images, Username: "maplyin_bot", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+				Now: func() time.Time { return clock }}
+			s.Step(ctx)
+			clock = clock.Add(time.Minute)
+			s.Step(ctx)
+			if n := len(fake.log); n != 0 {
+				t.Fatalf("sent %d messages to a chat that refused maply", n)
+			}
+			chats, err := store.ActiveChats(ctx)
+			if err != nil || len(chats) != 0 {
+				t.Fatalf("active chats after the refusal = %+v, %v", chats, err)
+			}
+		})
 	}
 }
 
