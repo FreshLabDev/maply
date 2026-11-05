@@ -122,12 +122,12 @@ const tile = (label, value, sub, cls) => '<div class="pt' + (cls ? " " + cls : "
   (sub ? '<small>' + sub + '</small>' : "") + '</div>';
 const none = "–";
 // The same percent the translations write, "47%", "47 %" or "%47", and not Intl's, which differs from them in ru, uk, es.
-const pctT = (n) => T("prof.pct", { pct: fmt(n) });
+const profPct = (n) => T("prof.pct", { pct: fmt(n) });
 const dayLink = (day, date) => '#' + fmt(day) + ' · ' + esc(dayDate(date));
 const placeOf = (p) => esc(T("prof.place_of", { rank: fmt(p.rank), of: fmt(p.of) }));
 // A flag from the country code. Windows draws no flag emoji, so there the code stands in a box.
 const NO_FLAGS = /Windows/.test(navigator.userAgent);
-const flag = (iso) => !iso ? "" : NO_FLAGS || !/^[A-Z]{2}$/.test(iso)
+const profFlag = (iso) => !iso ? "" : NO_FLAGS || !/^[A-Z]{2}$/.test(iso)
   ? '<i class="pflag code">' + esc(iso) + '</i>'
   : '<i class="pflag" aria-hidden="true">' + String.fromCodePoint(...[...iso].map((c) => 0x1F1A5 + c.charCodeAt(0))) + '</i>';
 
@@ -142,7 +142,7 @@ function rankedHTML(d) {
     tile(T("prof.days"), fmt(r.days)) +
     tile(T("prof.streak"), fmt(r.streak), esc(T("prof.best_streak", { n: fmt(r.best_streak) }))) +
     tile(T("prof.median"), r.median_km != null ? esc(kmT(r.median_km)) : none) +
-    tile(T("prof.found"), esc(pctT(r.country_pct)), esc(T("prof.found_city", { pct: fmt(r.city_pct) }))) +
+    tile(T("prof.found"), esc(profPct(r.country_pct)), esc(T("prof.found_city", { pct: fmt(r.city_pct) }))) +
     tile(T("prof.best_day"), r.best_day ? fmt(r.best_day.points) : none, r.best_day ? dayLink(r.best_day.day, r.best_day.date) : "", "gold") +
     tile(T("prof.best_place"), r.best_place ? placeOf(r.best_place) : none, r.best_place ? dayLink(r.best_place.day, r.best_place.date) : "", r.best_place && r.best_place.rank === 1 ? "gold" : "") +
     '</div>' + seasonHTML(d.season);
@@ -320,7 +320,7 @@ function passportHTML(p) {
   }
   let h = '<p class="pbig-s">' + esc(T("prof.passport_n", { n: fmt(p.countries.length) })) + '</p>';
   h += '<svg class="pmap world" viewBox="0 4 360 150" role="img" aria-label="' + esc(T("prof.passport_n", { n: fmt(p.countries.length) })) + '"><path class="land" stroke-width="' + dot + '" d="' + a + '"/><path class="land gold" stroke-width="' + big + '" d="' + b + '"/></svg>';
-  if (p.countries.length) h += '<p class="pflags">' + p.countries.map((c) => '<span title="' + esc(regionName(c)) + '">' + flag(c) + '<small>' + esc(regionName(c)) + '</small></span>').join("") + '</p>';
+  if (p.countries.length) h += '<p class="pflags">' + p.countries.map((c) => '<span title="' + esc(regionName(c)) + '">' + profFlag(c) + '<small>' + esc(regionName(c)) + '</small></span>').join("") + '</p>';
   else h += '<p class="pnote-s">' + esc(T("prof.passport_hint")) + '</p>';
   const stamp = (on, key) => '<span class="pstamp' + (on ? " on" : "") + '">' + esc(T(key)) + '</span>';
   return h + '<p class="pstamps">' + stamp(p.streak30, "prof.stamp_streak30") + stamp(p.city1km, "prof.stamp_city1km") + '</p>';
@@ -332,7 +332,7 @@ function historyHTML(history) {
   for (const d of history) {
     const where = [d.city, d.country && regionName(d.country)].filter(Boolean).join(", ");
     const world = d.rank ? placeOf(d) + (d.pct > 0 ? ' · ' + esc(T("prof.better_day", { pct: fmt(d.pct) })) : "") : esc(T("prof.final_wait"));
-    const inner = '<span class="up">' + dayLink(d.day, d.date) + '</span><span class="w">' + flag(d.country) + ' <bdi>' + esc(where) + '</bdi></span>' +
+    const inner = '<span class="up">' + dayLink(d.day, d.date) + '</span><span class="w">' + profFlag(d.country) + ' <bdi>' + esc(where) + '</bdi></span>' +
       '<span class="n"><b>' + fmt(d.points) + '</b> · ' + esc(kmT(d.km)) + '</span><span class="r">' + world + '</span>';
     h += '<li>' + (d.final ? '<button data-date="' + esc(d.date) + '">' + inner + '<em>' + fwd() + '</em></button>' : '<div>' + inner + '</div>') + '</li>';
   }
@@ -349,7 +349,7 @@ function freeHTML(f) {
     tile(T("prof.free_avg"), f.avg != null ? fmt(f.avg) : none, esc(T("prof.free_avg_note"))) +
     tile(T("prof.median"), f.median_km != null ? esc(kmT(f.median_km)) : none) +
     (f.duels ? tile(T("prof.duels"), fmt(f.duels.won) + ' : ' + fmt(f.duels.lost), esc(T("prof.duels_note"))) : "") +
-    (f.beaten != null ? tile(T("prof.beaten"), esc(pctT(f.beaten))) : "") +
+    (f.beaten != null ? tile(T("prof.beaten"), esc(profPct(f.beaten))) : "") +
     '</div>';
   if (f.records.length) h += section(T("prof.free_records"), '<ul class="precs">' + f.records.map((r) =>
     '<li><span>' + esc(timerName(r.seconds)) + ' · ' + esc(T("prof.rounds", { n: fmt(r.rounds) })) + '</span><b>' + fmt(r.points) + '</b></li>').join("") + '</ul>');

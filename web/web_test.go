@@ -318,3 +318,38 @@ func appFiles(t *testing.T) []string {
 	}
 	return names
 }
+
+// The app's scripts share one global scope: a const, let or class that two
+// of them declare at the top level stops the later file with a SyntaxError,
+// and a function declared twice silently takes the other's place.
+func TestScriptsShareNoNames(t *testing.T) {
+	index, err := fs.ReadFile(embedded, "app/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := regexp.MustCompile(`<script[^>]*\ssrc="/([a-z]+\.js)"`)
+	decl := regexp.MustCompile(`(?m)^(?:(?:const|let|var|class)\s+([A-Za-z_$][\w$]*)|(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*))`)
+	seen := map[string]string{}
+	for _, m := range src.FindAllStringSubmatch(string(index), -1) {
+		data, err := fs.ReadFile(embedded, "app/"+m[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		own := map[string]bool{}
+		for _, d := range decl.FindAllStringSubmatch(string(data), -1) {
+			name := d[1] + d[2]
+			if own[name] {
+				continue
+			}
+			own[name] = true
+			if first, ok := seen[name]; ok {
+				t.Errorf("%s and %s both declare %q at the top level", first, m[1], name)
+				continue
+			}
+			seen[name] = m[1]
+		}
+	}
+	if len(seen) < 50 {
+		t.Fatalf("only %d top-level names found: the scripts were not read", len(seen))
+	}
+}
