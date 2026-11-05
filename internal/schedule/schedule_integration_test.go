@@ -48,9 +48,14 @@ type fakeTG struct {
 	fail map[int64]error
 	// failKind makes every call of a kind fail with this error.
 	failKind map[string]error
+	// onSend runs on every send, before it is answered.
+	onSend func()
 }
 
 func (f *fakeTG) add(s sent) (tg.Message, error) {
+	if f.onSend != nil {
+		f.onSend()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.fail[s.chatID]; err != nil {
@@ -375,6 +380,55 @@ func TestBlockedChatIsLeft(t *testing.T) {
 	chats, err := store.ActiveChats(ctx)
 	if err != nil || len(chats) != 0 {
 		t.Fatalf("active chats after the block = %+v, %v", chats, err)
+	}
+}
+
+// A stop in the middle of the morning batch lets the post in flight finish
+// and be recorded, and puts the claimed posts that never started back in the
+// queue: nothing is sent twice, and the rest go out at the next start.
+func TestStopFinishesTheJobInFlight(t *testing.T) {
+	store, pool := testDB(t)
+	images := t.TempDir()
+	if err := os.WriteFile(filepath.Join(images, "k1"), []byte("jpeg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+	                                       country_iso, continent, difficulty, reviewed_at)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+	for _, id := range []int64{player, quiet, alone} {
+		if err := store.Touch(context.Background(), tg.User{ID: id, FirstName: "P"}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	zones, _ := round.LoadZones()
+	countries, _ := geo.World()
+	kyiv, _ := time.LoadLocation("Europe/Kyiv")
+	clock := time.Date(2026, 11, 2, 9, 0, 0, 0, kyiv)
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	fake := &fakeTG{}
+	fake.onSend = func() { stop() }
+	s := &Scheduler{Store: store, TG: fake, Payloads: auth.NewSigner("123:abc"), Zones: zones, Countries: countries,
+		ImagesDir: images, Username: "maplyin_bot", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now: func() time.Time { return clock }}
+	s.Step(ctx)
+	if len(fake.log) != 1 {
+		t.Fatalf("sent %d posts after the stop, want the one in flight", len(fake.log))
+	}
+	var done, pending, maxAttempts int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT count(*) FILTER (WHERE status = 'done'), count(*) FILTER (WHERE status = 'pending'),
+		       coalesce(max(attempts) FILTER (WHERE status = 'pending'), 0)
+		  FROM maply.job WHERE kind = 'post'`).Scan(&done, &pending, &maxAttempts); err != nil {
+		t.Fatal(err)
+	}
+	if done != 1 || pending != 2 || maxAttempts != 0 {
+		t.Fatalf("posts done %d, pending %d, attempts %d", done, pending, maxAttempts)
+	}
+	fake.onSend = nil
+	s.Step(context.Background())
+	if len(fake.log) != 3 {
+		t.Fatalf("after the restart %d posts in all, want 3", len(fake.log))
 	}
 }
 

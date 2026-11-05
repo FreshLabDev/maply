@@ -40,6 +40,9 @@ services:
     expose:
       - "8080"
     networks: [core_net, management, cards]
+    # A stop lets the job in flight finish, up to 75 s, so a result being
+    # sent at 20:00 is recorded and not sent again after the restart.
+    stop_grace_period: 90s
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
       interval: 15s

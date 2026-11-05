@@ -312,14 +312,38 @@ type laterError struct{ at time.Time }
 
 func (e laterError) Error() string { return "not due until " + e.at.UTC().Format(time.RFC3339) }
 
+// jobWait bounds one job. A job runs on a context of its own: a shutdown
+// lets the send in flight finish and be recorded, where cutting it off after
+// Telegram has it would make the next start send it again.
+const jobWait = 4 * time.Minute
+
 func (s *Scheduler) work(ctx context.Context) error {
 	for {
+		if ctx.Err() != nil {
+			return nil
+		}
 		jobs, err := s.Store.ClaimJobs(ctx, s.now(), lease, 20)
 		if err != nil || len(jobs) == 0 {
 			return err
 		}
-		for _, j := range jobs {
+		for i, j := range jobs {
+			if ctx.Err() != nil {
+				s.release(jobs[i:])
+				return nil
+			}
 			s.runJob(ctx, j)
+		}
+	}
+}
+
+// release puts claimed jobs that never started back in the queue, so the
+// next start runs them at once instead of after their lease.
+func (s *Scheduler) release(jobs []db.Job) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, j := range jobs {
+		if err := s.Store.PostponeJob(ctx, j.ID, j.RunAt); err != nil {
+			s.Log.Warn("job not released", "key", j.Key, "error", err)
 		}
 	}
 }
@@ -346,7 +370,9 @@ func (s *Scheduler) do(ctx context.Context, j db.Job) (err error) {
 	return errSkip
 }
 
-func (s *Scheduler) runJob(ctx context.Context, j db.Job) {
+func (s *Scheduler) runJob(parent context.Context, j db.Job) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), jobWait)
+	defer cancel()
 	err := s.do(ctx, j)
 	var apiErr *tg.APIError
 	var later laterError

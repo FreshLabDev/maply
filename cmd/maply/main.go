@@ -217,25 +217,39 @@ func run(log *slog.Logger) error {
 		}
 	}()
 
+	// The scheduler finishes the job it is in before it returns: a result
+	// cut off after Telegram had it would go out again after the restart.
+	schedDone := make(chan struct{})
 	if sched != nil {
 		go func() {
+			defer close(schedDone)
 			log.Info("scheduler starting")
 			if err := sched.Run(ctx); err != nil {
 				errCh <- err
 			}
 		}()
+	} else {
+		close(schedDone)
 	}
 
+	var runErr error
 	select {
 	case <-ctx.Done():
-	case err := <-errCh:
+	case runErr = <-errCh:
 		stop()
-		_ = srv.Shutdown(context.Background())
-		return err
 	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+	if err := srv.Shutdown(shutdownCtx); err != nil && runErr == nil {
+		runErr = err
+	}
+	// Under the 90 s the compose file gives the container to stop.
+	select {
+	case <-schedDone:
+	case <-time.After(75 * time.Second):
+		log.Warn("scheduler still in a job at exit")
+	}
+	return runErr
 }
 
 // connect retries the first PostgreSQL connection. Container DNS inside the
