@@ -46,12 +46,12 @@ maply is deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Stable | — | Nothing released yet |
-| Next | `v0.1.0-alpha.1` | The Go service, the daily round and the Mini App |
+| Stable | — | Nothing stable yet |
+| Alpha | `v0.0.1-alpha.14` | Live as [@maplyin_bot](https://t.me/maplyin_bot): the daily round in DMs and groups, the Mini App, the world ranking and the website |
 
-The design, the MVP plan and a clickable prototype of the Mini App are here.
-The Go service is a skeleton: it connects to the database, polls Telegram and
-answers `/healthz`, but does not play yet. Work is tracked on the
+The game is playable end to end: the morning post, the answer and its score,
+the evening result with a map card, the world ranking and a website where
+anyone can play without Telegram. Work is tracked on the
 [project board](https://github.com/orgs/FreshLabDev/projects/2); what the MVP
 includes and where it departs from the design is in
 [`docs/mvp-plan.md`](docs/mvp-plan.md).
@@ -67,13 +67,14 @@ Russian on Kyiv time.
 | Time | Group | DM |
 |:--|:--|:--|
 | 07:00 | Photo of the day, a "Guess" button, a quiet pin | Photo of the day and the button |
-| 07:00–20:00 | The pin shows who has answered, without distances | — |
+| After your answer | The place, your score and everyone's answers without names | The same |
+| 07:00–20:00 | The pin lists who has answered and the best distances so far, without saying whose | — |
 | A random minute 16:00–18:00 | One intrigue, if not everyone has answered | One reminder, if you have not |
 | 20:00 | The result: the place, a fact, the table, the chat's rank | The result, if you are in no group with maply |
 
 Score is up to 5 000: up to 3 500 for distance on the same curve GeoGuessr uses
 for the world map, plus +300 for the right continent, +500 for the country and
-+700 for the city.
++700 for the city. Answering early in Telegram adds up to +250 on top.
 
 ---
 
@@ -104,7 +105,10 @@ The layout of the repository and every package is in
 - One answer per person per day, shared across DMs, groups and the site.
 - Your window closes at the earliest reveal among all your chats, so a Kyiv
   group cannot learn the answer from a Moscow group an hour earlier.
-- Before the reveal the server answers a guess with "accepted" and nothing else.
+- Only someone who has answered sees the place. Until the chat's reveal the
+  others' answers come without names, photos or times; the server strips them,
+  not the client.
+- The website shows the place only in the evening, when every zone has closed.
 - Pictures are rehosted under random names without EXIF. Source IDs never leave
   the server: a Mapillary ID resolves to coordinates through its public API.
 - Reverse image search is not defended against. Like Wordle, the rest is on
@@ -128,7 +132,8 @@ The Mini App the service ships is the same code split into files in
 `web/app/`, with MapLibre, its RTL text plugin, Pannellum and the fonts
 vendored next to it. The
 binary serves it at `/`, and it plays against the API with the `initData`
-Telegram gives it; opened outside Telegram it asks to be opened from the bot. To see the Telegram integration in a normal browser, append
+Telegram gives it; opened in a normal browser it is the website, where a guest
+plays under a name they type. To see the Telegram integration in a normal browser, append
 `#tgWebAppData=auth_date%3D1%26hash%3Dx&tgWebAppVersion=8.0&tgWebAppPlatform=ios`.
 
 The curation scripts need a Mapillary client token in `.env`; see

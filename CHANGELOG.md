@@ -11,8 +11,43 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
-For the operator: apply core migration 020 (`core.manual_language`) before
-deploying. Without it every launch of the Mini App from a group fails.
+Fixes from a review of the whole project on 5 November: security, the
+scheduler and the bot, the server's logic, the animations and the Mini App.
+
+For the operator:
+
+- Apply core migration 020 (`core.manual_language`) before deploying. The
+  service now refuses to start without it and names the migration; before,
+  every launch of the Mini App from a group would have failed.
+- Migrations 014 to 016: `day_rank` puts site answers after Telegram ones,
+  two partial indexes for unscored answers, and the tables `day_closed` and
+  `day_place`, filled at once with every day already over.
+- The new `deploy/ws04/compose.yaml` goes to the host: the bot's container
+  is read-only with a 512 MB `/tmp`, without capabilities, limited to 2 GB
+  and 512 processes, and gets `stop_grace_period: 90s`.
+- `/healthz` no longer answers through the Cloudflare tunnel; Docker and the
+  family's containers still reach it.
+
+### Security
+
+- Every site answer ranks after every Telegram answer. A Telegram player sees
+  the place on answering, from the 07:00 post on, and every new browser is a
+  new site player: someone could answer at random in Telegram, then post
+  exact pins from fresh browsers and take the world's first place.
+- A result poll with a made-up `since` showed the place without tying the
+  person to the chat. They could then answer from a group whose reveal was
+  hours later. The tie now happens whatever the poll sends.
+- Per-address limits count an IPv6 address by its /64, the site's writes
+  share a cap of 120 a minute from everyone, and a name typed before any
+  answer no longer creates a site player.
+- A forged button press could delete the group's afternoon intrigue or a post
+  sent as text. maply acts only on a button the message really carries.
+- The app may be framed only by Telegram's web clients; the site sends HSTS,
+  API replies say nosniff, and two log lines no longer tie a Telegram id to a
+  time zone. Both Docker base images are pinned by digest.
+- Correction to alpha.14: a row's key differs per chat, but the rank and the
+  distance are the same in every view, so they still match one person's rows
+  for anyone who looks at a group and a DM at once.
 
 ### Changed
 
@@ -24,6 +59,14 @@ deploying. Without it every launch of the Mini App from a group fails.
   pick, so a group still reads as one for everyone who has not chosen. What a
   player shares from the app stays in the group's language, like the bot's
   posts and the card there.
+- A group that does not let maply send pictures still plays: the post and the
+  result go out as text with the same button.
+- In a forum, `/start` answers in its topic, not in General. An admin who
+  writes anonymously can open the group's settings, and any admin may press
+  that panel.
+- The morning animation is kept for two dates at once, since the east posts
+  the next day while the west still posts today, and one chat that forbids
+  animations no longer turns them off for every chat that day.
 
 ### Fixed
 
@@ -32,6 +75,61 @@ deploying. Without it every launch of the Mini App from a group fails.
   that answers "nothing changed" typed the chat id as a 32-bit number, and a
   supergroup's id does not fit. The API's integration tests now use real
   supergroup ids.
+- A deploy around 20:00 could send a group its result twice: the stop cut off
+  the send in flight. The job in flight now finishes, and jobs taken but not
+  started go back to the queue.
+- An animation with its buttons went out in two requests, and a failed second
+  one sent the whole message again. They go in one.
+- A group upgraded to a supergroup lost maply. The supergroup now takes the
+  group's zone, post time, switches and the language picked in maply.
+- A group whose admin restricted maply (no GIFs, say) was marked as left.
+- A person who opened the Mini App from a shared result but never started the
+  bot got a failed post every morning, retried five times. Their DM is now
+  left until they write to maply.
+- A group that removed maply and added it back the same morning, or a person
+  who blocked and unblocked it, got nothing that day. The post goes out on
+  the return.
+- Moving a chat's zone a date east before its reveal sent tomorrow's post
+  before today's result. Such a change waits until after the result.
+- The closed day's world line could stay "for now" for good when Telegram
+  failed that one edit, and was dropped when it did not fit the caption. A
+  failed edit is tried again, and the line names fewer people until it fits.
+- A query that broke the post's "who answered" line did it silently; it is
+  logged now, once per chat and error. Pressing the setting a panel already
+  shows is no longer logged as a failure.
+- Four reads took any database error for "nothing there", which repeated
+  yesterday's intrigue or shared the card instead of the animation.
+- The time the world closes names its zone.
+- Animations: pins land before the podium with many players, chips show the
+  top 12, long names on the podium end in "…", an emoji with a skin tone or
+  a keycap after a letter is drawn from the emoji font, and a site winner in
+  Chinese, Japanese or Arabic reads "Guest", not "?".
+- An encoding gives up after 3 minutes instead of holding every post behind a
+  stalled ffmpeg, at most two encode at once, and ffmpeg's own message is
+  logged when it dies. A panic in one statistics picture costs that picture.
+- Statistics in Tokyo or Sydney show this morning's answer before UTC
+  midnight. The result card joins Tokyo and California across the Pacific.
+- Mini App: the loading screen no longer waits forever for the photo, a
+  failed start can be retried, the map recovers from a failed tile request,
+  lifting two fingers after a pinch no longer undoes the zoom, the countdown
+  follows the server's clock, sideways the panels start folded, and the days
+  sheet, the keyboard and screen readers behave.
+
+### Performance
+
+- A result poll keeps the place it has read, finds unscored answers through
+  an index, and an open day's ranking and pins are read once per new answer
+  for every poll that counted the same. alpha.14 said an unchanged poll was
+  worked out before any table is read; it was not, and now it is cheap.
+- A day over in every zone keeps its places, so the profile and the days
+  page no longer rank every day there has been.
+- The days page keeps a closed day's place and ranking for ten minutes, and a
+  day's ranking sends at most 500 rows plus your own.
+- The place's picture is served as `.jpg`, which Cloudflare caches, with a
+  per-address limit.
+- Statistics pictures are drawn ahead only for players who opened them in the
+  last week and leave the disk after 6 hours; the shaped-text cache is capped;
+  the afternoon intrigue is drawn once per picture and sent by file id.
 
 ## v0.0.1-alpha.14 - 2026-11-05
 

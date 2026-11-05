@@ -98,8 +98,10 @@ the diff looks like.
   photo, user ID or answer time. The server strips these; the client never
   receives them. This is light hiding for the evening's intrigue, not a
   privacy promise: the points include the speed bonus, which roughly dates an
-  answer. A row's key is keyed by the viewing chat, so the same person's rows
-  cannot be matched between a group, a DM and the site. The world picture's
+  answer. A row's key depends on the viewing chat, so the key does not link
+  one person's rows between a group, a DM and the site. The rank and the
+  distance are the same in every view, though, and match the rows for anyone
+  who looks at two views at once. The world picture's
   podium has no names or faces until the day has closed in every zone.
 - Nobody sees the place without having answered. Before the reveal
   `/api/result` and `/api/share` answer a person with no answer `403
@@ -168,6 +170,10 @@ the diff looks like.
 - Do not edit a migration after it may have been applied.
 - Grants for `maply_core` belong to the `core` repository, in the same migration
   that revokes `PUBLIC`.
+- A day over in every zone is kept in `day_place` by the final world job, and
+  the profile and the days page read it from there. An answer removed by hand
+  from such a day needs `DELETE FROM day_closed WHERE date = …` too, or the
+  old places stay.
 
 ## Versioning
 
