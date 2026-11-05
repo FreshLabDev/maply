@@ -174,6 +174,7 @@ type fakeTelegram struct {
 	members      map[int64]string
 	anims        []sent
 	animated     chan struct{} // told after each animation, when set
+	editErr      error         // every EditText fails with it, when set
 }
 
 func (f *fakeTelegram) EditAnimation(_ context.Context, chatID, messageID int64, a telegram.Animation, caption string, markup telegram.Markup) (tg.Message, error) {
@@ -215,6 +216,9 @@ func (f *fakeTelegram) SendText(_ context.Context, chatID int64, text string, ma
 }
 
 func (f *fakeTelegram) EditText(_ context.Context, chatID, messageID int64, text string, markup telegram.Markup) error {
+	if f.editErr != nil {
+		return f.editErr
+	}
 	f.edits = append(f.edits, sent{chatID, messageID, text, markup})
 	return nil
 }

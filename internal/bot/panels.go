@@ -244,7 +244,9 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 	msgID := cq.Message.MessageID
 	show := func(text string, markup telegram.Markup) (int64, error) {
 		if !b.isCard(cq.Message) {
-			if err := b.tg.EditText(ctx, chat.ID, msgID, text, markup); err != nil {
+			// Pressing what the panel already shows (the current language,
+			// −1:00 at 05:00) changes nothing, and that is no error.
+			if err := b.tg.EditText(ctx, chat.ID, msgID, text, markup); err != nil && !tg.IsMessageNotModified(err) {
 				return 0, err
 			}
 			b.screens.set(chat.ID, msgID, action, false, b.opts.Now())

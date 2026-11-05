@@ -147,6 +147,27 @@ type Scheduler struct {
 	// redrawWait holds the chats whose last redraw failed, until when the
 	// next one waits. Only the scheduler's own goroutine redraws.
 	redrawWait map[int64]redrawRetry
+	// redrawBroken is the error a chat's redraw last could not get past
+	// before the edit, logged once and not every tick.
+	redrawBroken map[int64]string
+}
+
+// redrawStuck logs what keeps a chat's post from being redrawn, once for
+// each new error: a query that breaks stops every group's live line, and
+// that must not go unseen, nor fill the log every tick.
+func (s *Scheduler) redrawStuck(chatID int64, step string, err error) {
+	msg := step + ": no round"
+	if err != nil {
+		msg = step + ": " + err.Error()
+	}
+	if s.redrawBroken[chatID] == msg {
+		return
+	}
+	if s.redrawBroken == nil {
+		s.redrawBroken = map[int64]string{}
+	}
+	s.redrawBroken[chatID] = msg
+	s.Log.Error("post redraw stuck", "chat", chatID, "step", step, "error", err)
 }
 
 type redrawRetry struct {
@@ -670,11 +691,16 @@ func (s *Scheduler) redraw(ctx context.Context) error {
 		}
 		lang := i18n.Resolve(c.Lang)
 		line, err := s.answeredLine(ctx, c.ID, p.Date, lang)
-		if err != nil || line == p.Answered {
+		if err != nil {
+			s.redrawStuck(c.ID, "answered line", err)
+			continue
+		}
+		if line == p.Answered {
 			continue
 		}
 		rd, ok, err := s.Store.RoundOn(ctx, p.Date)
 		if err != nil || !ok {
+			s.redrawStuck(c.ID, "round", err)
 			continue
 		}
 		if r, ok := s.redrawWait[c.ID]; ok && now.Before(r.at) {
@@ -682,8 +708,10 @@ func (s *Scheduler) redraw(ctx context.Context) error {
 		}
 		markup, err := s.playMarkup(c, p.Date, lang, "btn.guess")
 		if err != nil {
+			s.redrawStuck(c.ID, "button", err)
 			continue
 		}
+		delete(s.redrawBroken, c.ID)
 		err = s.editCaption(ctx, c.ID, p.PostMsgID, postCaption(lang, rd.DayNo, revealAt(lang, c), p.Yesterday, line, true), markup)
 		switch {
 		case err == nil || tg.IsMessageNotModified(err):

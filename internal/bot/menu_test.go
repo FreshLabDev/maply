@@ -342,6 +342,20 @@ func TestPersonalLanguageAndZone(t *testing.T) {
 	}
 }
 
+// Pressing what the panel already shows answers the press and is no error.
+func TestSamePanelIsNoError(t *testing.T) {
+	var log strings.Builder
+	client := &fakeTelegram{members: map[int64]string{userID: "member"},
+		editErr: &tg.APIError{StatusCode: 400, ErrorCode: 400, Description: "Bad Request: message is not modified: specified new message content and reply markup are exactly the same"}}
+	b := New(newStore(), client, slog.New(slog.NewTextHandler(&log, nil)), Options{
+		Username: "maplyin_bot", AppURL: "https://maply.example/", Zones: loadZones(t), Now: func() time.Time { return winterDay },
+	})
+	b.handle(context.Background(), press(private(member), member, cb(userID, "set")))
+	if strings.Contains(log.String(), "level=ERROR") || client.answers != 1 {
+		t.Fatalf("answers = %d, log:\n%s", client.answers, log.String())
+	}
+}
+
 func TestCloseDeletesOnlyAGroupPanel(t *testing.T) {
 	b, _, client := testBot(t)
 	ctx := context.Background()

@@ -186,3 +186,19 @@ func TestIntrigueTimeIsStableAndInTheWindow(t *testing.T) {
 		}
 	}
 }
+
+// A redraw that cannot get past a query says so once per error, not every
+// tick.
+func TestRedrawStuckLogsOnce(t *testing.T) {
+	var log strings.Builder
+	s := &Scheduler{Log: slog.New(slog.NewTextHandler(&log, nil))}
+	broken := fmt.Errorf("ERROR: operator does not exist: bigint = integer")
+	for range 3 {
+		s.redrawStuck(-1, "answered line", broken)
+	}
+	s.redrawStuck(-1, "round", nil)
+	s.redrawStuck(-2, "answered line", broken)
+	if n := strings.Count(log.String(), "post redraw stuck"); n != 3 {
+		t.Fatalf("logged %d times, want once per chat and error:\n%s", n, log.String())
+	}
+}
