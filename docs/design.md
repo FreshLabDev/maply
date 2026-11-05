@@ -193,9 +193,10 @@ One frontend for two modes:
 Site sections:
 
 - **Today.** Anyone can play. After answering, instead of the place there is "answer at 20:00, get it in Telegram" and a button to the bot.
-- **Days.** The same page in the Mini App and on the site, opened from the logo. Every day, newest first, with the world's numbers and the viewer's place; a closed day opens its full ranking. An icon on each avatar says where the player came from: Telegram or the site. A day still open somewhere shows only how many have answered and when it closes.
+- **Days.** The same page in the Mini App and on the site, opened from the logo, at `/days`. A diary: every day back to the first, newest first, under month headings. A closed day's row has a strip of its street (the band from 8° below the horizon to 22° above, facing the curated `thumb_yaw`), the flag and the city, the world's numbers and the viewer's place, or "no answer"; a day nobody played says so. A day still open somewhere shows its puzzle's picture where the day has begun, how many have answered, when it closes and a button to play, and nothing about its place. On a screen 1024 pixels wide or more the list and the open day stand side by side.
+- **A day's page**, `/days/<n>`, for a closed day only: the wide strip and the panorama to look around, the place, the author and the fact, the viewer's result, the world's four numbers (players, median, best, share in the right country), everyone's misses on one logarithmic scale, the map of the pins without names, the ranking with an icon for Telegram or the site, and arrows to the days before and after.
 - **Archive.** Past days with the answer shown immediately.
-- **Result picture** for forwarding (OG image).
+- **Result picture** for forwarding (OG image). A link to a closed day's page previews with a 1200×630 picture drawn by `internal/anim`: the day's street, `maply #N`, the city and country and the world's four numbers, in the reader's language (`?lang=`, else `Accept-Language`) or in English for a script Sofia Sans lacks.
 
 The site is a single game page. An ecosystem landing page is not part of it.
 

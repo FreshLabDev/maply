@@ -27,7 +27,7 @@ func init() {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-				e.back(w, r, "Кадры удалены, сервис нарисует их за несколько секунд")
+				e.back(w, r, "strips dropped; the service draws them again in a few seconds")
 			})
 		},
 		Panel: func(e *Env, r *http.Request) template.HTML {
@@ -36,9 +36,9 @@ func init() {
 				SELECT (SELECT count(*) FROM maply.day_closed), (SELECT count(*) FROM maply.day_thumb)`).Scan(&kept, &drawn); err != nil {
 				return template.HTML(template.HTMLEscapeString(err.Error()))
 			}
-			return template.HTML(fmt.Sprintf(`<h2>Дни</h2>
-<p class="muted">Кадров нарисовано: %d из %d закрытых дней.</p>
-<form method="post" action="/dev/days/redraw"><button>Нарисовать кадры заново</button></form>`, drawn, kept))
+			return template.HTML(fmt.Sprintf(`<h2>Days</h2>
+<p class="muted">Strips drawn: %d of %d closed days. A closed day's page links to its preview, /og/day/&lt;n&gt;-&lt;lang&gt;.jpg.</p>
+<form method="post" action="/dev/days/redraw"><button>Draw the strips again</button></form>`, drawn, kept))
 		},
 	})
 }

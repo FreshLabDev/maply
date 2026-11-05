@@ -15,6 +15,13 @@ For the operator:
 
 - Apply core migration 021 (`core.touch_person`) before deploying. The
   service refuses to start without it and names the migration.
+- Migration 017 adds `place.thumb_yaw` and the table `day_thumb`. After the
+  deploy the service draws a strip for every day already kept, one at a
+  time, in the background.
+- For the places already in the queue, `maply-places -thumb-yaws` writes
+  `thumb-yaws.sql`, which sets the strip's direction only where none is set,
+  with each strip beside it to look at first. It is optional: without it the
+  service picks the direction itself when it draws the strip.
 
 ### Added
 
@@ -25,10 +32,32 @@ For the operator:
   DM's zone and puts them on the morning DM post.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
-  the screen the address names. `/days` opens the days and `/days/<date>` a
-  closed day, so a day can be linked and Back in the browser closes it. An
+  the screen the address names. `/days` opens the days and `/days/<n>` (or
+  the day's date) a closed day, so a day can be linked and Back in the browser closes it. An
   address without a screen yet shows today. In Telegram the address changes
   without adding history, so Back stays Telegram's.
+- The days are a diary: every day back to the first, a month at a time, each
+  with its strip of street, its flag and city, the world's numbers and the
+  viewer's place, "no answer" on a day they skipped. A day still open
+  somewhere shows its puzzle where the day has begun, how many have answered
+  and when it closes, and nothing about its place. On a screen 1024 pixels
+  wide or more the list and the day stand side by side.
+- A closed day's page, `/days/<n>`: the strip, the place, the author and the
+  fact, the viewer's result, the world's four numbers, everyone's misses on
+  one scale, the map of the pins and the table, with arrows to the days
+  before and after.
+- A link to `/days/<n>` previews in a chat or a feed with a 1200×630 picture
+  of the day's street, its place and numbers, drawn in the reader's language
+  (in English for a script the faces lack). Only a day over in every zone
+  and kept has one; the picture is served at `/og/day/<n>-<lang>.jpg`.
+- The country flags come from `country-flag-icons` 1.6.20, served by the
+  service.
+
+### Changed
+
+- The days page reads a page of thirty days in one query instead of about
+  sixty, and pages back by a cursor to the first day.
+- A day's row no longer shows the group's numbers beside the world's.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

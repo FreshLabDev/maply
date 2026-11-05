@@ -119,6 +119,11 @@ the diff looks like.
 - The card page opens only with a card token (`auth.Signer.SignCard`, never the
   startapp payload) and only after the chat's reveal; shared card images are
   served under random keys. Keep both when touching `internal/card`.
+- A day's strip (`day_thumb`, `/thumb/<key>.jpg`) and its link preview
+  (Open Graph tags on `/days/<n>`, `/og/day/<n>-<lang>.jpg`) exist only for a
+  day in `day_closed`, after the latest reveal: the strip's key goes out with
+  the day's city, and a strip of a place still in play would be a key to it.
+  `place.thumb_yaw` is never sent to a client.
 - Images are rehosted under a random key with EXIF stripped. A Mapillary ID
   resolves to coordinates through the public API, and Panoramax HD frames carry
   GPS in EXIF.
@@ -177,7 +182,8 @@ the diff looks like.
 - A day over in every zone is kept in `day_place` by the final world job, and
   the profile and the days page read it from there. An answer removed by hand
   from such a day needs `DELETE FROM day_closed WHERE date = …` too, or the
-  old places stay.
+  old places stay. The day's strip goes with it and is drawn again under a
+  new key.
 
 ## Versioning
 
