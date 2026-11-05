@@ -573,6 +573,7 @@
   Router.screen("play", /^\/play$/, {
     open(m, from) { came(from); open(); const h = first; first = null; home(h); },
     close(to) { if (to !== "party") close(); },
+    nav: { href: "/play", t: "free.title", at: 3 },
   });
   Router.screen("party", PARTY, {
     open(m, from) { came(from); open(); Kit.party.open(m[1]); },

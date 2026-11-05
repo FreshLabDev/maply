@@ -77,8 +77,15 @@ maply/
 ├── web/                  package web: embeds app/ and serves it with a CSP, and
 │                         /texts/<lang>.json from internal/i18n
 │   ├── app/              the Mini App served by the binary: index.html, app.css,
-│   │                     fonts.css, tg.js, mapstyle.js (the map's palette and
-│   │                     style, shared with the card), map.js, app.js, vendor/
+│   │                     fonts.css, router.js (addresses to screens), tg.js,
+│   │                     mapstyle.js (the map's palette and style, shared with
+│   │                     the card), pano.js (the panorama and its compass),
+│   │                     globe.js (the globe, the pins, the answer's lines),
+│   │                     desk.js (the computer's layout: the map panel, the
+│   │                     sidebar, the keys, the header), desktop.css (the
+│   │                     tablet and computer layouts and the base other
+│   │                     screens build theirs on), app.js (the day's game),
+│   │                     vendor/
 │   └── prototype/        the single-file prototype, kept as the reference
 ├── scripts/
 │   ├── curation/         harvest.py, regions.py: candidates from Mapillary
