@@ -55,8 +55,8 @@ func betterPct(rank, n int) int {
 }
 
 // lookBack is what a chat hears about the world for d, which must be final:
-// who came first, how close the day came, and the person's place for a DM.
-// Empty when nobody was scored.
+// who came first, how close the day came, and the person's place for a DM;
+// at a month's end, its season too. Empty when nobody was scored.
 func (s *Scheduler) lookBack(ctx context.Context, lang string, d round.Date, c db.Chat) (string, error) {
 	// The morning post can come before the world job has run: a site answer
 	// waits for its deadline to be scored, and would be left out of the day.
@@ -64,8 +64,25 @@ func (s *Scheduler) lookBack(ctx context.Context, lang string, d round.Date, c d
 		return "", err
 	}
 	w, err := s.Store.World(ctx, d)
-	if err != nil || w.Players() == 0 {
+	if err != nil {
 		return "", err
+	}
+	lines := s.worldLines(lang, w, c)
+	season, err := s.seasonLines(ctx, lang, d, c)
+	if err != nil {
+		return "", err
+	}
+	if len(lines) > 0 && len(season) > 0 {
+		lines = append(lines, "")
+	}
+	return strings.Join(append(lines, season...), "\n"), nil
+}
+
+// worldLines are the day's part of the look back, none when nobody was
+// scored.
+func (s *Scheduler) worldLines(lang string, w db.World, c db.Chat) []string {
+	if w.Players() == 0 {
+		return nil
 	}
 	n := i18n.FormatNumber(lang, w.Players())
 	first := w.Entries[0]
@@ -84,7 +101,39 @@ func (s *Scheduler) lookBack(ctx context.Context, lang string, d round.Date, c d
 			lines = append(lines, i18n.T(lang, "world.you", "rank", strconv.Itoa(rank), "n", n))
 		}
 	}
-	return strings.Join(lines, "\n"), nil
+	return lines
+}
+
+// seasonLines close a month in the look back at its last day, so the
+// champion comes inside the morning post of the 1st and not as a fourth
+// message: the group's own champion in a group, the world's in a DM with the
+// person's place. A season is the sum of the best db.SeasonDays days.
+func (s *Scheduler) seasonLines(ctx context.Context, lang string, d round.Date, c db.Chat) ([]string, error) {
+	if d.AddDays(1).Time().Day() != 1 {
+		return nil, nil
+	}
+	t := d.Time()
+	first := round.NewDate(t.Year(), t.Month(), 1)
+	chat, key := int64(0), "season.world"
+	if c.Kind == "group" {
+		chat, key = c.ID, "season.group"
+	}
+	top, err := s.Store.Season(ctx, first, d, chat, 1)
+	if err != nil || len(top) == 0 {
+		return nil, err
+	}
+	lines := []string{"<b>" + i18n.T(lang, "season.title") + "</b>",
+		"🏆 " + i18n.T(lang, key, "name", displayName(top[0].Name), "points", i18n.FormatNumber(lang, top[0].Points))}
+	if c.Kind == "dm" {
+		me, err := s.Store.SeasonOf(ctx, first, d, 0, c.ID)
+		if err != nil {
+			return nil, err
+		}
+		if me.Rank > 0 {
+			lines = append(lines, i18n.T(lang, "season.you", "rank", strconv.Itoa(me.Rank), "n", i18n.FormatNumber(lang, me.Of), "points", i18n.FormatNumber(lang, me.Points)))
+		}
+	}
+	return lines, nil
 }
 
 // yesterday is the look back the morning post of d carries: yesterday's,

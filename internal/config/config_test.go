@@ -14,6 +14,9 @@ func setRequired(t *testing.T) {
 	t.Setenv("APP_URL", "")
 	t.Setenv("CARD_RENDERER_URL", "")
 	t.Setenv("CARD_PAGE_URL", "")
+	for _, k := range []string{"TELEGRAM_LOGIN_CLIENT_ID", "TELEGRAM_LOGIN_CLIENT_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"} {
+		t.Setenv(k, "")
+	}
 }
 
 func TestLoadDefaults(t *testing.T) {
@@ -95,5 +98,34 @@ func TestCardRendererNeedsAPageURLAndSchemes(t *testing.T) {
 		if _, err := Load(); err == nil {
 			t.Errorf("%s: Load accepted %q and %q", name, env[0], env[1])
 		}
+	}
+}
+
+func TestSignInsAreOffWithoutKeys(t *testing.T) {
+	setRequired(t)
+	cfg, err := Load()
+	if err != nil || cfg.TelegramLogin() || cfg.GoogleLogin() {
+		t.Fatalf("cfg = %+v, err = %v", cfg, err)
+	}
+}
+
+func TestSignInKeysGoInPairsWithAnAppURL(t *testing.T) {
+	setRequired(t)
+	t.Setenv("GOOGLE_CLIENT_ID", "g.apps.googleusercontent.com")
+	t.Setenv("APP_URL", "https://maply.example")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted a Google id without its secret")
+	}
+	t.Setenv("GOOGLE_CLIENT_SECRET", "s")
+	t.Setenv("APP_URL", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted a sign-in without APP_URL")
+	}
+	t.Setenv("APP_URL", "https://maply.example")
+	t.Setenv("TELEGRAM_LOGIN_CLIENT_ID", "123")
+	t.Setenv("TELEGRAM_LOGIN_CLIENT_SECRET", "t")
+	cfg, err := Load()
+	if err != nil || !cfg.GoogleLogin() || !cfg.TelegramLogin() {
+		t.Fatalf("cfg = %+v, err = %v", cfg, err)
 	}
 }

@@ -16,10 +16,12 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"html"
 	"io/fs"
 	"net/http"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 )
 
 //go:generate go run gen_land.go -step 4 -o app/land.js
+//go:generate go run gen_profland.go -step 2 -o app/profland.js
 
 //go:embed app
 var embedded embed.FS
@@ -72,7 +75,20 @@ type file struct {
 
 type handler struct {
 	files map[string]file
+	meta  MetaFunc
 }
+
+// Meta is what a link to one of Pages shows before it is opened: the title,
+// the line under it and the picture, as Open Graph tags in index.html.
+type Meta struct {
+	Title, Description string
+	// URL is the page's own address and Image its picture's, both absolute.
+	URL, Image     string
+	ImageW, ImageH int
+}
+
+// MetaFunc gives the Meta of the page at path, or false for the plain page.
+type MetaFunc func(r *http.Request, path string) (Meta, bool)
 
 // Pages are the addresses the app draws itself. The server answers each with
 // index.html, and router.js picks the screen from the path. "*" stands for one
@@ -109,12 +125,15 @@ func isPage(name string) bool {
 
 // Handler serves the app at the root: "/" and every address in Pages is
 // index.html, anything else not in the embedded tree is a 404.
-func Handler() (http.Handler, error) {
+func Handler() (http.Handler, error) { return HandlerWithMeta(nil) }
+
+// HandlerWithMeta is Handler with the link previews of the pages meta knows.
+func HandlerWithMeta(meta MetaFunc) (http.Handler, error) {
 	root, err := fs.Sub(embedded, "app")
 	if err != nil {
 		return nil, err
 	}
-	h := &handler{files: map[string]file{}}
+	h := &handler{files: map[string]file{}, meta: meta}
 	err = fs.WalkDir(root, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -158,6 +177,27 @@ func Handler() (http.Handler, error) {
 // page is served on every address in Pages, so it names them from the root.
 var localRef = regexp.MustCompile(`(src|href)="([^":?#]+\.(?:js|css))"`)
 
+// host is a Host header fit to name the preview's address with.
+var host = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$`)
+
+// publicPage is index.html for a player's public page /p/<slug>: kept out of
+// search engines, with the player's picture for a link's preview, which
+// needs an absolute address. slug is a path segment isPage accepted.
+func publicPage(f file, slug string, r *http.Request) file {
+	meta := `<meta name="robots" content="noindex, nofollow">`
+	if host.MatchString(r.Host) {
+		scheme := "https"
+		if h, _, _ := strings.Cut(r.Host, ":"); h == "127.0.0.1" || h == "localhost" {
+			scheme = "http"
+		}
+		meta += `<meta property="og:image" content="` + scheme + "://" + r.Host + "/api/p/" + slug + `/card.png">` +
+			`<meta name="twitter:card" content="summary_large_image">`
+	}
+	data := bytes.Replace(f.data, []byte("</head>"), []byte(meta+"</head>"), 1)
+	sum := sha256.Sum256(data)
+	return file{data: data, etag: `"` + hex.EncodeToString(sum[:12]) + `"`, ctype: f.ctype}
+}
+
 func (h *handler) add(name string, data []byte, immutable bool) {
 	sum := sha256.Sum256(data)
 	ctype, ok := contentTypes[path.Ext(name)]
@@ -197,7 +237,17 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := path.Clean(r.URL.Path)
-	if name == "/" || isPage(name) {
+	page := name
+	app := isPage(name)
+	if app && h.meta != nil {
+		if m, ok := h.meta(r, name); ok {
+			// The preview's words follow the reader's language.
+			w.Header().Set("Vary", "Accept-Language")
+			h.serve(w, r, withMeta(h.files["/index.html"], m))
+			return
+		}
+	}
+	if name == "/" || app {
 		name = "/index.html"
 	}
 	f, ok := h.files[name]
@@ -205,6 +255,40 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if slug, ok := strings.CutPrefix(page, "/p/"); ok && name == "/index.html" {
+		f = publicPage(f, slug, r)
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	}
+	h.serve(w, r, f)
+}
+
+// withMeta is index.html with m's tags at the end of its head. The page
+// itself is the same: the router draws it from the address.
+func withMeta(idx file, m Meta) file {
+	var b strings.Builder
+	tag := func(attr, key, value string) {
+		if value != "" {
+			b.WriteString(`<meta ` + attr + `="` + key + `" content="` + html.EscapeString(value) + `">` + "\n")
+		}
+	}
+	tag("property", "og:type", "website")
+	tag("property", "og:site_name", "maply")
+	tag("property", "og:title", m.Title)
+	tag("property", "og:description", m.Description)
+	tag("property", "og:url", m.URL)
+	tag("property", "og:image", m.Image)
+	if m.Image != "" && m.ImageW > 0 {
+		tag("property", "og:image:width", strconv.Itoa(m.ImageW))
+		tag("property", "og:image:height", strconv.Itoa(m.ImageH))
+	}
+	tag("name", "twitter:card", "summary_large_image")
+	tag("name", "description", m.Description)
+	data := bytes.Replace(idx.data, []byte("</head>"), []byte(b.String()+"</head>"), 1)
+	sum := sha256.Sum256(data)
+	return file{data: data, etag: `"` + hex.EncodeToString(sum[:12]) + `"`, ctype: idx.ctype}
+}
+
+func (h *handler) serve(w http.ResponseWriter, r *http.Request, f file) {
 	hd := w.Header()
 	hd.Set("Content-Type", f.ctype)
 	hd.Set("Content-Security-Policy", CSP)

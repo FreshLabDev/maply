@@ -521,10 +521,16 @@ func postCaption(lang string, dayNo int, at, yesterday, block string, group bool
 		text += "\n\n" + block
 	}
 	// Yesterday is the first to go when the caption would not fit; a request
-	// for the right to pin goes last, since it is said once.
+	// for the right to pin goes last, since it is said once. A month's season
+	// outlasts the day's lines: it is said once a month, and nowhere else.
 	if yesterday != "" {
 		if with := text + "\n\n<blockquote>" + yesterday + "</blockquote>"; visibleLen(with) <= captionLimit {
 			return with
+		}
+		if at := strings.Index(yesterday, "<b>"+i18n.T(lang, "season.title")+"</b>"); at > 0 {
+			if with := text + "\n\n<blockquote>" + yesterday[at:] + "</blockquote>"; visibleLen(with) <= captionLimit {
+				return with
+			}
 		}
 		if ask := i18n.T(lang, "group.pin_rights"); yesterday != ask && strings.HasSuffix(yesterday, ask) {
 			if with := text + "\n\n<blockquote>" + ask + "</blockquote>"; visibleLen(with) <= captionLimit {

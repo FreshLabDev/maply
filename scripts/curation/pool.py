@@ -9,13 +9,19 @@ centre. So every region has frames, and none is empty taiga.
     MAPILLARY_TOKEN=... python pool.py <out.json> [cities] [towns] [nature]
 
 Each entry: {"name", "lat", "lon", "km", "inner", "kind", "country"}.
+
+MAPLY_CAP=N plans at most N entries in one country, big cities included, so a
+pool of a few hundred places spreads over many countries. MAPLY_COUNTRIES=JP,KE,…
+plans in those countries only, to fill a batch where it is thin. MAPLY_AVOID
+keeps the towns and roads clear of the other pool's places (see avoid.py).
 """
-import gzip, json, math, os, random, socket, sys, threading, time, urllib.parse, urllib.request
+import collections, gzip, json, math, os, random, socket, sys, threading, time, urllib.parse, urllib.request
 import concurrent.futures as cf
 import mapbox_vector_tile
 from shapely.geometry import shape, Point
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from regions import REGIONS
+import avoid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BORDERS = os.path.join(HERE, "..", "..", "internal", "geo", "countries.geojson.gz")
@@ -33,19 +39,36 @@ WEIGHTS = {
     "RU": 4, "UA": 3, "BY": 2,
     # Caucasus, Turkey, Middle East, Central Asia
     "GE": 1, "AM": 0.5, "AZ": 0.5, "TR": 3, "KZ": 1, "KG": 0.5, "UZ": 0.5, "MN": 0.5,
-    "JO": 0.5, "AE": 0.5, "OM": 0.5,
+    "JO": 0.5, "AE": 0.5, "OM": 0.5, "SA": 0.5, "QA": 0.3, "BH": 0.2, "CY": 0.5,
     # Asia
     "JP": 4, "KR": 2, "TW": 1, "TH": 2, "VN": 1, "MY": 1, "ID": 2, "PH": 1, "IN": 2,
-    "LK": 0.5, "NP": 0.5, "KH": 0.5,
+    "LK": 0.5, "NP": 0.5, "KH": 0.5, "CN": 1, "HK": 0.5, "SG": 0.5, "LA": 0.3, "BD": 0.5,
+    "BT": 0.2, "BN": 0.2,
     # Africa
     "ZA": 2, "KE": 1, "MA": 1, "TN": 0.5, "NA": 0.5, "BW": 0.5, "TZ": 0.5, "UG": 0.5,
-    "GH": 0.5, "SN": 0.5, "RW": 0.3,
+    "GH": 0.5, "SN": 0.5, "RW": 0.3, "EG": 1, "DZ": 0.3, "ZM": 0.3, "ZW": 0.3, "MW": 0.3,
+    "MG": 0.5, "MZ": 0.3, "CI": 0.3, "BJ": 0.2, "TG": 0.2, "NG": 0.5, "MU": 0.2,
     # Americas
     "US": 6, "CA": 3, "MX": 2, "BR": 3, "AR": 2, "CL": 2, "CO": 1, "PE": 1, "EC": 0.5,
-    "UY": 0.5, "CR": 0.5, "GT": 0.5, "BO": 0.5,
+    "UY": 0.5, "CR": 0.5, "GT": 0.5, "BO": 0.5, "PA": 0.5, "DO": 0.5, "PR": 0.5, "CU": 0.3,
+    "JM": 0.3, "HN": 0.3, "SV": 0.3, "NI": 0.3, "BZ": 0.2, "PY": 0.5,
     # Oceania
-    "AU": 3, "NZ": 2,
+    "AU": 3, "NZ": 2, "FJ": 0.3, "NC": 0.2, "PF": 0.2,
+    # Small European countries
+    "LU": 0.5, "MT": 0.5,
 }
+
+
+# The Gulf of Suez's axis, north to south, as (lat, lon).
+SUEZ_AXIS = [(29.95, 32.56), (29.6, 32.56), (29.0, 32.85), (28.4, 33.27), (28.0, 33.55), (27.7, 33.9)]
+
+
+def _between(line, lat):
+    """The longitude of a north-to-south line of (lat, lon) at lat."""
+    for (la1, lo1), (la2, lo2) in zip(line, line[1:]):
+        if la2 <= lat <= la1:
+            return lo1 + (la1 - lat) / (la1 - la2) * (lo2 - lo1)
+    raise ValueError(f"{lat} is off the line")
 
 
 def allowed(iso, lat, lon):
@@ -57,6 +80,8 @@ def allowed(iso, lat, lon):
     if iso == "RU":
         if lon < 40 and lat < 54:  # the regions along the Ukrainian border
             return False
+        if lon < 40.8 and 47.3 < lat < 50.4:  # east of occupied Luhansk
+            return False
         if lat < 44.6 and 42 < lon < 48.6:  # the North Caucasus republics
             return False
         return True
@@ -65,11 +90,96 @@ def allowed(iso, lat, lon):
     if iso == "MD":
         return lon < 28.95  # not Transnistria
     if iso == "TR":
-        return not (lat < 37.6 and lon > 36.5)  # not along the Syrian border
+        # Not along the Syrian border, not the southeast by Iraq and Iran.
+        return not (lat < 37.6 and lon > 36.5) and not (lon > 41.5 and lat < 38.6)
     if iso == "IN":
-        return not (lat > 32.3 and lon < 80.5)  # not Kashmir
+        # Not Kashmir, not the Pakistani border, not the northeast (Manipur).
+        return not (lat > 32.3 and lon < 80.5) and not (lon < 75.2 and lat > 23.5) and lon < 92
     if iso == "PH":
-        return not (lat < 8 and lon < 123)
+        # Not Sulu and Zamboanga, not the rest of Mindanao.
+        return not (lat < 8 and lon < 123) and not (lat < 9.6 and lon > 121.8)
+    if iso == "AZ":
+        # Not Karabakh and the Armenian border, not Nakhchivan.
+        return not (39.0 < lat < 41.3 and 44.8 < lon < 47.6) and not (lon < 46.2 and lat < 39.8)
+    if iso == "AM":
+        return lon < 45.0 and lat > 39.7  # not the Azerbaijani border
+    if iso == "BY":
+        return lat > 51.9  # not along the Ukrainian border
+    if iso == "PL":
+        return not (lon > 23.4 and 52.0 < lat < 54.0)  # not the zone along Belarus
+    if iso == "FI":
+        return lon < 30.0  # not the zone along Russia
+    if iso == "EE":
+        return lon < 27.8
+    if iso == "LV":
+        return lon < 27.5
+    if iso == "RS":
+        return not (41.85 < lat < 43.27 and 20.0 < lon < 21.8)  # not Kosovo, which these borders file under RS
+    if iso == "GR":
+        return not (lon > 25.9 and lat > 40.7)  # not the Evros border
+    if iso == "CY":
+        # The Republic's side, below the buffer zone; not the British bases.
+        return lat < 35.1 and not (lat < 34.66 and 32.85 < lon < 33.1) and not (34.95 < lat and 33.6 < lon < 33.95)
+    if iso == "KR":
+        return lat < 37.8  # not near the DMZ
+    if iso == "TH":
+        # Not the insurgent far south, not the Cambodian border.
+        return not (lat < 7.0 and lon > 100.8) and not (13.8 < lat < 15.0 and 102.3 < lon < 105.7)
+    if iso == "KH":
+        return lat < 13.6 and not (lon < 103.0 and lat > 12.0)  # not the Thai border
+    if iso == "ID":
+        return lon < 130.5  # not Papua
+    if iso == "CN":
+        return lon > 100  # the east; not Xinjiang and Tibet
+    if iso == "JO":
+        # Not the Syrian and Iraqi borders, not the Jordan valley.
+        return not (lat > 32.15 and lon > 35.95) and lon < 37.5 and not (lat > 29.6 and lon < 35.65)
+    if iso == "SA":
+        return 18.5 < lat < 29.0  # not the Yemeni and northern borders
+    if iso == "OM":
+        return not (lat < 19 and lon < 53.2)  # not by Yemen
+    if iso == "UZ":
+        return lat > 37.6  # not by Afghanistan
+    if iso == "EG":
+        # The Nile and the Red Sea coast: not Sinai, the Libyan or the Sudanese
+        # border. Sinai is east of the canal and of the Gulf of Suez's axis.
+        if lat >= 29.95:
+            return 27 < lon < 32.35
+        if not 27 < lon or lat <= 23.5:
+            return False
+        if lat <= 27.7:
+            return lon < 36
+        return lon < _between(SUEZ_AXIS, lat)
+    if iso == "DZ":
+        return lat > 34.5  # the north only
+    if iso == "TN":
+        return not (lon > 10.8 and lat < 33.6) and not (lon < 8.9 and lat < 35.6)
+    if iso == "MA":
+        return lat > 28.0  # well north of Western Sahara
+    if iso == "KE":
+        return lat < 2.5 and not (lon > 39.5 and lat > -2.0)  # not the Somali border
+    if iso == "TZ":
+        return not (lat < -10.0 and lon > 38.5)  # not by Cabo Delgado
+    if iso == "UG":
+        return lat < 2.5 and lon > 30.5  # not the north, not the Congolese border
+    if iso == "RW":
+        return lon > 29.6  # not the Congolese border
+    if iso == "MZ":
+        return lat < -16.0  # not the insurgent north
+    if iso in ("GH", "TG"):
+        return lat < 10.0
+    if iso == "BJ":
+        return lat < 10.5
+    if iso == "CI":
+        return lat < 9.5
+    if iso == "NG":
+        return lat < 8.5  # the south only
+    if iso == "SN":
+        return lat > 13.1  # not Casamance
+    if iso == "CO":
+        return not (lon > -73.0 and lat > 6.5) and lon > -77.0  # not Catatumbo, not the Pacific coast
+    if iso == "PE":
+        return not (-13.6 < lat < -11.4 and -74.6 < lon < -73.0)  # not the VRAEM
     if iso == "US":
         return 24 < lat < 50 and -125 < lon < -66
     if iso == "FR":
@@ -91,9 +201,16 @@ def load_countries():
     out = {}
     for feat in data["features"]:
         iso = feat["properties"]["iso"]
-        if iso in WEIGHTS:
-            out.setdefault(iso, []).append(shape(feat["geometry"]))
+        out.setdefault(iso, []).append(shape(feat["geometry"]))
     return out
+
+
+def country_of(countries, lat, lon):
+    pt = Point(lon, lat)
+    for iso, shapes in countries.items():
+        if any(s.contains(pt) for s in shapes):
+            return iso
+    return None
 
 
 def random_in(shapes, iso):
@@ -113,6 +230,9 @@ _getaddrinfo = socket.getaddrinfo
 socket.getaddrinfo = lambda host, *a, **k: [r for r in _getaddrinfo(host, *a, **k) if r[0] == socket.AF_INET] or _getaddrinfo(host, *a, **k)
 
 TOKEN = os.environ["MAPILLARY_TOKEN"]
+AVOID = avoid.from_env()
+CAP = int(os.environ.get("MAPLY_CAP", "0"))
+ONLY = {c.strip() for c in os.environ.get("MAPLY_COUNTRIES", "").split(",") if c.strip()}
 MIN_TS = 1514764800000  # 2018-01-01, as harvest.py
 # The game shows 360° panoramas: only drives shot with a 360° camera count.
 PANO_ONLY = os.environ.get("MAPLY_PANO_ONLY", "1") != "0"
@@ -211,7 +331,7 @@ def anchor(countries, iso, kind):
         if not p:
             return None
         c = covered(*p, dense=kind == "town")
-        if not c or not allowed(iso, *c):
+        if not c or not allowed(iso, *c) or (AVOID and AVOID.why(*c)):
             continue
         r = place_at(*c)
         if not r or r.get("error") or (r.get("address", {}).get("country_code") or "").upper() not in (iso, ""):
@@ -229,22 +349,55 @@ def main():
     n_cities, n_towns, n_nature = (int(x) for x in (sys.argv[2:5] + ["45", "100", "110"][len(sys.argv[2:5]):]))
     random.seed()
     countries = load_countries()
-    isos = sorted(countries)
+    isos = sorted(i for i in countries if i in WEIGHTS and (not ONLY or i in ONLY))
     weights = [WEIGHTS[i] for i in isos]
     plan = []
-    # Big cities, away from the centre the first batches used.
-    for name, lat, lon, r in random.sample(REGIONS, min(n_cities, len(REGIONS))):
-        plan.append({"name": name, "lat": lat, "lon": lon, "km": max(r * 2.5, r + 8), "inner": r, "kind": "city"})
+    per = {}
+    # Big cities, away from the centre the first batches used. A city whose
+    # centre is in a part of its country left out is left out too.
+    cities = []
+    for name, lat, lon, r in REGIONS:
+        iso = country_of(countries, lat, lon)
+        if iso and not allowed(iso, lat, lon) or ONLY and iso not in ONLY:
+            continue
+        cities.append((name, lat, lon, r, iso))
+    for name, lat, lon, r, iso in random.sample(cities, len(cities)):
+        if len(plan) >= n_cities:
+            break
+        if CAP and iso and per.get(iso, 0) >= CAP:
+            continue
+        per[iso] = per.get(iso, 0) + 1
+        plan.append({"name": name, "lat": lat, "lon": lon, "km": max(r * 2.5, r + 8), "inner": r, "kind": "city", "country": iso})
     jobs = [k for k, n in (("town", n_towns), ("nature", n_nature)) for _ in range(n)]
     done = {"town": 0, "nature": 0}
     lock = threading.Lock()
 
+    fails = collections.Counter()
+
+    def pick():
+        # A country is drawn by weight, and not again once it has CAP entries
+        # or has failed to give an anchor ten times. None when none is left.
+        with lock:
+            free = [(i, w) for i, w in zip(isos, weights)
+                    if (not CAP or per.get(i, 0) < CAP) and fails[i] < 10]
+            if not free:
+                return None
+            iso = random.choices([i for i, _ in free], [w for _, w in free])[0]
+            per[iso] = per.get(iso, 0) + 1
+            return iso
+
     def one(kind):
         while True:
-            iso = random.choices(isos, weights)[0]
+            iso = pick()
+            if iso is None:
+                print(f"{kind}: no country is left to plan in", file=sys.stderr)
+                return
             e = anchor(countries, iso, kind)
             if e:
                 break
+            with lock:
+                per[iso] -= 1
+                fails[iso] += 1
         entry = {**e, "kind": kind, "country": iso}
         entry.update({"km": 0.3, "inner": 0})
         with lock:

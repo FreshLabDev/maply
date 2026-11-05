@@ -11,14 +11,141 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+For the operator:
+
+- Apply core migration 021 (`core.touch_person`) before deploying. The
+  service refuses to start without it and names the migration.
+- Sign-in on the site needs keys from BotFather and Google Cloud, set as
+  `TELEGRAM_LOGIN_CLIENT_ID`/`_SECRET` and `GOOGLE_CLIENT_ID`/`_SECRET`, and
+  `APP_URL`; `docs/sign-in.md` lists the steps. Without them the site plays
+  as before and its sign-in buttons are greyed out.
+- Migration 017 adds `place.thumb_yaw` and the table `day_thumb`. After the
+  deploy the service draws a strip for every day already kept, one at a
+  time, in the background.
+- For the places already in the queue, `maply-places -thumb-yaws` writes
+  `thumb-yaws.sql`, which sets the strip's direction only where none is set,
+  with each strip beside it to look at first. It is optional: without it the
+  service picks the direction itself when it draws the strip.
+- Migration 021 adds `profile_setting` (hide me, the public link) and an
+  index on `site_guess (player, date)` for a guest's profile.
+
 ### Added
 
+- `Store.TouchPerson` records a person in core without a chat or presence,
+  for a person met outside the bot's chats: a website sign-in with Telegram
+  or a guest who joins a game with friends from a link. `Touch` would count
+  them as talking to maply in a DM, which closes their answer window by the
+  DM's zone and puts them on the morning DM post.
+- The curation scripts prepare the free game's pool. `maply-places -pool
+  free` writes `pool = 'free'`, no facts and one city name, the English one
+  where OSM has it. `-avoid` and `MAPLY_AVOID` keep a batch 10 km from every
+  place and candidate of the other pool, so a free place never becomes a
+  place of the day and the free game never shows the spot of a future one.
+- `scripts/curation/screen.py` drops frames near or inside an OSM military
+  area and in the parts of a country left out, and draws review sheets of the
+  whole panorama instead of the 120° the game opens on. `choose.py` turns the
+  reviewers' verdicts into `reviews.json` with at most 15 places a country
+  and 500 in all, counted over every batch it is given, and writes a report
+  of them.
+- `scripts/curation/faces.py` gives every prepared place a sheet for faces
+  alone, at twice the detail of the review sheets, close to what the game
+  shows after `-sharpen`, and turns the verdicts into a review `choose.py`
+  reads.
+- `harvest.py` passes over a soft panorama, or one under 2048 px wide, for
+  another frame of the tile.
+  `pool.py` plans in more countries, with rules for their troubled borders,
+  and `MAPLY_CAP` limits the entries a country gets.
+- `maply-places` writes `sharpen.csv`, the input of `-sharpen`, next to
+  `places.sql`.
+- `maply-places` refuses a batch whose `reviews.json` was chosen for the
+  other pool, `-pool free` without `-avoid`, and an `-avoid` file it reads no
+  place from, so a slip of a flag cannot put free places in the queue of days
+  or leave the pools free to overlap. The scripts refuse such a file too and
+  say how many places they keep clear of.
+- The player's profile in the Mini App, behind the name's letter at the end of
+  the header and at `/me`: points, the 30-day average, streaks, the typical
+  miss, the share of countries and cities found, the best day and world place,
+  and the average percentile over the days that are over everywhere. Four
+  charts drawn in SVG (points over 30 days with the median, misses by
+  distance, continents, a map of one's own pins that opens a closed day), the
+  passport of countries found, the history by day and the free play numbers
+  once `free_result` exists. A site guest gets the same from the cookie,
+  closed days only, with a note to sign in.
+- A tap on a name in the world's tables opens a mini profile: days, streak,
+  the 30-day average, best world place, countries, and from free play the
+  average per place and duels. Inside a shared group it adds the photo and
+  "closer than you on 14 of 22 shared days", counted over the days that
+  group has seen the result of. Names carry an opaque handle, never an id.
+- "Hide me" in the profile: the world's tables, the site's result and the
+  days page read "Telegram player" instead of the name for everyone outside
+  the person's own groups, and the mini profile does not open. The bot's
+  posts keep the name.
+- The month's season: the sum of a player's 20 best days. The 07:00 post of
+  the 1st names the champion inside yesterday's look back, a group's own in
+  a group and the world's in a DM with the person's place; no new message.
+  The profile shows the place in the month so far, in the world and in the
+  group it was opened from.
+- A public link to the profile, off until the player turns it on: `/p/…`
+  opens their numbers over the days over everywhere for anyone with the
+  link, without pins, history or photo, and asks search engines to stay
+  away. "New link" ends the old one, and "Hide me" closes the page while
+  it is on. The link's preview is the profile picture without the pins.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
-  the screen the address names. `/days` opens the days and `/days/<date>` a
-  closed day, so a day can be linked and Back in the browser closes it. An
+  the screen the address names. `/days` opens the days and `/days/<n>` (or
+  the day's date) a closed day, so a day can be linked and Back in the browser closes it. An
   address without a screen yet shows today. In Telegram the address changes
   without adding history, so Back stays Telegram's.
+- Sign-in on the site with Telegram or Google, through our server by OpenID
+  Connect with PKCE. Signed in with Telegram, the site is the bot's player:
+  one answer a day across both, the DM's deadline with the speed bonus, the
+  place right after answering and the names at the usual time. Signed in with
+  Google, the site's game keeps its answers and name across browsers. The
+  browser's guest answers join the account, after a question when the account
+  already existed.
+- An accounts page: link and unlink Telegram and Google, sign out here or on
+  every device, delete the account. Two accounts merge when one's sign-in is
+  linked to the other; a closed day is never rewritten. In the Mini App,
+  linking Google opens the phone's browser with a five-minute ticket that
+  names the Telegram account before going to Google; a Google that has an
+  account of its own is linked from the site instead, so a ticket never
+  merges.
+- `/privacy` says what maply keeps, what other players see and how to delete
+  the account, in the sixteen languages.
+- The site's menu picks the interface language. Signed in with Telegram it is
+  the language core keeps for every bot of the family, with "Follow
+  Telegram"; otherwise the browser keeps it.
+- The days are a diary: every day back to the first, a month at a time, each
+  with its strip of street, its flag and city, the world's numbers and the
+  viewer's place, "no answer" on a day they skipped. A day still open
+  somewhere shows its puzzle where the day has begun, how many have answered
+  and when it closes, and nothing about its place. On a screen 1024 pixels
+  wide or more the list and the day stand side by side.
+- A closed day's page, `/days/<n>`: the strip, the place, the author and the
+  fact, the viewer's result, the world's four numbers, everyone's misses on
+  one scale, the map of the pins and the table, with arrows to the days
+  before and after.
+- A link to `/days/<n>` previews in a chat or a feed with a 1200×630 picture
+  of the day's street, its place and numbers, drawn in the reader's language
+  (in English for a script the faces lack). Only a day over in every zone
+  and kept has one; the picture is served at `/og/day/<n>-<lang>.jpg`.
+- The country flags come from `country-flag-icons` 1.6.20, served by the
+  service.
+
+- Free play, outside the day's ranking, at `/play`: from the DM's `/start`
+  panel and from the top of the days. Alone it is a Classic of 3, 5 or 10
+  places on Blitz 30, 60, 90 or 120 s or no timer, or a Country streak on 30
+  or 60 s that goes on while the country is right; the screen starts on the
+  last game's settings, shows each place after the answer and ends with the
+  record for those settings. With friends, up to eight play the same places
+  at once: the host sets the time and the number of places, the bot prepares
+  an invitation the player sends to any chat, a ribbon shows who has
+  answered, and the final offers a rematch on the same settings. The speed
+  bonus, up to +200, counts the share of the time left, so it is the same on
+  every timer. The bot writes nothing about free play in groups. A free
+  place never becomes a day's place, and its picture goes out only once the
+  place has started, under the round's own address. Site guests play alone
+  without records; with friends needs Telegram.
 - The app has a computer's layout. From 1024 px wide and 600 px high the
   panorama fills the screen and the map opens beside it as a panel, on hover, a
   click or M, in three sizes; after answering the map fills the screen and the
@@ -37,6 +164,18 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   `globe.js`, each with a small API that the free game and the profile can
   reuse. The game looks and behaves as before; a double click no longer zooms
   the panorama by itself.
+- The days page reads a page of thirty days in one query instead of about
+  sixty, and pages back by a cursor to the first day.
+- A day's row no longer shows the group's numbers beside the world's.
+
+### Fixed
+
+- `maply-places` wrote a heading of 359.96° as `360.0`, which the schema
+  refuses, and the whole `places.sql` failed to load. It is written as `0.0`.
+- `pool.py` leaves out the west coast of Sinai and the Russian strip east of
+  occupied Luhansk, which its rules let through, and a plan no longer dies
+  or spins when every country is used up. `screen.py` checks a frame outside
+  every outline by its plan's country instead of letting it pass.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

@@ -11,6 +11,10 @@
 <link rel="stylesheet" href="/fonts.css">
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/desktop.css">
+<link rel="stylesheet" href="/account.css">
+<link rel="stylesheet" href="/days.css">
+<link rel="stylesheet" href="/free.css">
+<link rel="stylesheet" href="/profile.css">
 <script defer src="/vendor/maplibre-gl-5.6.0/maplibre-gl.js"></script>
 <script defer src="/vendor/pannellum-2.5.6/pannellum.js"></script>
 </head>
@@ -21,6 +25,7 @@
   <div class="timer" id="timer"><span class="up" data-t="until_truth"></span><b id="left">…</b></div>
   <button class="fs hidden" id="fs" data-aria="desk.fullscreen"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M1.5 6V1.5H6M10 1.5h4.5V6M14.5 10v4.5H10M6 14.5H1.5V10" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
   <div class="acct" id="acct"></div>
+  <button class="mebtn" id="meBtn" data-aria="prof.aria_open"></button>
   <div class="prog" id="prog"><b class="lbh up" id="lbH"></b><div class="lb" id="lb"></div><div class="foot"><button class="more hidden" id="more" aria-haspopup="dialog"></button><span class="none hidden" id="none" data-t="no_answer"></span><button class="info hidden" id="rulesBtn" aria-expanded="false" aria-controls="rules" data-aria="rules"><i>i</i></button><button class="fold hidden" id="foldBtn" aria-expanded="true" aria-controls="lb"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 10l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></div><div class="rules hidden" id="rules" role="note"></div><div class="tip" id="tip"></div></div>
 </header>
 
@@ -62,6 +67,13 @@
 <script defer src="/globe.js"></script>
 <!-- The computer's layout: which one is on, the header, the map's panel, the side panel and the keys. -->
 <script defer src="/desk.js"></script>
+<script defer src="/account.js"></script>
+<!-- The free game before app.js: the app opens on it instead of the day when the address or the invitation says so. -->
+<script defer src="/free.js"></script>
+<script defer src="/party.js"></script>
 <script defer src="/app.js"></script>
+<script defer src="/days.js"></script>
+<script defer src="/profland.js"></script>
+<script defer src="/profile.js"></script>
 </body>
 </html>

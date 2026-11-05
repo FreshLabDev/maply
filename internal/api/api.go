@@ -33,9 +33,11 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/maply/internal/account"
 	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/card"
 	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/free"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/i18n"
 	"github.com/FreshLabDev/maply/internal/round"
@@ -64,14 +66,19 @@ type Store interface {
 	AdoptDMZone(context.Context, int64, string) (bool, error)
 	FixZone(context.Context, int64, string) error
 	ChatActive(context.Context, int64) (bool, error)
-	Days(context.Context, round.Date, int) ([]db.Day, error)
-	ChatDays(context.Context, int64, []db.Day) (map[round.Date]db.ChatDay, error)
-	MyDays(context.Context, int64, []db.Day) (map[round.Date]db.Mine, error)
-	SiteDays(context.Context, string, []db.Day) (map[round.Date]db.Mine, error)
+	DaysPage(context.Context, db.DaysQuery) (db.DaysPage, error)
+	RoundNo(context.Context, int) (db.Round, bool, error)
+	ClosedDay(context.Context, round.Date, round.Date) (db.ClosedDay, error)
+	ThumbByKey(context.Context, string) (db.Thumb, bool, error)
 	SitePlayer(ctx context.Context, id string, name *string) error
 	SiteName(ctx context.Context, id string) (string, error)
 	InsertSiteGuess(context.Context, db.NewSiteGuess) error
+	InsertAccountSiteGuess(ctx context.Context, accountID string, g db.NewSiteGuess) error
 	SiteGuessOf(context.Context, round.Date, string) (db.SiteGuess, bool, error)
+	AccountSitePlayer(ctx context.Context, accountID, id string, name *string) (string, error)
+	SetAccountName(ctx context.Context, accountID, name string) error
+	AccountPlayers(ctx context.Context, accountID string) ([]string, error)
+	AccountSiteGuessOf(ctx context.Context, d round.Date, accountID string) (db.SiteGuess, bool, error)
 }
 
 type MemberChecker interface {
@@ -106,11 +113,25 @@ type Server struct {
 	ImagesDir string
 	// BotUsername is where the site sends a visitor to play in Telegram.
 	BotUsername string
+	// AppURL is the service's public address, which a link's preview names
+	// its picture by; empty leaves the days' pages without previews.
+	AppURL string
 	// Avatars gives the players' kept photos for the result's marks; nil
 	// keeps the letters.
 	Avatars Avatars
-	Log     *slog.Logger
-	Now     func() time.Time
+	// Accounts signs people in on the site; nil leaves the site to guests.
+	Accounts *account.Service
+	// Free is the free game; nil turns its endpoints off. People records
+	// its players in core, and Invites prepares a party's invitation; nil
+	// leaves the app on a plain link.
+	Free    *free.Service
+	People  People
+	Invites Inviter
+	// Stills draws the preview of a public profile; nil leaves the link
+	// without a picture.
+	Stills Stills
+	Log    *slog.Logger
+	Now    func() time.Time
 
 	ipLimit    *limiter
 	userLimit  *limiter
@@ -120,8 +141,24 @@ type Server struct {
 	// siteAll caps the site's writes from everyone together: a site player
 	// is a cookie, and addresses are cheap.
 	siteAll *limiter
-	// imgLimit bounds the place's pictures per address.
-	imgLimit *limiter
+	// imgLimit bounds the place's pictures per address, thumbLimit the
+	// days' strips, of which a page of the list asks for thirty.
+	imgLimit   *limiter
+	thumbLimit *limiter
+	// ogLimit bounds the days' link pictures per address and ogAll those
+	// drawn for everyone, which are drawn on demand; metaLimit the pages'
+	// previews, which read the day.
+	ogLimit   *limiter
+	ogAll     *limiter
+	metaLimit *limiter
+	// The free game's own limits: a party polls every two seconds, which
+	// the day's limit per person would not survive.
+	freeLimit, pollLimit, makeLimit, inviteLimit, freeSiteAll *limiter
+	// profAll caps the profiles read without signing in, from everyone
+	// together: one is a few queries over a player's whole history.
+	profAll *limiter
+	// cardAll caps the public profiles' previews drawn, from everyone.
+	cardAll *limiter
 
 	// tied remembers who has been tied to which chat's reveal, so a result
 	// polled again does not write to core every time.
@@ -139,6 +176,16 @@ type Server struct {
 	// per new answer, not once each.
 	liveMu sync.Mutex
 	live   map[round.Date]liveDay
+
+	// thumbs keeps the strips last served; they never change.
+	thumbsMu sync.Mutex
+	thumbs   map[string]db.Thumb
+
+	// ogs keeps the days' link pictures drawn; ogTurn lets one be drawn at
+	// a time.
+	ogMu   sync.Mutex
+	ogs    map[string][]byte
+	ogTurn chan struct{}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -154,9 +201,16 @@ func (s *Server) Handler() http.Handler {
 	s.logLimit = newLimiter(5, time.Minute)
 	s.logAll = newLimiter(30, time.Minute)
 	s.siteAll = newLimiter(120, time.Minute)
+	s.profAll = newLimiter(600, time.Minute)
+	s.cardAll = newLimiter(60, time.Minute)
 	// An app open fetches one picture; Cloudflare keeps the .jpg, so a
 	// loop of fetches past it is all that reaches the bot.
 	s.imgLimit = newLimiter(120, time.Minute)
+	s.thumbLimit = newLimiter(600, time.Minute)
+	s.ogLimit = newLimiter(30, time.Minute)
+	s.ogAll = newLimiter(20, time.Minute)
+	s.metaLimit = newLimiter(60, time.Minute)
+	s.ogTurn = make(chan struct{}, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/today", s.today)
 	mux.HandleFunc("POST /api/guess", s.guess)
@@ -169,14 +223,25 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/site/name", s.siteName)
 	mux.HandleFunc("GET /api/days", s.days)
 	mux.HandleFunc("GET /api/day", s.day)
+	mux.HandleFunc("/api/me", s.accounts)
+	mux.HandleFunc("/api/account/", s.accounts)
+	mux.HandleFunc("GET /api/profile", s.profile)
+	mux.HandleFunc("GET /api/profile/who", s.mini)
+	mux.HandleFunc("POST /api/profile/settings", s.profileSettings)
+	mux.HandleFunc("POST /api/profile/public", s.profilePublic)
+	mux.HandleFunc("GET /api/p/{slug}", s.publicPage)
+	mux.HandleFunc("GET /api/p/{slug}/card.png", s.publicCard)
 	mux.HandleFunc("GET /img/{key}", s.image)
-	return mux
+	mux.HandleFunc("GET /thumb/{name}", s.thumb)
+	mux.HandleFunc("GET /og/day/{name}", s.og)
+	s.freeRoutes(mux)
+	return s.withViewer(mux)
 }
 
 // play is who is asking, from where, and for which date.
 type play struct {
 	user   auth.User
-	kind   string // dm or group
+	kind   string // dm, group, or site: a browser signed in with Telegram
 	chatID int64
 	// chatType is the group's type as the launch named it.
 	chatType string
@@ -211,6 +276,9 @@ var (
 	errNotRevealed  = apiError{http.StatusForbidden, "not_revealed"}
 	errNotAnswered  = apiError{http.StatusForbidden, "not_answered"}
 	errUnavailable  = apiError{http.StatusServiceUnavailable, "unavailable"}
+	// errTelegram is a site answer from an account with Telegram, which
+	// plays as its Telegram player.
+	errTelegram = apiError{http.StatusConflict, "telegram"}
 	// errLeft is a link from a group maply has been removed from: the group
 	// no longer plays, and its reveal no longer bounds anyone's answer.
 	errLeft = apiError{http.StatusGone, "left"}
@@ -224,6 +292,10 @@ func (s *Server) resolve(r *http.Request) (play, error) { return s.resolveAs(r, 
 // touch records the person, and the group the app was opened from, in core.
 // A group recorded is a group whose reveal closes the person's answers.
 func (s *Server) touch(ctx context.Context, p play) error {
+	if p.kind == "site" {
+		// A sign-in on the site is not a chat with the bot.
+		return nil
+	}
 	user := tg.User{ID: p.user.ID, FirstName: p.user.FirstName, LastName: p.user.LastName,
 		Username: p.user.Username, LanguageCode: p.user.LanguageCode}
 	if p.kind != "group" {
@@ -260,6 +332,9 @@ func (s *Server) tieOnce(ctx context.Context, p play) error {
 func (s *Server) resolveAs(r *http.Request, touch bool) (play, error) {
 	raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "tma ")
 	if !ok {
+		if v := s.siteViewer(r); r.Header.Get("Authorization") == "" && v.TelegramUserID != 0 {
+			return s.resolveSite(r, v)
+		}
 		return play{}, errUnauthorized
 	}
 	data, err := s.InitData.Verify(raw)
@@ -274,7 +349,13 @@ func (s *Server) resolveAs(r *http.Request, touch bool) (play, error) {
 	user := tg.User{ID: data.User.ID, FirstName: data.User.FirstName, LastName: data.User.LastName,
 		Username: data.User.Username, LanguageCode: data.User.LanguageCode}
 
-	if data.StartParam == "" {
+	// A party's invitation opens the app as the DM does: the free game has
+	// no chat, and the day's game from it is the person's own. Seen from
+	// there it is the DM's place, so the DM's reveal closes their answers as
+	// it does for a plain link to the app; a refused morning post to someone
+	// who never started the bot is the scheduler's to drop. The free game's
+	// own requests record them without a DM (TouchPerson).
+	if _, invite := free.InviteCode(data.StartParam); data.StartParam == "" || invite {
 		if touch {
 			if err := s.touch(ctx, p); err != nil {
 				return play{}, err
@@ -483,6 +564,9 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 	if p.shareLang != "" && p.shareLang != p.lang {
 		resp.ShareLang = p.shareLang
 	}
+	if p.kind == "site" {
+		resp.Bot = s.BotUsername
+	}
 	// Their own pin is theirs to see; it says nothing about the place.
 	if g, ok, err := s.Store.GuessOf(ctx, p.date, p.user.ID); err != nil {
 		s.fail(w, r, err)
@@ -497,7 +581,7 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 // phone, sent as ?tz=, when a choice keeps the same clock. Before, the DM
 // followed the language: English meant London even in Berlin.
 func (s *Server) adoptZone(ctx context.Context, r *http.Request, p *play) (string, error) {
-	if p.kind != "dm" {
+	if p.kind != "dm" && p.kind != "site" {
 		return "", nil
 	}
 	zone := s.Zones.Match(r.URL.Query().Get("tz"), s.Now())
@@ -606,6 +690,8 @@ type line struct {
 	Me    bool `json:"me,omitempty"`
 	// Photo is a data: URL of the profile photo, for the mark on the map.
 	Photo string `json:"photo,omitempty"`
+	// Who is the player's handle for the mini profile, next to a name only.
+	Who string `json:"who,omitempty"`
 }
 
 // worldNow is where the person stands among everyone who has answered so far,
@@ -635,6 +721,8 @@ type boardLine struct {
 	Hidden bool    `json:"hidden,omitempty"`
 	Site   bool    `json:"site,omitempty"`
 	Photo  string  `json:"photo,omitempty"`
+	// Who is the player's handle for the mini profile, next to a name only.
+	Who string `json:"who,omitempty"`
 }
 
 // boardShown is how many of the world's best rows go to the app. Your own row
@@ -717,7 +805,7 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	// A DM's day ends at midnight in its zone, while one of the person's
 	// groups may still be guessing it: an app opened on that day keeps it.
 	// A group's date is in its signed link.
-	if p.kind == "dm" {
+	if p.kind == "dm" || p.kind == "site" {
 		if d, err := round.ParseDate(r.URL.Query().Get("date")); err == nil && d.String() == p.date.AddDays(-1).String() {
 			p.date = d
 		}
@@ -762,11 +850,19 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 	if err != nil {
 		return resultResponse{}, err
 	}
-	live := now.Before(opens)
 	own, answered, err := s.Store.GuessOf(ctx, p.date, p.user.ID)
 	if err != nil {
 		return resultResponse{}, err
 	}
+	// The site writes nothing to core, so seeing the place there cannot tie
+	// the person to a reveal: without an answer it waits for the latest
+	// reveal anywhere, as it does for a guest, after which nobody can answer.
+	if p.kind == "site" && !answered {
+		if last := s.Zones.LastReveal(p.date); last.After(opens) {
+			opens = last
+		}
+	}
+	live := now.Before(opens)
 	if live && !answered {
 		return resultResponse{}, earlyError{errNotAnswered.code, opens}
 	}
@@ -862,6 +958,8 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 	}
 	secret := s.boardSecret()
 	viewer := p.viewer()
+	handles := s.handles()
+	scope := handleScope("result", p.date, viewer)
 	for _, g := range guesses {
 		me := g.UserID == p.user.ID
 		l := line{Key: boardKey(secret, p.date, viewer, db.Entry{UserID: g.UserID}), Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Me: me}
@@ -870,7 +968,7 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 			l.Points, l.Bonus, l.Speed = &total, g.PtsBonus, g.Speed()
 		}
 		if me || !live {
-			l.Name = g.FirstName
+			l.Name, l.Who = g.FirstName, handles.Of(g.UserID, scope)
 		}
 		if b := photos[g.UserID]; b != nil {
 			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
@@ -887,7 +985,21 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		}
 	}
 	isMe := func(e db.Entry) bool { return e.UserID != 0 && e.UserID == p.user.ID }
-	resp.Board = board(secret, p.date, viewer, world, isMe, group, photos, !live, worldOpen)
+	names := nameRule{who: func(id int64) string { return handles.Of(id, scope) }, as: tgPlayer(p.lang)}
+	if worldOpen {
+		// Named for everyone now: a player who hid themselves is not, outside
+		// their own group, whose rows are named above.
+		var ids []int64
+		for i, e := range world.Entries {
+			if e.UserID != 0 && !group[e.UserID] && !isMe(e) && i < boardShown {
+				ids = append(ids, e.UserID)
+			}
+		}
+		if names.hidden, err = s.maskHidden(ctx, 0, p.user.ID, ids); err != nil {
+			return resultResponse{}, err
+		}
+	}
+	resp.Board = board(secret, p.date, viewer, world, isMe, group, photos, !live, worldOpen, names)
 	resp.Players = world.Players()
 	return resp, nil
 }
@@ -950,7 +1062,7 @@ func worldNowOf(p play, w db.World, pins [][2]float64) *worldNow {
 // Your group's names open at the chat's reveal, groupOpen; everyone else's
 // once the day has closed in every zone, worldOpen, so a group in Tokyo does
 // not learn who is who in a Kyiv group still guessing.
-func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.Entry) bool, group map[int64]bool, photos map[int64][]byte, groupOpen, worldOpen bool) []boardLine {
+func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.Entry) bool, group map[int64]bool, photos map[int64][]byte, groupOpen, worldOpen bool, names nameRule) []boardLine {
 	out := make([]boardLine, 0, min(len(w.Entries), boardShown+len(group)+1))
 	for i, e := range w.Entries {
 		me := isMe(e)
@@ -960,9 +1072,15 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 		}
 		l := boardLine{Key: boardKey(secret, d, viewer, e), Rank: e.Rank, Km: e.Km, Points: e.Points, Bonus: e.Bonus, Speed: e.Speed,
 			Me: me, Group: inGroup && !me, Site: e.Site()}
-		if me || worldOpen || groupOpen && inGroup {
+		switch {
+		case !me && !(groupOpen && inGroup) && worldOpen && names.hidden[e.UserID]:
+			l.Name = names.as
+		case me || worldOpen || groupOpen && inGroup:
 			l.Name = e.Name
-		} else {
+			if e.UserID != 0 && names.who != nil {
+				l.Who = names.who(e.UserID)
+			}
+		default:
 			l.Hidden = true
 		}
 		if b := photos[e.UserID]; b != nil && e.UserID != 0 {
@@ -971,6 +1089,20 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 		out = append(out, l)
 	}
 	return out
+}
+
+// nameRule is how the world's table names players once it may: hidden
+// players are called as, and a named Telegram player carries their handle.
+type nameRule struct {
+	hidden map[int64]bool
+	as     string
+	who    func(userID int64) string
+}
+
+// handleScope names the table a handle stands in: a kind of view, its day
+// and its viewer.
+func handleScope(kind string, d round.Date, viewer int64) string {
+	return kind + ":" + d.String() + ":" + strconv.FormatInt(viewer, 10)
 }
 
 // scoreDay scores the day's answers that have no score yet: every Telegram
@@ -999,7 +1131,8 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if s.Shares == nil || !s.Shares.CanShare() {
+	// shareMessage is the Mini App's; the site shares as a guest does.
+	if s.Shares == nil || !s.Shares.CanShare() || p.kind == "site" {
 		s.fail(w, r, errUnavailable)
 		return
 	}
@@ -1125,8 +1258,13 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	// The error comes from the store or Telegram; neither includes request
-	// bodies, so no pin reaches the log.
-	s.Log.Error("api request failed", "path", r.URL.Path, "error", err)
+	// bodies, so no pin reaches the log. The route's pattern, not the path:
+	// a public page's path is its only key.
+	path := r.URL.Path
+	if r.Pattern != "" {
+		path = r.Pattern
+	}
+	s.Log.Error("api request failed", "path", path, "error", err)
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 }
 

@@ -1,0 +1,52 @@
+/* Accounts: the header's sign-in button or avatar, its menu, the sign-in dialog and the accounts page.
+   Same rules as the app: one field colour, white panels, no shadows, rounded corners or transparency. */
+.top .acct:not(:empty) { margin-inline-start: 12px; }
+.top:has(.acct:not(:empty)) .timer { margin-inline-start: auto; padding-inline-start: 12px; }
+.acct-in { display: flex; align-items: center; padding: 8px 12px; background: var(--panel); color: var(--on-panel); font: 700 13px/1 var(--label); letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+.acct-in svg { display: none; width: 20px; height: 20px; fill: currentColor; }
+@media (max-width: 400px) { .acct-in { padding: 6px; } .acct-in svg { display: block; } .acct-in span { display: none; } }
+.acct-me { display: grid; place-items: center; width: 32px; height: 32px; }
+.acct-me .av { width: 32px; height: 32px; font: 700 18px/1 var(--display); outline: 0; }
+.acct-in:focus-visible, .acct-me:focus-visible, .acct-pop button:focus-visible, .acct-p:focus-visible, .acct-wide:focus-visible,
+.acct-row button:focus-visible, .acct-langs button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* The menu under the avatar. */
+.acct-pop { position: fixed; z-index: 39; top: calc(var(--top) + var(--safe-top)); inset-inline-end: calc(12px + var(--safe-end)); min-width: 220px; max-width: calc(100vw - 24px);
+            background: var(--panel); color: var(--on-panel); padding: 6px 0; border: 2px solid var(--field-deep); }
+.acct-who { margin: 0; padding: 8px 14px 10px; color: var(--field-tint); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid var(--ink-soft); }
+.acct-pop button { display: block; width: 100%; text-align: start; padding: 11px 14px; font: 500 16px/1.2 var(--text); color: var(--on-panel); }
+@media (hover: hover) { .acct-pop button:hover { background: var(--ink-soft); } }
+
+/* The dialog: the whole screen on a phone, a 420 px box on a wider one. */
+.acct-dlg { position: fixed; z-index: 41; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--field-deep);
+            padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(12px + var(--safe-left)); overflow-y: auto; }
+.acct-box { position: relative; width: 100%; max-width: 420px; background: var(--field); padding: 24px 20px 20px; display: flex; flex-direction: column; gap: 12px; }
+.acct-box p { margin: 0; color: var(--ink-soft); }
+.acct-h { font: 700 30px/1.05 var(--display); letter-spacing: .02em; padding-inline-end: 36px; }
+.acct-x { position: absolute; top: 12px; inset-inline-end: 12px; }
+.acct-p { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 48px; padding: 10px 12px; text-decoration: none;
+          background: #FFFFFF; color: #1F1F1F; border: 1px solid #747775; font: 500 16px/20px var(--text); }
+.acct-p svg { width: 20px; height: 20px; flex: none; }
+.acct-p.off { opacity: 1; color: #747775; cursor: not-allowed; }
+.acct-p:disabled { color: #747775; }
+.acct-no { background: var(--field); color: var(--ink); border-color: var(--ink-muted); }
+.acct-off { color: var(--speed) !important; }
+.acct-note { font-size: 14px; color: var(--ink-muted) !important; }
+.acct-link { color: var(--ink-soft); font-size: 14px; align-self: flex-start; }
+
+/* The accounts page. */
+.acct-list { display: flex; flex-direction: column; gap: 8px; }
+.acct-row { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 12px; padding: 12px; background: var(--field-deep); }
+.acct-row svg { width: 28px; height: 28px; }
+.acct-row b { display: block; font: 700 20px/1.1 var(--display); letter-spacing: .02em; }
+.acct-row span { display: block; color: var(--ink-soft); font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-row button { padding: 8px 12px; border: 1px solid var(--ink-muted); font: 700 12px/1 var(--label); letter-spacing: .1em; text-transform: uppercase; color: var(--ink); }
+.acct-row button.on { background: var(--panel); color: var(--on-panel); border-color: var(--panel); }
+.acct-row .off { color: var(--ink-muted); font-size: 13px; }
+.acct-wide { display: block; width: 100%; text-align: start; margin-top: 8px; padding: 12px; background: var(--field-deep); color: var(--ink); text-decoration: none; font: 500 16px/1.2 var(--text); }
+.acct-del { color: var(--speed); }
+.acct-list .acct-link { margin-top: 12px; }
+.acct-langs { display: flex; flex-direction: column; }
+.acct-langs button { text-align: start; padding: 12px 4px; border-bottom: 1px solid var(--field-tint); font: 400 17px/1.2 var(--text); color: var(--ink-soft); }
+.acct-langs button.on { color: var(--ink); font-weight: 700; }
+@media (max-width: 360px) { .top:has(.acct:not(:empty)) .timer span { display: none; } }

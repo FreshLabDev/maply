@@ -16,11 +16,15 @@ piece lands in the right place. The product rules are in
 - Shared Telegram identity, presence and language live in `core`. maply
   connects as `maply_core`, can reference `core.person` and `core.chat`, and can
   execute only `core.touch`, `core.set_language`, `core.clear_language`,
-  `core.effective_language` and `core.manual_language` (migration 020: whether
-  a person picked their language by hand). The role and its grants are a migration in the
+  `core.effective_language`, `core.manual_language` (migration 020: whether
+  a person picked their language by hand) and `core.touch_person` (migration
+  021: the person without a chat or presence). The role and its grants are a migration in the
   `core` repository; maply's own migrations never touch `core`.
 - `core.presence` is not just bookkeeping here: it is how the answer window
   finds every chat a person belongs to.
+  So a person met outside the bot's chats, on the website or from a link to
+  a game with friends, is recorded with `core.touch_person`: `core.touch`
+  without a chat would put them in a DM with maply that they never had.
 - Telegram goes through `github.com/FreshLabDev/tg`. There is no SDK and no
   webhook mode. Methods `tg` does not type yet go through `Client.Call` inside
   `internal/telegram`, and move into `tg` later.

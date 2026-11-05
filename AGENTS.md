@@ -12,7 +12,8 @@ player, and production-minded.
   changing behavior.
 - The Go service has config, the database with embedded migrations, Telegram
   long polling that records people and chats in `core`, the game calendar,
-  scoring over embedded Natural Earth borders, the HTTP API and `/healthz`. It
+  scoring over embedded Natural Earth borders, the HTTP API, sign-in on the
+  site with Telegram and Google (`docs/sign-in.md`) and `/healthz`. It
   serves the Mini App from `web/app/` (package `web`). Next to it are the
   original single-file prototype (`web/prototype/index.html`), the curation
   scripts (`scripts/curation/`) and the source measurements
@@ -58,7 +59,8 @@ player, and production-minded.
 - A group gets at most three messages a day: the 07:00 post, one intrigue
   between 16:00 and 18:00, and the 20:00 result. Edits to the pinned post do not
   count. Do not add a fourth: the rules in a group's first post and the
-  admins' note when maply may not pin go into the post itself.
+  admins' note when maply may not pin go into the post itself, and so does
+  the month's season champion, in the look back of the month's last day.
 - Posts write the reveal with the chat's zone, "20:00 (Kyiv)". A chat's zone is
   stored the first time maply needs it (`FixZone`), so a later change of
   language cannot move a reveal. A DM's stored this way is marked automatic
@@ -88,6 +90,10 @@ player, and production-minded.
   bold title, an italic hint, the substance in a quote, `◉`/`◎` on choices,
   Success on the current one, Back, and Close only in a group.
 - Bot names are written in lowercase everywhere, including headings and images.
+- Free play (`internal/free`, `/play`, `/party/<code>`) is outside the day:
+  its own `free_*` tables, no place in the world, no stats shared with the
+  day, and no bot message in groups. Its rules are in `docs/design.md` →
+  "Free play". With friends is Telegram only until the site has sign-in.
 
 ## Anti-Cheat Invariants
 
@@ -124,18 +130,81 @@ the diff looks like.
 - The card page opens only with a card token (`auth.Signer.SignCard`, never the
   startapp payload) and only after the chat's reveal; shared card images are
   served under random keys. Keep both when touching `internal/card`.
+- A day's strip (`day_thumb`, `/thumb/<key>.jpg`) and its link preview
+  (Open Graph tags on `/days/<n>`, `/og/day/<n>-<lang>.jpg`) exist only for a
+  day in `day_closed`, after the latest reveal: the strip's key goes out with
+  the day's city, and a strip of a place still in play would be a key to it.
+  `place.thumb_yaw` is never sent to a client.
 - Images are rehosted under a random key with EXIF stripped. A Mapillary ID
   resolves to coordinates through the public API, and Panoramax HD frames carry
   GPS in EXIF.
-- The site shows today's place only after the latest reveal across every
-  language. A Telegram player sees the place on answering and a new browser
-  is a new player, so `day_rank` puts every site answer after every Telegram
-  one: a site row never takes a Telegram player's place. Keep it so until the
-  site has sign-in.
+- The site's own game, played by a guest or by an account with Google alone,
+  shows today's place only after the latest reveal across every language. A
+  Telegram player sees the place on answering and a new browser is a new
+  player, so `day_rank` puts every site answer after every Telegram one: a
+  site row never takes a Telegram player's place. Google is not a person the
+  bot knows, so a Google account ranks as the site does.
+- A browser signed in with an account that has Telegram is that Telegram
+  player, not a site player. It answers through `/api/guess` with the session
+  cookie: one answer a day with the bot, closed at the earliest reveal among
+  the person's chats, with the speed bonus, the place on answering and the
+  names at the DM's reveal, as in the DM. It writes nothing to `core`: no
+  presence, so it neither ties the person to a chat nor puts them on the
+  morning post, and without an answer it sees the place only after the latest
+  reveal anywhere. `TestATelegramAccountPlaysOnTheSite` covers it.
+- Merging two accounts never rewrites a closed day. In an open day the
+  earliest site answer stays, and becomes the Telegram answer only when both
+  the answer and the merge come before the person's Telegram deadline: after
+  it they may have seen the place, and would pick the best of several
+  guests' answers. A Telegram answer is never replaced. The Mini App's
+  ticket links Google but never merges two accounts.
 - A name typed on the site is not checked: bot posts call that player "Guest".
   The site's write endpoints take only JSON from maply's own pages.
+- A profile shows its owner every scored day, today's too; anyone else, and
+  a site guest looking at their own, gets only days over in every zone
+  (`profile.LatestClosed`), with no pins, history or answer times. A world
+  place and the percentile count only days over everywhere. A mini profile
+  opens by an opaque handle (`profile.Handles`) that the server puts only
+  next to a name it already shows, never on an anonymous row, so a handle
+  cannot name a row before its reveal. The photo goes out only inside a
+  group both are in, and the head to head counts only the days whose result
+  that group has seen.
+- "Hide me" (`profile_setting.hide_me`) replaces the name with "Telegram
+  player" in the world's tables, the site's result and the days page for
+  everyone outside the person's own groups, from a DM too, and the mini
+  profile answers `404 hidden`. A group's own table and card, which a
+  player may forward, and the bot's posts, the world's podium in a DM
+  included, keep the name. A handle is scoped to its table
+  (`profile.Handles.Of`), so one player's rows in two tables cannot be
+  matched by it.
+- A public page `/p/<slug>` exists only while its owner keeps it on. The
+  slug is random (`profile.NewSlug`), a new one ends the old, and it never
+  reaches a log line. The page and its preview (`/api/p/<slug>/card.png`)
+  hold a stranger's view: the name and the numbers of days over in every
+  zone, with no id, username, photo, handle, pins, history or answer
+  times, and both ask search engines to stay away. "Hide me" closes it
+  until the player shows again; the preview may stay at the edge for the
+  five minutes it is cached.
 - `/api/log` strips query strings, which can carry `initData`, and is rate
   limited per address and in total.
+- A free place never becomes a day's place: the day's queue reads
+  `pool = 'daily'` only, and free play takes the free pool and days in
+  `day_closed` that none of the game's players answered.
+- A free place's picture is served only under its round's address
+  (`/api/free/img/<token>`: the game, the place's number and an HMAC) and only
+  once the place has started, never under the place's image key, which the
+  days page shows for closed days. Starting a place fixes its start and end;
+  starting it again gives the same time left. The coordinates, name, fact
+  and source come only in the answer, and in a party when the place closes;
+  before that a party's poll says who has answered and nothing else.
+- A Telegram person who makes or joins a free game is recorded with
+  `TouchPerson`, never `Touch`: free play must not add a DM context that
+  closes their day's answer window or puts them on the morning DM post.
+  The day's game opened from a party's invitation is the DM's, and touches
+  as the DM does: the invitation is not a way around the DM's reveal.
+- Free play takes the free pool before closed days: a closed day's picture
+  is public on the days page. A late joiner in a party skips a place drawn
+  before they came that they have had (`FreeKnown`).
 - The `startapp` payload is signed with HMAC; group membership is checked with
   `getChatMember`. `initData` is verified on every request that writes.
 
@@ -145,6 +214,11 @@ the diff looks like.
   of git; the repository is public.
 - Excluded from the game: the front line, Crimea and occupied territories,
   military sites, and frames with recognizable faces.
+- A place of the free pool (`pool = 'free'`) never becomes a place of the
+  day, and the day reads only `pool = 'daily'`. The pools share no frame and
+  keep 10 km apart: a batch for either pool is harvested and prepared with
+  the other pool's `places.sql` and `candidates.json` in `MAPLY_AVOID` and
+  `maply-places -avoid`.
 - The Mapillary token is read from the environment only. Never print it, log it,
   paste it into a document, or commit a file that contains it.
 - Attribution follows the source license (CC-BY-SA for Mapillary and Panoramax)
@@ -154,6 +228,21 @@ the diff looks like.
 
 - Never log the bot token, the Mapillary token, a database URL with its
   password, or full Bot API URLs.
+- Sign-in on the site (`internal/account` over `internal/oidc`) is the code
+  flow with PKCE, a fresh `state` and `nonce` each time, and RS256 id_tokens
+  only. The state lives in a signed ten-minute cookie bound to the browser's
+  session, so a callback from someone else's sign-in, a swapped state or a
+  replayed code signs nobody in. The session cookie is
+  `__Host-maply_session`; the database keeps its SHA-256 only, it lasts 90
+  days from the sign-in and is never extended, and every sign-in and link
+  starts a new one. Writes authenticated by the cookie take only JSON from
+  maply's own pages. The sign-in log carries the result code only: no
+  Telegram id, no Google sub, no address.
+- A Telegram sign-in records the person with `core.touch_person`, never
+  `core.touch`. There are no `/start link_…` links: the Mini App links Google
+  with a five-minute ticket that the phone's browser confirms by name first.
+  The ticket's link never merges, keeps another account's browser signed in
+  there, and ends with a sign-out everywhere or an unlink.
 - Connect with `search_path=maply` and call `core.touch` before domain writes
   that reference `core.person`.
 - Secrets live in `.env`, which is gitignored.
@@ -182,7 +271,8 @@ the diff looks like.
 - A day over in every zone is kept in `day_place` by the final world job, and
   the profile and the days page read it from there. An answer removed by hand
   from such a day needs `DELETE FROM day_closed WHERE date = …` too, or the
-  old places stay.
+  old places stay. The day's strip goes with it and is drawn again under a
+  new key.
 
 ## Versioning
 
@@ -265,6 +355,9 @@ console has no errors.
 - Images served from `/img/` have no EXIF.
 - `/healthz` reports the database, Telegram polling freshness and the size of
   the place queue.
+- On the site, signing in with Telegram and with Google, linking, unlinking,
+  signing out and deleting the account work; signed in with Telegram, an
+  answer given in the bot shows on the site, and the site refuses a second.
 
 ## License
 

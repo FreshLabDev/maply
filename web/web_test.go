@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"regexp"
 	"strings"
 	"testing"
@@ -59,12 +60,94 @@ func TestVendorIsImmutable(t *testing.T) {
 // hashed scripts as "/".
 func TestPages(t *testing.T) {
 	index := serve(t, "/", nil)
-	for _, p := range []string{"/days", "/days/", "/days/2026-11-04", "/days/14", "/me", "/play", "/party/K7QF", "/p/a1b2c3"} {
+	for _, p := range []string{"/days", "/days/", "/days/2026-11-04", "/days/14", "/me", "/play", "/party/K7QF"} {
 		rec := serve(t, p, nil)
 		if rec.Code != http.StatusOK || rec.Body.String() != index.Body.String() || rec.Header().Get("Content-Security-Policy") != CSP ||
 			rec.Header().Get("ETag") != index.Header().Get("ETag") {
 			t.Errorf("GET %s = %d", p, rec.Code)
 		}
+	}
+}
+
+// A page the meta hook knows carries its preview in the head, escaped, and
+// is otherwise the same app; one it does not know is the plain page.
+func TestPageMeta(t *testing.T) {
+	h, err := HandlerWithMeta(func(r *http.Request, p string) (Meta, bool) {
+		if p != "/days/14" {
+			return Meta{}, false
+		}
+		return Meta{Title: `maply #14 · "Bar" <b>`, Description: "a & b", URL: "https://maply.test/days/14",
+			Image: "https://maply.test/og/day/14-en.jpg", ImageW: 1200, ImageH: 630}, true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(target string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		return rec
+	}
+	index := serve(t, "/", nil)
+	if plain := get("/days/13"); plain.Body.String() != index.Body.String() || plain.Header().Get("Vary") != "" {
+		t.Fatalf("a page without a preview changed")
+	}
+	rec := get("/days/14")
+	body := rec.Body.String()
+	for _, want := range []string{
+		`<meta property="og:title" content="maply #14 · &#34;Bar&#34; &lt;b&gt;">`,
+		`<meta property="og:description" content="a &amp; b">`,
+		`<meta property="og:image" content="https://maply.test/og/day/14-en.jpg">`,
+		`<meta property="og:image:width" content="1200">`,
+		`<meta name="twitter:card" content="summary_large_image">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("no %s", want)
+		}
+	}
+	head, _, _ := strings.Cut(body, "</head>")
+	if !strings.Contains(head, "og:url") || strings.Contains(head, `"Bar"`) || rec.Header().Get("Content-Security-Policy") != CSP ||
+		rec.Header().Get("ETag") == index.Header().Get("ETag") || rec.Header().Get("Vary") != "Accept-Language" {
+		t.Fatalf("GET /days/14 = %d %v", rec.Code, rec.Header())
+	}
+	if strings.Replace(body, head, "", 1) != strings.Replace(index.Body.String(), strings.SplitN(index.Body.String(), "</head>", 2)[0], "", 1) {
+		t.Fatal("the page's body changed")
+	}
+}
+
+// A public profile is the app too, kept out of search engines, with the
+// player's picture for a link's preview at the address it was asked by.
+func TestPublicPage(t *testing.T) {
+	h, err := Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(host string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/p/Ab_9-xYz0123456789abcd", nil)
+		req.Host = host
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	rec := get("maply.ws04.cc")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || rec.Header().Get("X-Robots-Tag") != "noindex, nofollow" || rec.Header().Get("Content-Security-Policy") != CSP ||
+		!strings.Contains(body, `<meta name="robots" content="noindex, nofollow">`) ||
+		!strings.Contains(body, `<meta property="og:image" content="https://maply.ws04.cc/api/p/Ab_9-xYz0123456789abcd/card.png">`) ||
+		!strings.Contains(body, `<script defer src="/app.js?v=`) {
+		t.Fatalf("GET /p/… = %d %v\n%s", rec.Code, rec.Header(), body)
+	}
+	if rec.Header().Get("ETag") == serve(t, "/", nil).Header().Get("ETag") {
+		t.Error("the public page shares the app's ETag")
+	}
+	if body := get("127.0.0.1:8416").Body.String(); !strings.Contains(body, `content="http://127.0.0.1:8416/api/p/`) {
+		t.Errorf("the stand's preview address:\n%s", body)
+	}
+	// A Host that could break out of the attribute names no picture.
+	if body := get(`x"><script>`).Body.String(); strings.Contains(body, "og:image") || !strings.Contains(body, `name="robots"`) {
+		t.Errorf("odd Host:\n%s", body)
+	}
+	if rec := serve(t, "/", nil); rec.Header().Get("X-Robots-Tag") != "" || strings.Contains(rec.Body.String(), "og:image") {
+		t.Error("the app's own page is marked as a public profile")
 	}
 }
 
@@ -152,7 +235,7 @@ func TestAppKeysExist(t *testing.T) {
 	for key := range i18n.WithPrefix("en", "unit.") {
 		known[key] = true
 	}
-	uses := regexp.MustCompile(`\b(?:T|lines)\("([a-z_.]*[a-z_])"|data-(?:t|aria)="([a-z_.]+)"|LOOK = \{([^}]*)\}`)
+	uses := regexp.MustCompile(`\b(?:TN?|lines)\("([a-z_.]*[a-z_])"|data-(?:t|aria)="([a-z_.]+)"|LOOK = \{([^}]*)\}`)
 	quoted := regexp.MustCompile(`"([a-z_]+)"`)
 	for _, name := range appFiles(t) {
 		if strings.HasSuffix(name, ".css") {
@@ -181,9 +264,40 @@ func TestAppKeysExist(t *testing.T) {
 		}
 	}
 	for _, key := range []string{"compass_n", "compass_ne", "compass_e", "compass_se", "compass_s", "compass_sw", "compass_w", "compass_nw",
-		"loading", "on_water", "on_land", "moved", "error.network", "error.left", "error.unavailable", "error.bad_request", "error.internal"} {
+		"loading", "on_water", "on_land", "moved", "error.network", "error.left", "error.unavailable", "error.bad_request", "error.internal",
+		// The profile's keys that the pattern above does not catch: with a digit, or picked at run time.
+		"prof.avg30", "prof.stamp_streak30", "prof.stamp_city1km", "prof.tab_ranked", "prof.tab_free", "prof.no_days_guest", "error.hidden"} {
 		if !known[key] {
 			t.Errorf("the app builds %q, which internal/i18n does not have", key)
+		}
+	}
+}
+
+// The days page draws a flag only for a code it knows a file for, and its
+// letters otherwise: the list in days.js is the vendored files, no more.
+func TestFlagsAreTheVendoredFiles(t *testing.T) {
+	data, err := fs.ReadFile(embedded, "app/days.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?s)const FLAGS = new Set\(\((.*?)\)\.split`).FindSubmatch(data)
+	if m == nil {
+		t.Fatal("no FLAGS in days.js")
+	}
+	listed := map[string]bool{}
+	for _, code := range regexp.MustCompile(`[A-Z]{2}`).FindAllString(string(m[1]), -1) {
+		listed[code] = true
+	}
+	files, err := fs.Glob(embedded, "app/vendor/country-flag-icons-1.6.20/3x2/*.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != len(listed) {
+		t.Errorf("%d flag files, %d codes in days.js", len(files), len(listed))
+	}
+	for _, f := range files {
+		if code := strings.TrimSuffix(path.Base(f), ".svg"); !listed[code] {
+			t.Errorf("%s is served but days.js does not know it", code)
 		}
 	}
 }
@@ -203,4 +317,39 @@ func appFiles(t *testing.T) []string {
 		}
 	}
 	return names
+}
+
+// The app's scripts share one global scope: a const, let or class that two
+// of them declare at the top level stops the later file with a SyntaxError,
+// and a function declared twice silently takes the other's place.
+func TestScriptsShareNoNames(t *testing.T) {
+	index, err := fs.ReadFile(embedded, "app/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := regexp.MustCompile(`<script[^>]*\ssrc="/([a-z]+\.js)"`)
+	decl := regexp.MustCompile(`(?m)^(?:(?:const|let|var|class)\s+([A-Za-z_$][\w$]*)|(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*))`)
+	seen := map[string]string{}
+	for _, m := range src.FindAllStringSubmatch(string(index), -1) {
+		data, err := fs.ReadFile(embedded, "app/"+m[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		own := map[string]bool{}
+		for _, d := range decl.FindAllStringSubmatch(string(data), -1) {
+			name := d[1] + d[2]
+			if own[name] {
+				continue
+			}
+			own[name] = true
+			if first, ok := seen[name]; ok {
+				t.Errorf("%s and %s both declare %q at the top level", first, m[1], name)
+				continue
+			}
+			seen[name] = m[1]
+		}
+	}
+	if len(seen) < 50 {
+		t.Fatalf("only %d top-level names found: the scripts were not read", len(seen))
+	}
 }

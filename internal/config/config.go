@@ -44,6 +44,14 @@ type Config struct {
 	// against the same database can leave it off; the job queue would keep
 	// it from sending twice anyway.
 	Schedule bool
+	// The site's sign-ins (docs/sign-in.md): Telegram's OpenID client from
+	// BotFather, whose id is the bot's, and Google's web client. A pair
+	// left empty turns that sign-in off; the site answers "unavailable"
+	// and the rest works. Both need APP_URL, the origin they return to.
+	TelegramLoginClientID     string
+	TelegramLoginClientSecret string
+	GoogleClientID            string
+	GoogleClientSecret        string
 }
 
 func Load() (Config, error) {
@@ -58,6 +66,11 @@ func Load() (Config, error) {
 		CardRendererURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("CARD_RENDERER_URL")), "/"),
 		CardPageURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("CARD_PAGE_URL")), "/"),
 		FFmpeg:           valueOrDefault("FFMPEG", "ffmpeg"),
+
+		TelegramLoginClientID:     strings.TrimSpace(os.Getenv("TELEGRAM_LOGIN_CLIENT_ID")),
+		TelegramLoginClientSecret: strings.TrimSpace(os.Getenv("TELEGRAM_LOGIN_CLIENT_SECRET")),
+		GoogleClientID:            strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID")),
+		GoogleClientSecret:        strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET")),
 	}
 	var err error
 	if cfg.AutoMigrate, err = strconv.ParseBool(valueOrDefault("AUTO_MIGRATE", "true")); err != nil {
@@ -84,6 +97,17 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("CARD_PAGE_URL must be an http or https URL when CARD_RENDERER_URL is set")
 		}
 	}
+	for _, pair := range [][3]string{
+		{"TELEGRAM_LOGIN_CLIENT", cfg.TelegramLoginClientID, cfg.TelegramLoginClientSecret},
+		{"GOOGLE_CLIENT", cfg.GoogleClientID, cfg.GoogleClientSecret},
+	} {
+		if (pair[1] == "") != (pair[2] == "") {
+			return Config{}, fmt.Errorf("%s_ID and %s_SECRET go together", pair[0], pair[0])
+		}
+		if pair[1] != "" && cfg.AppURL == "" {
+			return Config{}, fmt.Errorf("%s_ID needs APP_URL, the address the sign-in returns to", pair[0])
+		}
+	}
 	if cfg.TelegramBotToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
 	}
@@ -92,6 +116,12 @@ func Load() (Config, error) {
 	}
 	return cfg, nil
 }
+
+// TelegramLogin reports whether the site's Telegram sign-in is configured.
+func (c Config) TelegramLogin() bool { return c.TelegramLoginClientID != "" }
+
+// GoogleLogin reports whether the site's Google sign-in is configured.
+func (c Config) GoogleLogin() bool { return c.GoogleClientID != "" }
 
 func isHTTPURL(raw string) bool {
 	u, err := url.Parse(raw)

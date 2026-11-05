@@ -70,6 +70,8 @@ type Store interface {
 	ScoredBefore(ctx context.Context, userID int64, d round.Date) ([]db.Scored, error)
 	ChatGuesses(ctx context.Context, d round.Date, chatID int64) ([]db.Guess, error)
 	World(ctx context.Context, d round.Date) (db.World, error)
+	Season(ctx context.Context, first, last round.Date, chatID int64, limit int) ([]db.SeasonEntry, error)
+	SeasonOf(ctx context.Context, first, last round.Date, chatID, userID int64) (db.SeasonRank, error)
 	GuessOf(ctx context.Context, d round.Date, userID int64) (db.Guess, bool, error)
 	Puzzle(ctx context.Context, placeID int64) (db.Puzzle, error)
 	Answer(ctx context.Context, placeID int64) (db.Answer, error)
