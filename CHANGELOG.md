@@ -11,6 +11,8 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.15 - 2026-11-05
+
 Fixes from a review of the whole project on 5 November: security, the
 scheduler and the bot, the server's logic, the animations and the Mini App.
 

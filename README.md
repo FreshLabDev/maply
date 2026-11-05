@@ -47,7 +47,7 @@ maply is deliberately narrow:
 | Channel | Version | Meaning |
 |:--|:--|:--|
 | Stable | — | Nothing stable yet |
-| Alpha | `v0.0.1-alpha.14` | Live as [@maplyin_bot](https://t.me/maplyin_bot): the daily round in DMs and groups, the Mini App, the world ranking and the website |
+| Alpha | `v0.0.1-alpha.15` | Live as [@maplyin_bot](https://t.me/maplyin_bot): the daily round in DMs and groups, the Mini App, the world ranking and the website |
 
 The game is playable end to end: the morning post, the answer and its score,
 the evening result with a map card, the world ranking and a website where
