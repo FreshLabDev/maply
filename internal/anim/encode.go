@@ -21,7 +21,16 @@ type Options struct {
 	CRF     int    // x264 quality, lower is better; 0 is 22
 	Preset  string // x264 preset; "" is medium
 	FFmpeg  string // the ffmpeg binary; "" is ffmpeg on PATH
+	// Timeout bounds the whole encoding, waiting for a turn included; 0 is
+	// three minutes. A stalled ffmpeg must not hold the posts behind it.
+	Timeout time.Duration
 }
+
+// turns is how many loops are encoded at once in the process. Each one
+// draws frames on every worker and runs its own x264, so posts, statistics
+// pressed by many people and the world's picture take turns instead of
+// sharing the CPU and memory all at once.
+var turns = make(chan struct{}, 2)
 
 // Stats is what an encoding took.
 type Stats struct {
@@ -48,8 +57,17 @@ func Encode(ctx context.Context, s Scene, out string, o Options) (Stats, error) 
 	if o.FFmpeg == "" {
 		o.FFmpeg = "ffmpeg"
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	if o.Timeout == 0 {
+		o.Timeout = 3 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, o.Timeout)
 	defer cancel()
+	select {
+	case turns <- struct{}{}:
+		defer func() { <-turns }()
+	case <-ctx.Done():
+		return Stats{}, fmt.Errorf("wait for a turn to encode: %w", ctx.Err())
+	}
 	cmd := exec.CommandContext(ctx, o.FFmpeg, "-hide_banner", "-loglevel", "error", "-y",
 		"-f", "rawvideo", "-pix_fmt", "rgb24", "-s", fmt.Sprintf("%dx%d", w, h), "-r", strconv.Itoa(FPS), "-i", "pipe:0",
 		"-an", "-c:v", "libx264", "-preset", o.Preset, "-crf", strconv.Itoa(o.CRF),
@@ -58,6 +76,9 @@ func Encode(ctx context.Context, s Scene, out string, o Options) (Stats, error) 
 		"-movflags", "+faststart", out)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+	// ffmpeg killed on cancel may leave its pipes open a moment; never wait
+	// on them for long.
+	cmd.WaitDelay = 5 * time.Second
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return Stats{}, err
@@ -70,6 +91,11 @@ func Encode(ctx context.Context, s Scene, out string, o Options) (Stats, error) 
 	if werr != nil {
 		cancel()
 		cmd.Wait()
+		// A frame that could not be written usually means ffmpeg died: what
+		// it said is why.
+		if msg := bytes.TrimSpace(stderr.Bytes()); len(msg) > 0 {
+			werr = fmt.Errorf("%w; ffmpeg: %s", werr, msg)
+		}
 		return st, werr
 	}
 	if err := cmd.Wait(); err != nil {

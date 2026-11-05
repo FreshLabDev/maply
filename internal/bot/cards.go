@@ -25,6 +25,10 @@ type Profiles interface {
 // was not drawn ahead.
 const drawWait = 3 * time.Minute
 
+// pressWorkers is how many frames a press draws at once: enough to answer
+// fast, while the posts keep the rest of the CPU.
+const pressWorkers = 4
+
 // screens remembers what each panel shows. A picture drawn after the press
 // goes in only if the panel still shows the statistics it was drawn for, and
 // a button under a statistics picture acts only on a picture the bot put
@@ -107,7 +111,7 @@ func (b *Bot) showStats(ctx context.Context, chatID, msgID int64, userID int64, 
 		}()
 		ctx, cancel := context.WithTimeout(ctx, drawWait)
 		defer cancel()
-		card, err := b.opts.Profiles.Draw(ctx, userID, lang, 0)
+		card, err := b.opts.Profiles.Draw(ctx, userID, lang, pressWorkers)
 		if err != nil {
 			if !errors.Is(err, profile.ErrNothing) && ctx.Err() == nil {
 				b.log.Warn("profile not drawn", "user", userID, "error", err)

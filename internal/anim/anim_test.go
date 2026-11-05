@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-text/typesetting/language"
 )
@@ -363,5 +364,23 @@ func TestModifierAfterALetterIsTheEmojiFaces(t *testing.T) {
 		if last := parts[len(parts)-1]; last.face != Body.fallback {
 			t.Errorf("%q: the modifier is drawn from the letter's face", s)
 		}
+	}
+}
+
+// While every turn is taken, an encoding waits for one only until its
+// timeout, and never starts ffmpeg.
+func TestEncodeWaitsForATurn(t *testing.T) {
+	for range cap(turns) {
+		turns <- struct{}{}
+	}
+	defer func() {
+		for range cap(turns) {
+			<-turns
+		}
+	}()
+	_, err := Encode(context.Background(), counter{}, t.TempDir()+"/x.mp4",
+		Options{FFmpeg: "/nonexistent/ffmpeg", Timeout: 50 * time.Millisecond})
+	if err == nil || !strings.Contains(err.Error(), "wait for a turn") {
+		t.Fatalf("err = %v, want a wait for a turn", err)
 	}
 }
