@@ -1,8 +1,10 @@
 /* Accounts: the header's sign-in button or avatar, its menu, the sign-in dialog and the accounts page.
    Same rules as the app: one field colour, white panels, no shadows, rounded corners or transparency. */
 .top .acct:not(:empty) { margin-inline-start: 12px; }
-.top:has(.acct:not(:empty)) .timer { margin-inline-start: auto; }
-.acct-in { padding: 8px 12px; background: var(--panel); color: var(--on-panel); font: 700 13px/1 var(--label); letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+.top:has(.acct:not(:empty)) .timer { margin-inline-start: auto; padding-inline-start: 12px; }
+.acct-in { display: flex; align-items: center; padding: 8px 12px; background: var(--panel); color: var(--on-panel); font: 700 13px/1 var(--label); letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+.acct-in svg { display: none; width: 20px; height: 20px; fill: currentColor; }
+@media (max-width: 400px) { .acct-in { padding: 6px; } .acct-in svg { display: block; } .acct-in span { display: none; } }
 .acct-me { display: grid; place-items: center; width: 32px; height: 32px; }
 .acct-me .av { width: 32px; height: 32px; font: 700 18px/1 var(--display); outline: 0; }
 .acct-in:focus-visible, .acct-me:focus-visible, .acct-pop button:focus-visible, .acct-p:focus-visible, .acct-wide:focus-visible,

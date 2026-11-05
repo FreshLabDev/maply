@@ -45,7 +45,9 @@ function acctHeader() {
   if (!ME) { slot.innerHTML = ""; return; }
   const a = ME.account;
   if (!a) {
-    slot.innerHTML = '<button class="acct-in" id="acctIn">' + esc(T("acct.sign_in")) + '</button>';
+    // On a phone the header has room for a figure only; the word stays its name.
+    slot.innerHTML = '<button class="acct-in" id="acctIn" aria-label="' + esc(T("acct.sign_in")) + '"><svg viewBox="0 0 20 20" aria-hidden="true">' +
+      '<circle cx="10" cy="6.5" r="3.5"/><path d="M3 18c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5z"/></svg><span>' + esc(T("acct.sign_in")) + '</span></button>';
     $("acctIn").onclick = acctDialog;
     return;
   }
@@ -89,9 +91,9 @@ addEventListener("keydown", (e) => {
 function acctDialog() {
   haptic("light");
   const back = encodeURIComponent(here());
-  const btn = (p, logo) => ME.available[p]
-    ? '<a class="acct-p acct-' + p + (p === "telegram" ? " acct-go" : "") + '" href="/auth/' + p + '/start?return_to=' + back + '">' + logo + '<span>' + esc(T("acct.with_" + p)) + '</span></a>'
-    : '<span class="acct-p acct-' + p + ' off" aria-disabled="true">' + logo + '<span>' + esc(T("acct.with_" + p)) + '</span></span>';
+  const btn = (p, logo, label = T(p === "google" ? "acct.with_google" : "acct.with_telegram")) => ME.available[p]
+    ? '<a class="acct-p acct-' + p + (p === "telegram" ? " acct-go" : "") + '" href="/auth/' + p + '/start?return_to=' + back + '">' + logo + '<span>' + esc(label) + '</span></a>'
+    : '<span class="acct-p acct-' + p + ' off" aria-disabled="true">' + logo + '<span>' + esc(label) + '</span></span>';
   const none = !ME.available.telegram && !ME.available.google;
   acctBox('<b class="acct-h">' + esc(T("acct.dialog_title")) + '</b><p>' + esc(T("acct.dialog_text")) + '</p>' +
     btn("telegram", TG_LOGO) + btn("google", G_LOGO) +
@@ -135,10 +137,13 @@ async function acctLoad() {
   ME = await reply(await get("/api/me", opts));
   return ME;
 }
-async function openAccounts() {
+// back is the page under it: the days in the Mini App, none from the avatar's menu.
+let acctBack = null;
+async function openAccounts(back) {
   haptic("light");
-  const ticket = sheet(esc(T("acct.accounts")), '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>');
-  try { await acctLoad(); } catch (e) { if (ticket === SHEET) sheet(esc(T("acct.accounts")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>'); return; }
+  acctBack = typeof back === "function" ? back : null;
+  const ticket = sheet(esc(T("acct.accounts")), '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>', acctBack);
+  try { await acctLoad(); } catch (e) { if (ticket === SHEET) sheet(esc(T("acct.accounts")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', acctBack); return; }
   if (ticket !== SHEET) return;
   drawAccounts();
 }
@@ -151,14 +156,14 @@ function drawAccounts() {
       : ME.available[p] ? '<button class="on" data-link="' + p + '">' + esc(T("acct.link")) + '</button>' : '<span class="off">' + esc(T("acct.auth.unavailable")) + '</span>') + '</div>';
   let html = row("telegram", TG_LOGO, linked.telegram ? tgName(a.telegram) : T("acct.not_linked")) +
     row("google", G_LOGO, linked.google ? T("acct.linked") : T("acct.not_linked"));
-  if (!both && (linked.telegram || linked.google)) html += '<p class="sh-sub">' + esc(T("acct.last_one")) + '</p>';
+  if (!inTg && !both && (linked.telegram || linked.google)) html +='<p class="sh-sub">' + esc(T("acct.last_one")) + '</p>';
   if (inTg && !linked.google && ME.available.google) html += '<p class="sh-sub">' + esc(T("acct.open_browser")) + '</p>';
   if (linked.google) html += '<p class="sh-sub">' + esc(T("acct.google_revoke")) + '</p>';
   if (!inTg && linked.telegram && TODAY && TODAY.bot) html += '<a class="acct-wide" href="https://t.me/' + encodeURIComponent(TODAY.bot) + '" target="_blank" rel="noopener">' + esc(T("acct.get_post")) + ' ' + fwd() + '</a>';
   if (!inTg) html += '<button class="acct-wide" id="acctAll">' + esc(T("acct.sign_out_all")) + '</button>';
   if (ME.account) html += '<button class="acct-wide acct-del" id="acctDel">' + esc(T("acct.delete")) + '</button>';
   html += '<a class="acct-link" href="/privacy?lang=' + LANG + '" target="_blank" rel="noopener">' + esc(T("acct.privacy")) + '</a>';
-  sheet(esc(T("acct.accounts")), '<div class="acct-list">' + html + '</div>');
+  sheet(esc(T("acct.accounts")), '<div class="acct-list">' + html + '</div>', acctBack);
   const body = $("sheet");
   body.querySelectorAll("[data-link]").forEach((b) => { b.onclick = () => acctLink(b.dataset.link, b); });
   body.querySelectorAll("[data-unlink]").forEach((b) => { b.onclick = () => acctUnlink(b.dataset.unlink, b); });
@@ -170,7 +175,7 @@ function drawAccounts() {
     try { await acctPost("/api/account", { confirm: "delete" }, "DELETE"); } catch (e) { toast(acctText(e.message)); return; }
     try { localStorage.removeItem(NAME); localStorage.removeItem(KEPT); } catch {}
     toast(T("acct.deleted"));
-    if (inTg) { ME = null; openAccounts(); } else setTimeout(() => location.reload(), 900);
+    if (inTg) { ME = null; openAccounts(acctBack); } else setTimeout(() => location.reload(), 900);
   });
 }
 // The Mini App's own person, for the page before an account exists: Telegram is theirs already.
@@ -266,4 +271,4 @@ async function acctTicket(t) {
 function accountEntry() {
   return inTg && typeof openProfile !== "function" ? '<button class="acct-wide" id="acctOpen">' + esc(T("acct.accounts")) + ' ' + fwd() + '</button>' : "";
 }
-function accountBind() { const b = $("acctOpen"); if (b) b.onclick = openAccounts; }
+function accountBind() { const b = $("acctOpen"); if (b) b.onclick = () => openAccounts(showDays); }
