@@ -278,6 +278,36 @@ Difficulty by weekday: Monday is easy (a recognizable city), Friday is hard (rem
 
 Russia, Ukraine and Belarus are in the game (decision of 22 October 2026). Excluded: the front line, Crimea and occupied territories, military sites, and frames with recognizable faces. Mapillary blurs faces and plates itself. Whether Panoramax does so has not been checked.
 
+### The free pool
+
+The free game (solo and party) draws from a pool of its own: `place.pool = 'free'`. The day picks only `pool = 'daily'`, so a free place never becomes a place of the day, and the free game never sees a future day.
+
+The pool is curated by the same scripts and the same rules as the places of the day, with these differences:
+
+- **No facts, one city name.** There is no curator to write names and facts in sixteen languages. The city is stored as `{"en": …}`: the English name of the area whose outline gives the city bonus, or the local name where OSM has no English one. The client names the country itself with `Intl.DisplayNames`.
+- **The two pools keep apart.** No free frame is a frame of the day, and none is within 10 km of a place of the day or of any candidate of a daily batch, where a spare frame may still go to the queue. A daily batch keeps 10 km from the free pool the same way. `MAPLY_AVOID` in `pool.py`, `harvest.py` and `screen.py`, and `-avoid` in `maply-places`, take the other pool's `places.sql` and `candidates.json` files.
+- **A wide spread.** At most 15 places a country, more countries than the daily batches (`pool.py` weights), and the scene mix of batch-004: a fifth city outskirts, two fifths towns and villages, two fifths roads and nature. No two frames of a batch closer than 5 km.
+- **More checks before the eyes.** `harvest.py` passes over a soft panorama, or one under 2048 px wide, for another frame of the tile. `screen.py` drops frames within 300 m of an OSM military area or inside one, frames in a part of a country left out, and draws the review sheets as the whole 360° band, so a face or a fence behind the camera is in front of the reviewer too. The daily batches showed only the 120° the game opens on.
+
+City outskirts are the hard part of the mix: the daily batches took the big cities, so the 10 km around their places leave little, and outskirts have few panoramas. The first pool (`batch-free-001` and `-002`) has 500 places in 99 countries, but only 28 city outskirts against the hundred the mix asks for; towns (216) and roads (256) make up the rest.
+
+The pipeline, for `curation/batch-free-001`, with a virtualenv's Python (`-I` leaves out the user's site-packages) that has shapely, Pillow and mapbox-vector-tile:
+
+```sh
+pool.py pool-free-001.json 160 270 270          # MAPLY_CAP=20, MAPLY_AVOID=…
+harvest.py batch-free-001                       # MAPLY_POOL=pool-free-001.json, MAPLY_AVOID=…
+screen.py batch-free-001                        # Overpass, then pano-K.jpg
+# reviewers write review-K.json from the pano sheets
+choose.py batch-free-001 batch-free-002         # MAPLY_TARGET=500: reviews.json, report.md
+maply-places -pool free -avoid … -out out-free batch-free-001 batch-free-002
+maply-places -out out-free -sharpen out-free/sharpen.csv
+faces.py sheets out-free batch-free-001 batch-free-002
+# reviewers write out-free/faces/review-K.json from the face sheets
+faces.py verdicts out-free batch-free-001 batch-free-002   # then choose.py and maply-places again
+```
+
+The review sheets show the panorama at about 4.4 px a degree and the game at 11.4, so a face too small to judge on a sheet may be clear in the game. `faces.py` gives every prepared place one more sheet, the two halves at 8.7 px a degree, for faces alone; a place dropped there is replaced by a spare and the spare gets its sheet in turn.
+
 ## Architecture
 
 ```text

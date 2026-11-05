@@ -34,6 +34,32 @@ For the operator:
   or a guest who joins a game with friends from a link. `Touch` would count
   them as talking to maply in a DM, which closes their answer window by the
   DM's zone and puts them on the morning DM post.
+- The curation scripts prepare the free game's pool. `maply-places -pool
+  free` writes `pool = 'free'`, no facts and one city name, the English one
+  where OSM has it. `-avoid` and `MAPLY_AVOID` keep a batch 10 km from every
+  place and candidate of the other pool, so a free place never becomes a
+  place of the day and the free game never shows the spot of a future one.
+- `scripts/curation/screen.py` drops frames near or inside an OSM military
+  area and in the parts of a country left out, and draws review sheets of the
+  whole panorama instead of the 120° the game opens on. `choose.py` turns the
+  reviewers' verdicts into `reviews.json` with at most 15 places a country
+  and 500 in all, counted over every batch it is given, and writes a report
+  of them.
+- `scripts/curation/faces.py` gives every prepared place a sheet for faces
+  alone, at twice the detail of the review sheets, close to what the game
+  shows after `-sharpen`, and turns the verdicts into a review `choose.py`
+  reads.
+- `harvest.py` passes over a soft panorama, or one under 2048 px wide, for
+  another frame of the tile.
+  `pool.py` plans in more countries, with rules for their troubled borders,
+  and `MAPLY_CAP` limits the entries a country gets.
+- `maply-places` writes `sharpen.csv`, the input of `-sharpen`, next to
+  `places.sql`.
+- `maply-places` refuses a batch whose `reviews.json` was chosen for the
+  other pool, `-pool free` without `-avoid`, and an `-avoid` file it reads no
+  place from, so a slip of a flag cannot put free places in the queue of days
+  or leave the pools free to overlap. The scripts refuse such a file too and
+  say how many places they keep clear of.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
   the screen the address names. `/days` opens the days and `/days/<n>` (or
@@ -81,6 +107,15 @@ For the operator:
 - The days page reads a page of thirty days in one query instead of about
   sixty, and pages back by a cursor to the first day.
 - A day's row no longer shows the group's numbers beside the world's.
+
+### Fixed
+
+- `maply-places` wrote a heading of 359.96° as `360.0`, which the schema
+  refuses, and the whole `places.sql` failed to load. It is written as `0.0`.
+- `pool.py` leaves out the west coast of Sinai and the Russian strip east of
+  occupied Luhansk, which its rules let through, and a plan no longer dies
+  or spins when every country is used up. `screen.py` checks a frame outside
+  every outline by its plan's country instead of letting it pass.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

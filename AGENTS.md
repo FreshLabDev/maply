@@ -161,6 +161,11 @@ the diff looks like.
   of git; the repository is public.
 - Excluded from the game: the front line, Crimea and occupied territories,
   military sites, and frames with recognizable faces.
+- A place of the free pool (`pool = 'free'`) never becomes a place of the
+  day, and the day reads only `pool = 'daily'`. The pools share no frame and
+  keep 10 km apart: a batch for either pool is harvested and prepared with
+  the other pool's `places.sql` and `candidates.json` in `MAPLY_AVOID` and
+  `maply-places -avoid`.
 - The Mapillary token is read from the environment only. Never print it, log it,
   paste it into a document, or commit a file that contains it.
 - Attribution follows the source license (CC-BY-SA for Mapillary and Panoramax)
