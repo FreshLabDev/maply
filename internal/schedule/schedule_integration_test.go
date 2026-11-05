@@ -346,6 +346,14 @@ func TestOneDay(t *testing.T) {
 	// world line by an edit, not a fourth message.
 	messages := len(fake.log)
 	clock = zones.LastReveal(d).Add(3 * time.Minute)
+	// Telegram is down for the first try: the edit is tried again.
+	fake.failKind = map[string]error{"edit": fmt.Errorf("telegram: 502 Bad Gateway")}
+	s.Step(ctx)
+	if len(fake.log) != messages {
+		t.Fatalf("a failed edit was logged")
+	}
+	delete(fake.failKind, "edit")
+	clock = clock.Add(time.Minute)
 	s.Step(ctx)
 	if edit := fake.last("edit", group); !strings.Contains(edit.text, "<b>🌍 Final places in the world, of 1</b>\nPin #1") || !strings.Contains(edit.text, "🥇 Pin") {
 		t.Errorf("final world edit = %q", edit.text)

@@ -589,17 +589,17 @@ func answeredBlock(lang string, guesses []db.Guess) string {
 // worldGroupLine is where the group's players stand among everyone who has
 // answered today, best first. final says the day has closed in every zone.
 func worldGroupLine(lang string, w db.World, guesses []db.Guess, final bool) string {
-	line, first := worldGroupParts(lang, w, guesses, final)
+	line, first := worldGroupParts(lang, w, guesses, final, groupPlaces)
 	if first != "" {
 		return line + "\n" + first
 	}
 	return line
 }
 
-// worldGroupParts is worldGroupLine in two: the group's places, and on a
-// closed day the world's first when they are not in the group, which is what
-// gives way when the caption has no room.
-func worldGroupParts(lang string, w db.World, guesses []db.Guess, final bool) (line, first string) {
+// worldGroupParts is worldGroupLine in two: the group's places, at most
+// names of them, and on a closed day the world's first when they are not in
+// the group, which is what gives way when the caption has no room.
+func worldGroupParts(lang string, w db.World, guesses []db.Guess, final bool, names int) (line, first string) {
 	type placed struct {
 		name string
 		rank int
@@ -614,9 +614,9 @@ func worldGroupParts(lang string, w db.World, guesses []db.Guess, final bool) (l
 		return "", ""
 	}
 	sort.SliceStable(list, func(i, j int) bool { return list[i].rank < list[j].rank })
-	places := make([]string, 0, min(len(list), groupPlaces)+1)
+	places := make([]string, 0, min(len(list), names)+1)
 	for i, p := range list {
-		if i == groupPlaces {
+		if i == names {
 			places = append(places, "…")
 			break
 		}

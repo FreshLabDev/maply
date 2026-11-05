@@ -3,6 +3,10 @@
 package schedule
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
 	"strconv"
 	"strings"
 	"testing"
@@ -118,14 +122,57 @@ func TestWorldGroupLine(t *testing.T) {
 		t.Fatalf("empty world = %q", got)
 	}
 	// What gives way in a full caption is the world's first, not the places.
-	line, first := worldGroupParts("ru", w, guesses, true)
+	line, first := worldGroupParts("ru", w, guesses, true, groupPlaces)
 	if line != "<b>🌍 Итоговые места в мире из 4</b>\nБоря #2 · Аня #4" || first != "Первое место в мире: Kim, 12 км." {
 		t.Fatalf("parts = %q, %q", line, first)
 	}
 	// A site player is a guest in a post, whatever name the browser gave.
 	site := db.World{Entries: []db.Entry{{Player: "p", Name: "t.me/spam", Km: 1, Rank: 1}, {UserID: 2, Rank: 2}}}
-	if _, first := worldGroupParts("ru", site, guesses, true); first != "Первое место в мире: Гость, 1,0 км." {
+	if _, first := worldGroupParts("ru", site, guesses, true, groupPlaces); first != "Первое место в мире: Гость, 1,0 км." {
 		t.Fatalf("site first = %q", first)
+	}
+}
+
+// worldStore answers the two questions a final world line asks.
+type worldStore struct {
+	Store
+	guesses []db.Guess
+	world   db.World
+}
+
+func (w worldStore) ChatGuesses(context.Context, round.Date, int64) ([]db.Guess, error) {
+	return w.guesses, nil
+}
+
+func (w worldStore) World(context.Context, round.Date) (db.World, error) { return w.world, nil }
+
+// A final world line too long for the caption names fewer people, rather
+// than being dropped.
+func TestFinalCaptionShortensTheWorldLine(t *testing.T) {
+	var st worldStore
+	for i := 1; i <= 12; i++ {
+		st.world.Entries = append(st.world.Entries, db.Entry{UserID: int64(i), Rank: i * 1000})
+		st.guesses = append(st.guesses, scored(int64(i), fmt.Sprintf("Участник%02d", i), 100, 1000))
+	}
+	for i := 12; i < 9000; i++ {
+		st.world.Entries = append(st.world.Entries, db.Entry{UserID: int64(100 + i), Rank: i*1000 + 1})
+	}
+	now := worldGroupLine("ru", st.world, st.guesses, false)
+	cr := db.ChatRound{ResultWorld: now}
+	cr.ResultText = strings.Repeat("x", captionLimit-visibleLen(now)-1) + "\n" + now
+	s := &Scheduler{Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	caption, err := s.finalCaption(context.Background(), db.Chat{ID: -1}, db.Round{}, cr, db.Answer{}, "ru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if caption == "" || visibleLen(caption) > captionLimit {
+		t.Fatalf("final caption is %d long: %q", visibleLen(caption), caption)
+	}
+	if !strings.Contains(caption, "Итоговые места в мире") || !strings.Contains(caption, "Участник01 #1") || !strings.Contains(caption, "…") {
+		t.Fatalf("final caption = %q, want the first places and an ellipsis", caption)
+	}
+	if n := strings.Count(caption, "Участник"); n >= groupPlaces {
+		t.Fatalf("final caption names %d, want fewer than %d to fit", n, groupPlaces)
 	}
 }
 

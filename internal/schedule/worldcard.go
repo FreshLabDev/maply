@@ -5,6 +5,8 @@ package schedule
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -325,7 +327,7 @@ func (s *Scheduler) finalGroups(ctx context.Context, d round.Date, rd db.Round, 
 	if err != nil {
 		return err
 	}
-	done := 0
+	done, failed := 0, 0
 	for _, r := range results {
 		c, ok, _ := s.chatOf(ctx, r.ChatID)
 		if !ok || c.Kind != "group" {
@@ -349,6 +351,9 @@ func (s *Scheduler) finalGroups(ctx context.Context, d round.Date, rd db.Round, 
 		}
 		if err := s.editCaption(ctx, c.ID, r.MsgID, caption, markup); err != nil && !tg.IsMessageNotModified(err) {
 			s.Log.Warn("final world line not put", "chat", c.ID, "date", d, "error", err)
+			if retryEdit(err) {
+				failed++
+			}
 			continue
 		}
 		done++
@@ -356,7 +361,26 @@ func (s *Scheduler) finalGroups(ctx context.Context, d round.Date, rd db.Round, 
 	if len(results) > 0 {
 		s.Log.Info("final world lines put", "date", d, "results", len(results), "updated", done)
 	}
+	if failed > 0 {
+		// Another try edits only these: the rest answer "not modified".
+		return fmt.Errorf("final world lines: %d of %d not put", failed, len(results))
+	}
 	return nil
+}
+
+// retryEdit is a failed edit that may go through on another try: Telegram
+// flooded, down or slow. A 400 or a 403 is the message or the chat, and
+// the same edit would fail again.
+func retryEdit(err error) bool {
+	var apiErr *tg.APIError
+	if !errors.As(err, &apiErr) {
+		return true
+	}
+	code := apiErr.StatusCode
+	if code == 0 {
+		code = apiErr.ErrorCode
+	}
+	return code != http.StatusBadRequest && code != http.StatusForbidden
 }
 
 // finalCaption is a group's result with the closed day's world line. The
@@ -380,22 +404,26 @@ func (s *Scheduler) finalCaption(ctx context.Context, c db.Chat, rd db.Round, cr
 	if err != nil {
 		return "", err
 	}
-	line, first := worldGroupParts(lang, w, guesses, true)
-	if line == "" {
-		return "", nil
-	}
-	caption := strings.Replace(cr.ResultText, cr.ResultWorld, line, 1)
-	if first != "" {
-		// The world's first only when there is room for it: the group's
-		// places are what the line is for.
-		if full := strings.Replace(cr.ResultText, cr.ResultWorld, line+"\n"+first, 1); visibleLen(full) <= captionLimit {
-			caption = full
+	// The final line is longer than the evening's: more players, higher
+	// places, a longer label in some languages. It names fewer people until
+	// it fits; the world's first goes in only when there is room for it,
+	// since the group's places are what the line is for.
+	for names := groupPlaces; names > 0; names-- {
+		line, first := worldGroupParts(lang, w, guesses, true, names)
+		if line == "" {
+			return "", nil
+		}
+		if first != "" {
+			if full := strings.Replace(cr.ResultText, cr.ResultWorld, line+"\n"+first, 1); visibleLen(full) <= captionLimit {
+				return full, nil
+			}
+		}
+		if caption := strings.Replace(cr.ResultText, cr.ResultWorld, line, 1); visibleLen(caption) <= captionLimit {
+			return caption, nil
 		}
 	}
-	if visibleLen(caption) > captionLimit {
-		return "", nil
-	}
-	return caption, nil
+	s.Log.Warn("final world line does not fit", "chat", c.ID, "date", rd.Date)
+	return "", nil
 }
 
 // finalDMs puts the final world picture in every DM result.
@@ -405,7 +433,7 @@ func (s *Scheduler) finalDMs(ctx context.Context, d round.Date, rd db.Round, ans
 	if err != nil || len(results) == 0 {
 		return err
 	}
-	done := 0
+	done, failed := 0, 0
 	for _, r := range results {
 		c, ok, _ := s.chatOf(ctx, r.ChatID)
 		if !ok || c.Kind != "dm" {
@@ -427,11 +455,18 @@ func (s *Scheduler) finalDMs(ctx context.Context, d round.Date, rd db.Round, ans
 		}
 		if err := s.putWorld(ctx, c, rd, cr, answer, r.MsgID); err != nil {
 			s.Log.Warn("final world result not put", "chat", c.ID, "date", j.Date, "error", err)
+			if retryEdit(err) {
+				failed++
+			}
 			continue
 		}
 		done++
 	}
 	s.Log.Info("final world results put", "date", j.Date, "results", len(results), "updated", done)
+	if failed > 0 {
+		// Another try skips the results that already show the final picture.
+		return fmt.Errorf("final world results: %d of %d not put", failed, len(results))
+	}
 	return nil
 }
 
