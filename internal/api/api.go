@@ -494,7 +494,7 @@ func (s *Server) adoptZone(ctx context.Context, r *http.Request, p *play) (strin
 	if err != nil || !set {
 		return "", err
 	}
-	s.Log.Info("dm zone taken from the phone", "user", p.user.ID, "zone", zone)
+	s.Log.Info("dm zone taken from the phone", "zone", zone)
 	p.zone = s.Zones.For(zone, "")
 	p.date = round.DateIn(s.Now(), p.zone)
 	return zone, nil
@@ -1067,6 +1067,7 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }

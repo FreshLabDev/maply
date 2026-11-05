@@ -73,3 +73,17 @@ func TestStartingProcessIsFresh(t *testing.T) {
 		t.Fatal("a process that just started is reported stale")
 	}
 }
+
+// A request through the Cloudflare tunnel does not find the check.
+func TestNotThroughTheTunnel(t *testing.T) {
+	h := New(fakeStore{}, time.Now, func() bool { return true }, time.Now(), Build{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for _, header := range []string{"Cf-Ray", "Cf-Connecting-Ip"} {
+		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		req.Header.Set(header, "x")
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusNotFound {
+			t.Errorf("with %s: %d, want 404", header, rr.Code)
+		}
+	}
+}

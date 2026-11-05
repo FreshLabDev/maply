@@ -47,7 +47,10 @@ const CSP = "default-src 'none'; " +
 	"font-src 'self'; " +
 	"connect-src 'self' " + TileHost + "; " +
 	"worker-src blob:; child-src blob:; " +
-	"base-uri 'none'; form-action 'none'"
+	"base-uri 'none'; form-action 'none'; " +
+	// Only Telegram's web clients frame the app: a page elsewhere cannot lay
+	// it under its own buttons and have the guess pressed through.
+	"frame-ancestors 'self' https://web.telegram.org https://*.telegram.org"
 
 var contentTypes = map[string]string{
 	".html":  "text/html; charset=utf-8",
@@ -173,6 +176,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	hd.Set("Content-Security-Policy", CSP)
 	hd.Set("X-Content-Type-Options", "nosniff")
 	hd.Set("Referrer-Policy", "no-referrer")
+	// The site is only ever HTTPS behind Cloudflare. Without subdomains: the
+	// rest of ws04.cc is not this app's to decide.
+	hd.Set("Strict-Transport-Security", "max-age=31536000")
 	hd.Set("ETag", f.etag)
 	if f.immutable {
 		hd.Set("Cache-Control", "public, max-age=31536000, immutable")

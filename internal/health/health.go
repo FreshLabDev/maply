@@ -48,6 +48,13 @@ type response struct {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// The check is for Docker and the family's own containers. Through the
+	// Cloudflare tunnel it would tell anyone the build and ping the database
+	// on every hit, so a request that came that way does not find it.
+	if r.Header.Get("Cf-Ray") != "" || r.Header.Get("Cf-Connecting-Ip") != "" {
+		http.NotFound(w, r)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	result := response{Version: h.build.Version, Commit: h.build.Commit, BuiltAt: h.build.Date}

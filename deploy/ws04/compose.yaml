@@ -43,6 +43,20 @@ services:
     # A stop lets the job in flight finish, up to 75 s, so a result being
     # sent at 20:00 is recorded and not sent again after the restart.
     stop_grace_period: 90s
+    # The bot faces the internet and runs ffmpeg on what it draws: it gets no
+    # capabilities, no way to gain any, and a filesystem it cannot write
+    # except /tmp, where the animations are encoded and the statistics
+    # pictures wait to be sent (at most 64 of a few MB). It uses about
+    # 100 MB idle; two encodings at once, each with a frame per core and its
+    # own x264, take most of the rest. The tmpfs counts toward the limit.
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    pids_limit: 512
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
       interval: 15s

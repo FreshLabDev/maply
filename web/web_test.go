@@ -38,6 +38,9 @@ func TestIndex(t *testing.T) {
 	if h.Get("Content-Security-Policy") != CSP || h.Get("Cache-Control") != "no-cache" || h.Get("Content-Type") != "text/html; charset=utf-8" {
 		t.Fatalf("headers = %v", h)
 	}
+	if !strings.Contains(CSP, "frame-ancestors 'self' https://web.telegram.org") || !strings.HasPrefix(h.Get("Strict-Transport-Security"), "max-age=") {
+		t.Fatalf("framing and HSTS: %v", h)
+	}
 	again := serve(t, "/", http.Header{"If-None-Match": {h.Get("ETag")}})
 	if again.Code != http.StatusNotModified {
 		t.Fatalf("revalidation = %d", again.Code)
