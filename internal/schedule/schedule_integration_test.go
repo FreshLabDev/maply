@@ -50,6 +50,8 @@ type fakeTG struct {
 	failKind map[string]error
 	// onSend runs on every send, before it is answered.
 	onSend func()
+	// texts are the messages sent as text, which have no caption to edit.
+	texts map[int64]bool
 }
 
 func (f *fakeTG) add(s sent) (tg.Message, error) {
@@ -68,6 +70,12 @@ func (f *fakeTG) add(s sent) (tg.Message, error) {
 	f.next++
 	f.log = append(f.log, s)
 	msg := tg.Message{MessageID: f.next}
+	if s.kind == "text" {
+		if f.texts == nil {
+			f.texts = map[int64]bool{}
+		}
+		f.texts[f.next] = true
+	}
 	if s.kind == "photo" {
 		msg.Photo = []tg.Photo{{FileID: "small"}, {FileID: "file-1"}}
 	}
@@ -85,8 +93,19 @@ func (f *fakeTG) SendAnimation(_ context.Context, chatID int64, a telegram.Anima
 	return f.add(sent{kind: "animation", chatID: chatID, text: caption, fileID: a.FileID, upload: a.MP4 != nil, buttons: m})
 }
 
-func (f *fakeTG) EditCaption(_ context.Context, chatID, _ int64, caption string, m telegram.Markup) error {
+func (f *fakeTG) EditCaption(_ context.Context, chatID, msgID int64, caption string, m telegram.Markup) error {
+	f.mu.Lock()
+	text := f.texts[msgID]
+	f.mu.Unlock()
+	if text {
+		return &tg.APIError{StatusCode: 400, ErrorCode: 400, Description: "Bad Request: there is no caption in the message to edit"}
+	}
 	_, err := f.add(sent{kind: "edit", chatID: chatID, text: caption, buttons: m})
+	return err
+}
+
+func (f *fakeTG) EditText(_ context.Context, chatID, _ int64, text string, m telegram.Markup) error {
+	_, err := f.add(sent{kind: "edit_text", chatID: chatID, text: text, buttons: m})
 	return err
 }
 
@@ -346,6 +365,60 @@ func TestOneDay(t *testing.T) {
 	var open int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM maply.job WHERE date = $1 AND status NOT IN ('done', 'skipped')`, d.Time()).Scan(&open); err != nil || open != 0 {
 		t.Errorf("%d jobs left open (%v)", open, err)
+	}
+}
+
+// A group that lets maply write but not send pictures still plays: the post
+// and the result go out as text, and the redraw and the final world line
+// edit that text.
+func TestGroupWithoutPictureRights(t *testing.T) {
+	store, pool := testDB(t)
+	ctx := context.Background()
+	images := t.TempDir()
+	if err := os.WriteFile(filepath.Join(images, "k1"), []byte("jpeg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+	                                       country_iso, continent, city, fact, difficulty, reviewed_at)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe',
+	                       '{"en":"Lisbon"}', '{"en":"Built on seven hills."}', 2, now())`)
+	if err := store.Touch(ctx, tg.User{ID: player, FirstName: "Pin"}, &tg.Chat{ID: group, Type: "supergroup", Title: "Maps"}); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.chat_settings (chat_id, kind, timezone) VALUES ($1, 'group', 'Europe/Kyiv')`, group)
+	zones, _ := round.LoadZones()
+	countries, _ := geo.World()
+	kyiv, _ := time.LoadLocation("Europe/Kyiv")
+	noPictures := &tg.APIError{StatusCode: 400, ErrorCode: 400, Description: "Bad Request: not enough rights to send photos to the chat"}
+	fake := &fakeTG{fail: map[int64]error{}, failKind: map[string]error{"photo": noPictures, "animation": noPictures}}
+	clock := time.Date(2026, 11, 2, 5, 0, 0, 0, kyiv)
+	s := &Scheduler{Store: store, TG: fake, Weather: fakeWeather{}, Payloads: auth.NewSigner("123:abc"),
+		Zones: zones, Countries: countries, ImagesDir: images, Username: "maplyin_bot",
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return clock }}
+	d := round.DateIn(clock, kyiv)
+	for ; clock.Hour() < 21; clock = clock.Add(10 * time.Minute) {
+		if clock.Hour() == 10 && clock.Minute() == 0 {
+			exec(t, pool, `INSERT INTO maply.guess (date, user_id, context, lat, lon, answered_at, deadline_at)
+			               VALUES ($1, $2, 'dm', 40.4, -3.7, $3, $4)`, d.Time(), player, clock, d.Reveal(kyiv))
+		}
+		s.Step(ctx)
+	}
+	if got := fake.count("text", group); got != 3 {
+		t.Fatalf("the group got %d texts, want the post, the intrigue and the result: %+v", got, fake.log)
+	}
+	if post := fake.log[0]; post.kind != "text" || !strings.Contains(post.text, "maply #1") || len(post.buttons) != 1 {
+		t.Errorf("post = %+v, want the caption and the button as text", post)
+	}
+	if edit := fake.last("edit_text", group); !strings.Contains(edit.text, "Pin") {
+		t.Errorf("redraw = %q, want the player named in the text", edit.text)
+	}
+	if result := fake.last("text", group).text; !strings.Contains(result, "Lisbon") || !strings.Contains(result, "🥇 Pin") {
+		t.Errorf("result = %q", result)
+	}
+	clock = zones.LastReveal(d).Add(3 * time.Minute)
+	s.Step(ctx)
+	if edit := fake.last("edit_text", group); !strings.Contains(edit.text, "Final places in the world") {
+		t.Errorf("final world edit = %q", edit.text)
 	}
 }
 

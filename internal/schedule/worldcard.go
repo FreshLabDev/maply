@@ -347,7 +347,7 @@ func (s *Scheduler) finalGroups(ctx context.Context, d round.Date, rd db.Round, 
 		if err != nil {
 			return err
 		}
-		if err := s.TG.EditCaption(ctx, c.ID, r.MsgID, caption, markup); err != nil && !tg.IsMessageNotModified(err) {
+		if err := s.editCaption(ctx, c.ID, r.MsgID, caption, markup); err != nil && !tg.IsMessageNotModified(err) {
 			s.Log.Warn("final world line not put", "chat", c.ID, "date", d, "error", err)
 			continue
 		}

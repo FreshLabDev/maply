@@ -83,6 +83,7 @@ type Telegram interface {
 	SendPhoto(ctx context.Context, chatID int64, photo telegram.Photo, caption string, markup telegram.Markup) (tg.Message, error)
 	SendAnimation(ctx context.Context, chatID int64, a telegram.Animation, caption string, markup telegram.Markup) (tg.Message, error)
 	EditCaption(ctx context.Context, chatID, messageID int64, caption string, markup telegram.Markup) error
+	EditText(ctx context.Context, chatID, messageID int64, text string, markup telegram.Markup) error
 	EditAnimation(ctx context.Context, chatID, messageID int64, a telegram.Animation, caption string, markup telegram.Markup) (tg.Message, error)
 	SendText(ctx context.Context, chatID int64, text string, markup telegram.Markup) (tg.Message, error)
 	Pin(ctx context.Context, chatID, messageID int64) error
@@ -492,7 +493,7 @@ func (s *Scheduler) post(ctx context.Context, j db.Job) error {
 			return nil
 		}
 		caption := postCaption(lang, rd.DayNo, at, note, line, true)
-		err := s.TG.EditCaption(ctx, c.ID, msg.MessageID, caption, markup)
+		err := s.editCaption(ctx, c.ID, msg.MessageID, caption, markup)
 		switch {
 		case err == nil:
 			if err := s.Store.SetPinWarned(ctx, c.ID); err != nil {
@@ -527,6 +528,12 @@ func (s *Scheduler) sendPhoto(ctx context.Context, chatID int64, rd db.Round, ca
 		photo.Path = filepath.Join(s.ImagesDir, puzzle.ImageKey)
 	}
 	msg, err := s.TG.SendPhoto(ctx, chatID, photo, caption, markup)
+	if noRights(err) {
+		// A group that lets maply write but not send pictures still gets
+		// the game: the same caption and button, as a message of text.
+		s.Log.Info("no right to send pictures, sending text", "chat", chatID, "error", err)
+		return s.TG.SendText(ctx, chatID, caption, markup)
+	}
 	if err != nil {
 		return msg, err
 	}
@@ -560,6 +567,17 @@ func (s *Scheduler) sendResult(ctx context.Context, c db.Chat, rd db.Round, scen
 		s.Log.Warn("result card not sent, sending the photo", "chat", c.ID, "date", rd.Date, "error", err)
 	}
 	return s.sendPhoto(ctx, c.ID, rd, caption, markup)
+}
+
+// editCaption replaces the text under a post or a result, which is a
+// message of text when the chat did not allow pictures.
+func (s *Scheduler) editCaption(ctx context.Context, chatID, msgID int64, caption string, markup telegram.Markup) error {
+	err := s.TG.EditCaption(ctx, chatID, msgID, caption, markup)
+	var apiErr *tg.APIError
+	if errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Description), "no caption") {
+		return s.TG.EditText(ctx, chatID, msgID, caption, markup)
+	}
+	return err
 }
 
 // noRights is Telegram refusing because maply is not allowed to.
@@ -659,7 +677,7 @@ func (s *Scheduler) redraw(ctx context.Context) error {
 		if err != nil {
 			continue
 		}
-		err = s.TG.EditCaption(ctx, c.ID, p.PostMsgID, postCaption(lang, rd.DayNo, revealAt(lang, c), p.Yesterday, line, true), markup)
+		err = s.editCaption(ctx, c.ID, p.PostMsgID, postCaption(lang, rd.DayNo, revealAt(lang, c), p.Yesterday, line, true), markup)
 		switch {
 		case err == nil || tg.IsMessageNotModified(err):
 			delete(s.redrawWait, c.ID)
