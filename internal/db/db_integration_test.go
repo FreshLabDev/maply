@@ -129,6 +129,47 @@ func TestTouchRecordsPersonAndGroup(t *testing.T) {
 	}
 }
 
+func TestTouchPersonAddsNoPresence(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	// Signed in on the website, never wrote to the bot.
+	if err := store.TouchPerson(ctx, tg.User{ID: 43, FirstName: "Site", Username: "site", LanguageCode: "uk"}); err != nil {
+		t.Fatal(err)
+	}
+	// Plays in a group, then signs in on the website.
+	user := tg.User{ID: 44, FirstName: "Group"}
+	if err := store.Touch(ctx, user, &tg.Chat{ID: -1001, Type: "supergroup", Title: "Maps"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.TouchPerson(ctx, tg.User{ID: 44, FirstName: "Group", Username: "renamed"}); err != nil {
+		t.Fatal(err)
+	}
+	var people int
+	var name string
+	if err := store.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM core.person), (SELECT username FROM core.person WHERE telegram_user_id = 44)`).Scan(&people, &name); err != nil {
+		t.Fatal(err)
+	}
+	if people != 2 || name != "renamed" {
+		t.Fatalf("core has %d people, username %q; want 2 and renamed", people, name)
+	}
+	rows, err := store.pool.Query(ctx, `SELECT telegram_user_id, chat_id FROM core.maply_presence ORDER BY 1, 2`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got [][2]int64
+	for rows.Next() {
+		var u, c int64
+		if err := rows.Scan(&u, &c); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, [2]int64{u, c})
+	}
+	if len(got) != 1 || got[0] != [2]int64{44, -1001} {
+		t.Fatalf("presence %v, want only the group of 44: a website sign-in is not a DM", got)
+	}
+}
+
 // rejects runs stmt and requires PostgreSQL to refuse it with code.
 func rejects(t *testing.T, s *Store, code, stmt string, args ...any) {
 	t.Helper()
