@@ -201,9 +201,6 @@ type play struct {
 	// shareLang is the language of what the person shares from the app: the
 	// group's, the one the bot posts in there, since that is where it lands.
 	shareLang string
-	// invite is a launch from a party's invitation, which plays as the DM
-	// but is no DM with the bot: the person may never have started it.
-	invite bool
 }
 
 type apiError struct {
@@ -240,10 +237,6 @@ func (s *Server) resolve(r *http.Request) (play, error) { return s.resolveAs(r, 
 func (s *Server) touch(ctx context.Context, p play) error {
 	user := tg.User{ID: p.user.ID, FirstName: p.user.FirstName, LastName: p.user.LastName,
 		Username: p.user.Username, LanguageCode: p.user.LanguageCode}
-	if p.invite && s.People != nil {
-		// Touch would put them on the morning DM post.
-		return s.People.TouchPerson(ctx, user)
-	}
 	if p.kind != "group" {
 		return s.Store.Touch(ctx, user, nil)
 	}
@@ -252,7 +245,7 @@ func (s *Server) touch(ctx context.Context, p play) error {
 
 // tieOnce is touch at most once per person, chat and date in this process.
 func (s *Server) tieOnce(ctx context.Context, p play) error {
-	key := fmt.Sprintf("%s:%d:%d:%s:%t", p.kind, p.chatID, p.user.ID, p.date, p.invite)
+	key := fmt.Sprintf("%s:%d:%d:%s", p.kind, p.chatID, p.user.ID, p.date)
 	s.tiedMu.Lock()
 	done := s.tied[key]
 	s.tiedMu.Unlock()
@@ -293,9 +286,12 @@ func (s *Server) resolveAs(r *http.Request, touch bool) (play, error) {
 		Username: data.User.Username, LanguageCode: data.User.LanguageCode}
 
 	// A party's invitation opens the app as the DM does: the free game has
-	// no chat, and the day's game from it is the person's own.
+	// no chat, and the day's game from it is the person's own. Seen from
+	// there it is the DM's place, so the DM's reveal closes their answers as
+	// it does for a plain link to the app; a refused morning post to someone
+	// who never started the bot is the scheduler's to drop. The free game's
+	// own requests record them without a DM (TouchPerson).
 	if _, invite := free.InviteCode(data.StartParam); data.StartParam == "" || invite {
-		p.invite = invite
 		if touch {
 			if err := s.touch(ctx, p); err != nil {
 				return play{}, err

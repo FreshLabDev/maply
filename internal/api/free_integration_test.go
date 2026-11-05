@@ -210,18 +210,27 @@ func TestPartyOverHTTP(t *testing.T) {
 		sent.Markup[0][0].URL != link {
 		t.Fatalf("invitation text: %+v", sent)
 	}
-	// Vera has never started the bot: she opens the link, plays the day as
-	// from the DM, joins, and core has her without a DM with maply.
+	// Vera has never started the bot: she opens the link and joins, and
+	// core has her without a DM with maply.
 	vera := initData(7, "Vera", "be", "p"+code)
-	hs.expect("GET", "/api/today", vera, "", 200)
 	hs.expect("POST", "/api/party/"+code+"/join", vera, "", 200)
-	var person, dm bool
-	if err := hs.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM core.person WHERE telegram_user_id = 7),
-		EXISTS (SELECT 1 FROM core.maply_presence WHERE telegram_user_id = 7 AND chat_id = 0)`).Scan(&person, &dm); err != nil {
-		t.Fatal(err)
+	inCore := func() (person, dm bool) {
+		t.Helper()
+		if err := hs.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM core.person WHERE telegram_user_id = 7),
+			EXISTS (SELECT 1 FROM core.maply_presence WHERE telegram_user_id = 7 AND chat_id = 0)`).Scan(&person, &dm); err != nil {
+			t.Fatal(err)
+		}
+		return person, dm
 	}
-	if !person || dm {
-		t.Fatalf("vera in core: person %v, DM %v", person, dm)
+	if person, dm := inCore(); !person || dm {
+		t.Fatalf("vera in core after joining: person %v, DM %v", person, dm)
+	}
+	// From the same launch she opens the day's game, which plays as from the
+	// DM: the DM's reveal now closes her answers, or she could see the place
+	// there and answer later from a group in a later zone.
+	hs.expect("GET", "/api/today", vera, "", 200)
+	if _, dm := inCore(); !dm {
+		t.Fatal("the day's game from an invitation leaves no DM presence")
 	}
 	// A made-up invitation is not a group post either.
 	hs.expect("GET", "/api/today", initData(8, "Nobody", "en", "pZZZZZZZZ"), "", 200)

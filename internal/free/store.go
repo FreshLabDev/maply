@@ -157,11 +157,13 @@ type Place struct {
 }
 
 // Candidate is a place a game may get next. SeenAt is when one of the game's
-// players last had it, nil for a place none of them has seen.
+// players last had it, nil for a place none of them has seen. Day is a closed
+// day's place rather than the free pool's.
 type Candidate struct {
 	PlaceID int64
 	Country string
 	SeenAt  *time.Time
+	Day     bool
 }
 
 type NewGame struct {
@@ -207,6 +209,9 @@ type Store interface {
 	// its places so far are in.
 	FreeCandidates(ctx context.Context, id int64) ([]Candidate, map[string]bool, error)
 	FreePlace(ctx context.Context, placeID int64) (Place, error)
+	// FreeKnown is whether the person has had the place: answered its day,
+	// or had it in a free game.
+	FreeKnown(ctx context.Context, userID, placeID int64) (bool, error)
 	InsertFreeRound(ctx context.Context, id int64, r NewRound) error
 	// InsertFreeGuess is false when the player has answered the place already.
 	InsertFreeGuess(ctx context.Context, id int64, g Guess) (bool, error)

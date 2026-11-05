@@ -14,6 +14,7 @@ import (
 	"math/big"
 	mrand "math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/FreshLabDev/maply/internal/geo"
@@ -69,9 +70,11 @@ type Service struct {
 	parties map[int64]*party
 	codes   map[string]int64
 	places  map[int64]Place
-	// base starts every party's version above any an app may have from
-	// before a restart.
-	base int64
+	// versions hands out the parties' versions. It starts at the clock, above
+	// any an app may have from before a restart, and never gives one twice,
+	// so a party read again after it was dropped from memory is new to every
+	// app that polls it.
+	versions atomic.Int64
 	// solo serializes the requests of one solo game.
 	solo [64]sync.Mutex
 }
@@ -94,7 +97,7 @@ func (s *Service) init() {
 		s.parties = map[int64]*party{}
 		s.codes = map[string]int64{}
 		s.places = map[int64]Place{}
-		s.base = time.Now().UnixMilli()
+		s.versions.Store(time.Now().UnixMilli())
 	})
 }
 
@@ -314,29 +317,33 @@ func (s *Service) Sweep(ctx context.Context) error {
 		return err
 	}
 	for _, id := range ids {
-		snap, err := s.Store.FreeSnapshot(ctx, id)
-		if err != nil {
-			return err
-		}
-		if snap.Game.Kind == Solo {
-			unlock := s.lockSolo(id)
-			_, err = s.settle(ctx, &snap, now)
-			unlock()
-		} else {
-			p, perr := s.load(ctx, id)
-			if perr != nil {
-				return perr
-			}
-			p.mu.Lock()
-			err = s.advance(ctx, p, now)
-			p.mu.Unlock()
-		}
-		if err != nil {
-			return err
+		// One game that fails is logged and left for the next sweep; the
+		// games after it are not held up.
+		if err := s.sweep(ctx, id, now); err != nil {
+			s.Log.Warn("free sweep", "game", id, "err", err)
 		}
 	}
 	s.evict(now)
 	return nil
+}
+
+func (s *Service) sweep(ctx context.Context, id int64, now time.Time) (err error) {
+	snap, err := s.Store.FreeSnapshot(ctx, id)
+	if err != nil {
+		return err
+	}
+	if snap.Game.Kind == Solo {
+		unlock := s.lockSolo(id)
+		defer unlock()
+		_, err = s.settle(ctx, &snap, now)
+		return err
+	}
+	p, err := s.hold(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer s.release(p, &err)
+	return s.advance(ctx, p, now)
 }
 
 // Run sweeps every so often until ctx is done.

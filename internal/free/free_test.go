@@ -205,6 +205,19 @@ func TestPickPrefersUnseenAndOneCountry(t *testing.T) {
 	if _, _, ok := Pick(nil, used, first); ok {
 		t.Fatal("nothing to pick")
 	}
+	// A closed day's place, public with its answer, waits for the free pool
+	// to run out of new places, even in a new country; it still comes before
+	// a repeat.
+	days := []Candidate{{PlaceID: 6, Country: "JP", Day: true}, {PlaceID: 7, Country: "FR"}, {PlaceID: 8, Country: "KE", SeenAt: &older}}
+	if c, repeat, _ := Pick(days, map[string]bool{"FR": true}, first); c.PlaceID != 7 || repeat {
+		t.Fatalf("the pool before a closed day: %+v %v", c, repeat)
+	}
+	if c, repeat, _ := Pick(days[0:1:1], nil, first); c.PlaceID != 6 || repeat {
+		t.Fatalf("a closed day when the pool is used up: %+v %v", c, repeat)
+	}
+	if c, repeat, _ := Pick([]Candidate{days[0], days[2]}, nil, first); c.PlaceID != 6 || repeat {
+		t.Fatalf("a closed day before a repeat: %+v %v", c, repeat)
+	}
 }
 
 func TestAwayAfterTwoMissedPlaces(t *testing.T) {

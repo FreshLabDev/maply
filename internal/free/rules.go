@@ -114,17 +114,22 @@ func Rank(lines []Line) {
 }
 
 // Pick chooses a game's next place. A place none of the players has seen
-// comes first, in a country the game has not had yet if there is one. Only
-// when every place has been seen does a repeat come: the one seen longest
-// ago, again in a new country first.
+// comes first, in a country the game has not had yet if there is one, and
+// from the free pool before a closed day's: a closed day is public with its
+// answer on the days page, and its picture is the day's own. Only when every
+// place has been seen does a repeat come: the one seen longest ago, again in a
+// new country first.
 func Pick(cands []Candidate, used map[string]bool, intn func(int) int) (Candidate, bool, bool) {
-	tiers := [4][]Candidate{}
+	tiers := [6][]Candidate{}
 	for _, c := range cands {
 		t := 0
 		if used[c.Country] {
 			t = 1
 		}
-		if c.SeenAt != nil {
+		switch {
+		case c.SeenAt != nil:
+			t += 4
+		case c.Day:
 			t += 2
 		}
 		tiers[t] = append(tiers[t], c)
@@ -133,7 +138,7 @@ func Pick(cands []Candidate, used map[string]bool, intn func(int) int) (Candidat
 		if len(tier) == 0 {
 			continue
 		}
-		if t < 2 {
+		if t < 4 {
 			c := tier[intn(len(tier))]
 			return c, false, true
 		}

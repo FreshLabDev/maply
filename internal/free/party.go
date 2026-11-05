@@ -32,6 +32,9 @@ type party struct {
 	used  time.Time
 	// exhausted is a game the pool has no next place for: it ends early.
 	exhausted bool
+	// dead is a party dropped from memory while a request waited for it: the
+	// request takes the one read again instead.
+	dead bool
 }
 
 func (p *party) seenAt(m Member) time.Time {
@@ -136,7 +139,7 @@ func (s *Service) load(ctx context.Context, id int64) (*party, error) {
 		return p, nil
 	}
 	now := s.Now()
-	p := &party{snap: snap, version: s.base, seen: map[int]time.Time{}, saved: map[int]time.Time{}, used: now}
+	p := &party{snap: snap, version: s.versions.Add(1), seen: map[int]time.Time{}, saved: map[int]time.Time{}, used: now}
 	// The database has when a player was last seen to within seenEvery. A
 	// player it saw that recently counts as here for now, so that the first
 	// answer after a restart does not close a place on people still playing.
@@ -148,6 +151,45 @@ func (s *Service) load(ctx context.Context, id int64) (*party, error) {
 	s.parties[id] = p
 	s.codes[snap.Game.Code] = id
 	return p, nil
+}
+
+// hold is the party id, locked.
+func (s *Service) hold(ctx context.Context, id int64) (*party, error) {
+	for {
+		p, err := s.load(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		p.mu.Lock()
+		if !p.dead {
+			return p, nil
+		}
+		p.mu.Unlock()
+	}
+}
+
+// release unlocks the party after a request. After an error that is not the
+// game's own, memory may no longer have what the database has: a write may
+// have gone through and the read after it failed, or the request was cancelled
+// between them. The party is dropped then, and the next request reads it again.
+func (s *Service) release(p *party, err *error) {
+	var e *Error
+	if *err != nil && !errors.As(*err, &e) {
+		s.drop(p)
+	}
+	p.mu.Unlock()
+}
+
+// drop takes p out of memory; its holder has p.mu.
+func (s *Service) drop(p *party) {
+	p.dead = true
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := p.snap.Game.ID
+	if s.parties[id] == p {
+		delete(s.parties, id)
+		delete(s.codes, p.snap.Game.Code)
+	}
 }
 
 func (s *Service) byCode(ctx context.Context, code string) (*party, error) {
@@ -167,7 +209,7 @@ func (s *Service) byCode(ctx context.Context, code string) (*party, error) {
 			return nil, err
 		}
 	}
-	return s.load(ctx, id)
+	return s.hold(ctx, id)
 }
 
 // reload reads the party again after a write and moves its version on.
@@ -177,18 +219,25 @@ func (s *Service) reload(ctx context.Context, p *party) error {
 		return err
 	}
 	p.snap = snap
-	p.version++
+	p.version = s.versions.Add(1)
 	return nil
 }
 
+// evict drops the parties nobody has asked about for keepFor. One a request
+// holds is in use and stays.
 func (s *Service) evict(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, p := range s.parties {
+		if !p.mu.TryLock() {
+			continue
+		}
 		if now.Sub(p.used) > keepFor {
+			p.dead = true
 			delete(s.parties, id)
 			delete(s.codes, p.snap.Game.Code)
 		}
+		p.mu.Unlock()
 	}
 }
 
@@ -214,7 +263,14 @@ func (s *Service) step(ctx context.Context, p *party, now time.Time) (bool, erro
 	switch g.Status {
 	case StatusLobby:
 		present := s.present(p)
-		if len(present) == 0 || now.Sub(lastMove(&p.snap)) > LobbyFor {
+		// A lobby lives while someone polls it, as the sweep counts it.
+		last := lastMove(&p.snap)
+		for _, m := range present {
+			if t := p.seenAt(m); t.After(last) {
+				last = t
+			}
+		}
+		if len(present) == 0 || now.Sub(last) > LobbyFor {
 			_, err := s.Store.FinishFree(ctx, g.ID, StatusAbandoned, now, nil)
 			return true, err
 		}
@@ -330,21 +386,22 @@ func (s *Service) touch(ctx context.Context, p *party, m Member, now time.Time) 
 }
 
 // party is the party behind code, locked, with the player w is in it.
-func (s *Service) party(ctx context.Context, w Who, code string) (*party, Member, func(), error) {
+// party is the party behind code, locked, and w in it. Release it with
+// s.release.
+func (s *Service) party(ctx context.Context, w Who, code string) (*party, Member, error) {
 	if !w.Telegram() {
-		return nil, Member{}, nil, ErrTelegram
+		return nil, Member{}, ErrTelegram
 	}
 	p, err := s.byCode(ctx, code)
 	if err != nil {
-		return nil, Member{}, nil, err
+		return nil, Member{}, err
 	}
-	p.mu.Lock()
 	m, ok := p.snap.member(w)
 	if !ok {
 		p.mu.Unlock()
-		return nil, Member{}, nil, ErrNotMember
+		return nil, Member{}, ErrNotMember
 	}
-	return p, m, p.mu.Unlock, nil
+	return p, m, nil
 }
 
 // NewParty makes a lobby on set with w as its host. A lobby w was hosting is
@@ -363,11 +420,10 @@ func (s *Service) NewParty(ctx context.Context, w Who, name, lang string, set Se
 		return PartyView{}, err
 	}
 	for _, id := range open {
-		p, err := s.load(ctx, id)
+		p, err := s.hold(ctx, id)
 		if err != nil {
 			return PartyView{}, err
 		}
-		p.mu.Lock()
 		g := p.snap.Game
 		var ferr error
 		if host, ok := p.snap.memberNo(g.Host); g.Status == StatusLobby && ok && host.Who == w {
@@ -375,7 +431,7 @@ func (s *Service) NewParty(ctx context.Context, w Who, name, lang string, set Se
 				ferr = s.reload(ctx, p)
 			}
 		}
-		p.mu.Unlock()
+		s.release(p, &ferr)
 		if ferr != nil {
 			return PartyView{}, ferr
 		}
@@ -385,11 +441,10 @@ func (s *Service) NewParty(ctx context.Context, w Who, name, lang string, set Se
 	if err != nil {
 		return PartyView{}, err
 	}
-	p, err := s.load(ctx, id)
+	p, err := s.hold(ctx, id)
 	if err != nil {
 		return PartyView{}, err
 	}
-	p.mu.Lock()
 	defer p.mu.Unlock()
 	me, _ := p.snap.member(w)
 	p.seen[me.M], p.saved[me.M] = now, now
@@ -409,7 +464,7 @@ func nameOr(name string) string {
 // Join puts w in the party behind code. In the lobby they play from the
 // first place; once it has begun, from the next place that has not started,
 // and the places before count as missed. Someone who left comes back.
-func (s *Service) Join(ctx context.Context, w Who, name, code, lang string) (PartyView, error) {
+func (s *Service) Join(ctx context.Context, w Who, name, code, lang string) (v PartyView, err error) {
 	s.init()
 	if !w.Telegram() {
 		return PartyView{}, ErrTelegram
@@ -418,16 +473,23 @@ func (s *Service) Join(ctx context.Context, w Who, name, code, lang string) (Par
 	if err != nil {
 		return PartyView{}, err
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	defer s.release(p, &err)
 	now := s.Now()
+	if me, ok := p.snap.member(w); ok && me.LeftAt == nil {
+		// Opening the invitation again is a poll: it changes nothing.
+		_ = s.touch(ctx, p, me, now)
+		if err := s.advance(ctx, p, now); err != nil {
+			return PartyView{}, err
+		}
+		me, _ = p.snap.member(w)
+		return s.partyView(ctx, p, me, now, lang)
+	}
 	if err := s.advance(ctx, p, now); err != nil {
 		return PartyView{}, err
 	}
 	g := p.snap.Game
 	me, ok := p.snap.member(w)
 	switch {
-	case ok && me.LeftAt == nil:
 	case ok:
 		if g.Status != StatusLobby && g.Status != StatusPlaying {
 			return PartyView{}, ErrOver
@@ -447,6 +509,16 @@ func (s *Service) Join(ctx context.Context, w Who, name, code, lang string) (Par
 			from = r.N
 			if !now.Before(r.StartsAt) {
 				from = r.N + 1
+			} else {
+				// The place was drawn before they came, without their
+				// history: one they know waits out as a place already begun.
+				known, err := s.Store.FreeKnown(ctx, w.UserID, r.PlaceID)
+				if err != nil {
+					return PartyView{}, err
+				}
+				if known {
+					from = r.N + 1
+				}
 			}
 			if from > g.Settings.Rounds {
 				return PartyView{}, ErrTooLate
@@ -484,13 +556,13 @@ const maxMemberNo = 32
 
 // Poll is the party as w may see it now, or just its version and the clock
 // when the app has that version already.
-func (s *Service) Poll(ctx context.Context, w Who, code string, since int64, lang string) (any, error) {
+func (s *Service) Poll(ctx context.Context, w Who, code string, since int64, lang string) (v any, err error) {
 	s.init()
-	p, me, unlock, err := s.party(ctx, w, code)
+	p, me, err := s.party(ctx, w, code)
 	if err != nil {
 		return nil, err
 	}
-	defer unlock()
+	defer s.release(p, &err)
 	now := s.Now()
 	if err := s.touch(ctx, p, me, now); err != nil {
 		return nil, err
@@ -506,17 +578,18 @@ func (s *Service) Poll(ctx context.Context, w Who, code string, since int64, lan
 }
 
 // SetParty changes the lobby's settings; only the host may.
-func (s *Service) SetParty(ctx context.Context, w Who, code, lang string, set Settings) (PartyView, error) {
+func (s *Service) SetParty(ctx context.Context, w Who, code, lang string, set Settings) (v PartyView, err error) {
 	s.init()
 	if !set.ValidParty() {
 		return PartyView{}, ErrBadRequest
 	}
-	p, me, unlock, err := s.party(ctx, w, code)
+	p, me, err := s.party(ctx, w, code)
 	if err != nil {
 		return PartyView{}, err
 	}
-	defer unlock()
+	defer s.release(p, &err)
 	now := s.Now()
+	_ = s.touch(ctx, p, me, now)
 	if err := s.advance(ctx, p, now); err != nil {
 		return PartyView{}, err
 	}
@@ -534,21 +607,21 @@ func (s *Service) SetParty(ctx context.Context, w Who, code, lang string, set Se
 			return PartyView{}, err
 		}
 	}
-	_ = s.touch(ctx, p, me, now)
 	return s.partyView(ctx, p, me, now, lang)
 }
 
 // StartParty starts the lobby on the settings of version, the ones the host
 // saw. When they have changed since, nothing starts: a game never begins on
 // settings nobody saw. Two players at least; with two it is a duel.
-func (s *Service) StartParty(ctx context.Context, w Who, code, lang string, version int) (PartyView, error) {
+func (s *Service) StartParty(ctx context.Context, w Who, code, lang string, version int) (v PartyView, err error) {
 	s.init()
-	p, me, unlock, err := s.party(ctx, w, code)
+	p, me, err := s.party(ctx, w, code)
 	if err != nil {
 		return PartyView{}, err
 	}
-	defer unlock()
+	defer s.release(p, &err)
 	now := s.Now()
+	_ = s.touch(ctx, p, me, now)
 	if err := s.advance(ctx, p, now); err != nil {
 		return PartyView{}, err
 	}
@@ -590,23 +663,25 @@ func (s *Service) StartParty(ctx context.Context, w Who, code, lang string, vers
 	if !ok && p.snap.Game.Status != StatusPlaying {
 		return PartyView{}, ErrChanged
 	}
-	_ = s.touch(ctx, p, me, now)
 	return s.partyView(ctx, p, me, now, lang)
 }
 
 // GuessParty takes w's pin for place n, until its end and the grace. When
 // everyone the place waits for has answered, it closes at once.
-func (s *Service) GuessParty(ctx context.Context, w Who, code, lang string, in GuessIn) (PartyView, error) {
+func (s *Service) GuessParty(ctx context.Context, w Who, code, lang string, in GuessIn) (v PartyView, err error) {
 	s.init()
 	if in.Skip || in.Pin == nil || !in.Pin.Valid() {
 		return PartyView{}, ErrBadRequest
 	}
-	p, me, unlock, err := s.party(ctx, w, code)
+	p, me, err := s.party(ctx, w, code)
 	if err != nil {
 		return PartyView{}, err
 	}
-	defer unlock()
+	defer s.release(p, &err)
 	now := s.Now()
+	// Seen first: a player's own silence must not close the place under the
+	// pin they are sending.
+	_ = s.touch(ctx, p, me, now)
 	if err := s.advance(ctx, p, now); err != nil {
 		return PartyView{}, err
 	}
@@ -639,7 +714,6 @@ func (s *Service) GuessParty(ctx context.Context, w Who, code, lang string, in G
 	if err := s.reload(ctx, p); err != nil {
 		return PartyView{}, err
 	}
-	_ = s.touch(ctx, p, me, now)
 	if r, _ := p.snap.round(in.N); r.ClosedAt == nil && s.allAnswered(p, r, now) {
 		if err := s.close(ctx, p, r, now); err != nil {
 			return PartyView{}, err
@@ -653,13 +727,13 @@ func (s *Service) GuessParty(ctx context.Context, w Who, code, lang string, in G
 
 // LeaveParty takes w out of the party. A host who leaves the lobby hands it
 // to the next player at once.
-func (s *Service) LeaveParty(ctx context.Context, w Who, code string) error {
+func (s *Service) LeaveParty(ctx context.Context, w Who, code string) (err error) {
 	s.init()
-	p, me, unlock, err := s.party(ctx, w, code)
+	p, me, err := s.party(ctx, w, code)
 	if err != nil {
 		return err
 	}
-	defer unlock()
+	defer s.release(p, &err)
 	now := s.Now()
 	if me.LeftAt != nil {
 		return nil
@@ -686,18 +760,18 @@ func (s *Service) LeaveParty(ctx context.Context, w Who, code string) error {
 // in it either way; the host may change the settings there.
 func (s *Service) Rematch(ctx context.Context, w Who, name, code string) (string, error) {
 	s.init()
-	p, _, unlock, err := s.party(ctx, w, code)
+	p, _, err := s.party(ctx, w, code)
 	if err != nil {
 		return "", err
 	}
 	now := s.Now()
 	if err := s.advance(ctx, p, now); err != nil {
-		unlock()
+		s.release(p, &err)
 		return "", err
 	}
 	g := p.snap.Game
 	if g.Status != StatusDone {
-		unlock()
+		p.mu.Unlock()
 		return "", ErrOrder
 	}
 	var next int64
@@ -712,28 +786,30 @@ func (s *Service) Rematch(ctx context.Context, w Who, name, code string) (string
 	if err == nil {
 		err = s.reload(ctx, p)
 	}
-	unlock()
+	s.release(p, &err)
 	if err != nil {
 		return "", err
 	}
-	np, err := s.load(ctx, next)
+	np, err := s.hold(ctx, next)
 	if err != nil {
 		return "", err
 	}
-	if _, err := s.Join(ctx, w, name, np.snap.Game.Code, ""); err != nil {
+	nc := np.snap.Game.Code
+	np.mu.Unlock()
+	if _, err := s.Join(ctx, w, name, nc, ""); err != nil {
 		return "", err
 	}
-	return np.snap.Game.Code, nil
+	return nc, nil
 }
 
 // PartySettings is the settings of a party w is in, for the invitation.
 func (s *Service) PartySettings(ctx context.Context, w Who, code string) (Settings, string, error) {
 	s.init()
-	p, _, unlock, err := s.party(ctx, w, code)
+	p, _, err := s.party(ctx, w, code)
 	if err != nil {
 		return Settings{}, "", err
 	}
-	defer unlock()
+	defer p.mu.Unlock()
 	return p.snap.Game.Settings, p.snap.Game.Status, nil
 }
 

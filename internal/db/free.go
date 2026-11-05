@@ -168,6 +168,21 @@ func (s *Store) FreeSnapshot(ctx context.Context, id int64) (free.Snapshot, erro
 	return snap, nil
 }
 
+// FreeKnown is whether a Telegram person has had the place: answered the day
+// it was the place of, or had it in any free game they were in.
+func (s *Store) FreeKnown(ctx context.Context, userID, placeID int64) (bool, error) {
+	var known bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM free_round fr JOIN free_member fm ON fm.game = fr.game
+		                WHERE fr.place_id = $2 AND fm.user_id = $1)
+		    OR EXISTS (SELECT 1 FROM round r JOIN guess g ON g.date = r.date
+		                WHERE r.place_id = $2 AND g.user_id = $1)`, userID, placeID).Scan(&known)
+	if err != nil {
+		return false, fmt.Errorf("free known %d/%d: %w", userID, placeID, err)
+	}
+	return known, nil
+}
+
 // FreeCandidates lists the places a game may get next: the free pool, and the
 // days closed in every zone that none of the game's players answered, minus
 // the game's own places. Each comes with when one of the players last had it
@@ -180,13 +195,13 @@ func (s *Store) FreeCandidates(ctx context.Context, id int64) ([]free.Candidate,
 		     seen AS (SELECT fr.place_id, max(fr.starts_at) AS at FROM free_round fr
 		               WHERE fr.game IN (SELECT game FROM games) GROUP BY fr.place_id),
 		     cand AS (
-		       SELECT p.id, p.country_iso FROM place p WHERE p.pool = 'free' AND p.status = 'approved'
+		       SELECT p.id, p.country_iso, false AS day FROM place p WHERE p.pool = 'free' AND p.status = 'approved'
 		       UNION ALL
-		       SELECT p.id, p.country_iso
+		       SELECT p.id, p.country_iso, true
 		         FROM day_closed dc JOIN round r ON r.date = dc.date JOIN place p ON p.id = r.place_id
 		        WHERE NOT EXISTS (SELECT 1 FROM guess g JOIN m ON g.user_id = m.user_id WHERE g.date = dc.date)
 		          AND NOT EXISTS (SELECT 1 FROM site_guess g JOIN m ON g.player = m.player WHERE g.date = dc.date))
-		SELECT c.id, c.country_iso, s.at
+		SELECT c.id, c.country_iso, s.at, c.day
 		  FROM cand c LEFT JOIN seen s ON s.place_id = c.id
 		 WHERE NOT EXISTS (SELECT 1 FROM free_round fr WHERE fr.game = $1 AND fr.place_id = c.id)`, id)
 	if err != nil {
@@ -194,7 +209,7 @@ func (s *Store) FreeCandidates(ctx context.Context, id int64) ([]free.Candidate,
 	}
 	cands, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (free.Candidate, error) {
 		var c free.Candidate
-		err := row.Scan(&c.PlaceID, &c.Country, &c.SeenAt)
+		err := row.Scan(&c.PlaceID, &c.Country, &c.SeenAt, &c.Day)
 		return c, err
 	})
 	if err != nil {

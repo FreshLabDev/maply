@@ -792,6 +792,25 @@ func TestPartyFromLobbyToRematch(t *testing.T) {
 	if _, err := h.svc.GuessParty(ctx, cleo, code, "en", free.GuessIn{N: 2, Pin: at(s1)}); !is(err, free.ErrClosed) {
 		t.Fatalf("after the close: %v", err)
 	}
+	// Gus had place 3, drawn before he came, in a game of his own: it is not
+	// his to play, and it is the last one.
+	gus := free.Who{UserID: 107}
+	if _, err := h.pool.Exec(ctx, `SELECT core.touch('maply', $1, NULL, 'Gus')`, gus.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(ctx, `
+		WITH g AS (INSERT INTO maply.free_game (kind, mode, rounds, status, created_at)
+		           VALUES ('solo', 'classic', 3, 'done', now()) RETURNING id),
+		     m AS (INSERT INTO maply.free_member (game, m, user_id, name, joined_at, last_seen_at)
+		           SELECT id, 1, $2, 'Gus', now(), now() FROM g)
+		INSERT INTO maply.free_round (game, n, place_id, starts_at)
+		SELECT g.id, 1, r.place_id, now() FROM g, maply.free_round r JOIN maply.free_game p ON p.id = r.game
+		 WHERE p.code = $1 AND r.n = 3`, code, gus.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.Join(ctx, gus, "Gus", code, "en"); !is(err, free.ErrTooLate) {
+		t.Fatalf("gus knows the place drawn before he came: %v", err)
+	}
 	// Erin comes in the reveal of place 2 and plays place 3.
 	erin := free.Who{UserID: 105}
 	if e, err := h.svc.Join(ctx, erin, "Erin", code, "en"); err != nil || e.Members[len(e.Members)-1].From != 3 {
@@ -879,6 +898,27 @@ func TestPartyHostAwayAndLobbies(t *testing.T) {
 	v := h.view(h.svc, bob, code, 0)
 	if v.Host != 2 {
 		t.Fatalf("host after ann went quiet: %d", v.Host)
+	}
+	// Nobody asks for 16 minutes and the party leaves memory. Read again, it
+	// has a version no app has seen: an app still on the last one gets the
+	// whole party, where Bob has gone quiet too and Ann is the host again.
+	h.tick(16 * time.Minute)
+	if err := h.svc.Sweep(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if back := h.view(h.svc, ann, code, v.V); back.V <= v.V || back.Host != 1 {
+		t.Fatalf("after the eviction: v %d after %d, host %d", back.V, v.V, back.Host)
+	}
+	h.view(h.svc, bob, code, 0)
+	// Opening the invitation again changes nothing for the others.
+	again, err := h.svc.Join(ctx, bob, "Bob", code, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := h.svc.Poll(ctx, ann, code, again.V, "en"); err != nil {
+		t.Fatal(err)
+	} else if _, short := got.(free.Short); !short {
+		t.Fatalf("a second open moved the version: %+v", got)
 	}
 	// The lobby is full at eight.
 	for i := 3; i <= 8; i++ {
