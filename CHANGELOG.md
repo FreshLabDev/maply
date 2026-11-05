@@ -203,7 +203,8 @@ For the operator:
   sixty, and pages back by a cursor to the first day.
 - A day's row no longer shows the group's numbers beside the world's.
 - A DM post's button opens `/today`. A post sent before this version opens
-  the app at `/`, which is now the menu, one tap from the day. In Telegram,
+  the app at `/`, which is now the menu, one tap from the day, and so does
+  the Play button under a forwarded result. In Telegram,
   Back on the page the app opened with goes to the menu, and the menu has
   none, so Telegram closes the app from there.
 - The free play card at the top of the days is gone: the menu leads there.

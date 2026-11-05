@@ -312,7 +312,7 @@ const Desk = (() => {
     game.globe.map.on("move", () => { if ($("cross").classList.contains("on")) cross(); });
     game.globe.map.on("resize", cross);
     // Held open from an earlier day: the panel opens with the game.
-    game.globe.ready(() => { if (hold && panel() && !game.globe.answered) open("key"); });
+    game.globe.ready(() => { if (hold && panel() && !game.globe.answered && !sheetOn()) open("key"); });
   }
 
   return {
