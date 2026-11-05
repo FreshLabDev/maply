@@ -28,6 +28,10 @@ For the operator:
   service picks the direction itself when it draws the strip.
 - Migration 021 adds `profile_setting` (hide me, the public link) and an
   index on `site_guess (player, date)` for a guest's profile.
+- Migration 020 adds `free_archive`, `free_challenge` and `free_attempt`, and
+  replaces the checks on `free_game` and `free_result` with named ones that
+  allow the new modes. It runs in one transaction on tables the service
+  already writes; nothing to do before or after.
 
 ### Added
 
@@ -161,6 +165,15 @@ For the operator:
   place has started, under the round's own address. On the site an account
   with Telegram plays as the person, records and friends included; a guest
   or an account with Google alone plays alone without records.
+- Free play gets three more ways to play. "Against the clock": three minutes
+  for as many countries as one can find, with skipping and no speed bonus,
+  and a record of its own. The archive: every day over in every zone that
+  the player has not answered or seen, one place each with no timer, and
+  where the answer would have stood in that day's table. A challenge: after
+  a classic game on a timer, friends play its places in the same order in
+  their own time, once each, and the challenge's table shows the sums and
+  marks the places someone had seen before. Challenges are Telegram's, as
+  parties are; a site guest plays the archive.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 
