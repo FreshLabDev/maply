@@ -29,8 +29,9 @@ func TestProfileOfReadsAnswersRoundsAndPlaces(t *testing.T) {
 	if len(p.Rounds) != 1 || p.Rounds[0].DayNo != 1 || len(p.World) != 1 || p.World[0].Rank != 1 || p.World[0].Of != 1 || p.Streak != 1 {
 		t.Fatalf("rounds %+v, world %+v, streak %d", p.Rounds, p.World, p.Streak)
 	}
-	if ids, err := store.RecentPlayers(ctx, d); err != nil || len(ids) != 1 || ids[0] != 7 {
-		t.Fatalf("recent %v, %v", ids, err)
+	// Drawn ahead only for someone whose statistics went out lately.
+	if ids, err := store.RecentPlayers(ctx, d); err != nil || len(ids) != 0 {
+		t.Fatalf("recent before any statistics = %v, %v", ids, err)
 	}
 
 	for _, c := range []struct{ set, ask, want string }{{"v1", "v1", "f1"}, {"v2", "v1", ""}} {
@@ -40,6 +41,9 @@ func TestProfileOfReadsAnswersRoundsAndPlaces(t *testing.T) {
 		if got, err := store.ProfileCard(ctx, 7, "ru", c.ask); err != nil || got != c.want {
 			t.Fatalf("set %s, asked %s: %q, %v", c.set, c.ask, got, err)
 		}
+	}
+	if ids, err := store.RecentPlayers(ctx, d); err != nil || len(ids) != 1 || ids[0] != 7 {
+		t.Fatalf("recent %v, %v", ids, err)
 	}
 }
 

@@ -96,7 +96,7 @@ func setup(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	for _, stmt := range []string{
-		`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.site_guess, maply.site_player, maply.chat_settings, maply.round, maply.place, maply.avatar, maply.world_card, maply.day_closed CASCADE`,
+		`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.site_guess, maply.site_player, maply.chat_settings, maply.round, maply.place, maply.avatar, maply.world_card, maply.profile_card, maply.day_closed CASCADE`,
 		`TRUNCATE core.person, core.chat CASCADE`,
 		`TRUNCATE core.language_observation`,
 	} {
