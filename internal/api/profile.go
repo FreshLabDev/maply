@@ -137,6 +137,8 @@ type ownProfile struct {
 	Settings *profileSetting `json:"settings,omitempty"`
 	// Season is the month's season so far, the world's and the group's.
 	Season []seasonPlace `json:"season,omitempty"`
+	// Top is the player's place on each board of free play they are on.
+	Top []topPlace `json:"top,omitempty"`
 }
 
 type seasonPlace struct {
@@ -294,6 +296,7 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 		out.Settings = settingView(set)
 		out.Free = s.free(ctx, ps, v.user)
 		out.Season = s.season(ctx, ps, v, now)
+		out.Top = s.topPlaces(ctx, v)
 	default:
 		// A site player sees what the site shows: days over everywhere. An
 		// account keeps its days across browsers; a guest has the cookie's.
@@ -311,6 +314,7 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
+		out.Top = s.topPlaces(ctx, v)
 		// An account's site players share one name: the main one's.
 		if v.player != "" {
 			if out.Name, err = s.Store.SiteName(ctx, v.player); err != nil {

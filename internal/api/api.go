@@ -229,6 +229,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/profile/who", s.mini)
 	mux.HandleFunc("POST /api/profile/settings", s.profileSettings)
 	mux.HandleFunc("POST /api/profile/public", s.profilePublic)
+	mux.HandleFunc("GET /api/top", s.top)
 	mux.HandleFunc("GET /api/p/{slug}", s.publicPage)
 	mux.HandleFunc("GET /api/p/{slug}/card.png", s.publicCard)
 	mux.HandleFunc("GET /img/{key}", s.image)
