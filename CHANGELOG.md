@@ -29,6 +29,20 @@ For the operator:
   closed day, so a day can be linked and Back in the browser closes it. An
   address without a screen yet shows today. In Telegram the address changes
   without adding history, so Back stays Telegram's.
+- Free play, outside the day's ranking, at `/play`: from the DM's `/start`
+  panel and from the top of the days. Alone it is a Classic of 3, 5 or 10
+  places on Blitz 30, 60, 90 or 120 s or no timer, or a Country streak on 30
+  or 60 s that goes on while the country is right; the screen starts on the
+  last game's settings, shows each place after the answer and ends with the
+  record for those settings. With friends, up to eight play the same places
+  at once: the host sets the time and the number of places, the bot prepares
+  an invitation the player sends to any chat, a ribbon shows who has
+  answered, and the final offers a rematch on the same settings. The speed
+  bonus, up to +200, counts the share of the time left, so it is the same on
+  every timer. The bot writes nothing about free play in groups. A free
+  place never becomes a day's place, and its picture goes out only once the
+  place has started, under the round's own address. Site guests play alone
+  without records; with friends needs Telegram.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

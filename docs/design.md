@@ -179,6 +179,53 @@ In a DM the intrigue arrives only if the person has not answered yet. The "Chat 
 - **Seasons.** A calendar month. At the end the chat gets a champion of the month, and the ranking resets.
 - **Settings** through buttons in `/start`, as in quoto: morning post time, intrigue on/off, streak mentions on/off.
 
+## Free play
+
+Next to the day's game, which keeps every rule above, there is free play: alone or with up to eight friends, as many places as one likes, with no place in the world and no stats shared with the day. It is called "Free play", has a blue of its own where the day is green, and opens at `/play`: from the DM's `/start` panel, from a link at the top of the days, and from a friend's invitation. The bot writes nothing about it in groups, so the three messages a day stay three.
+
+### Alone
+
+The settings screen starts on the last game's settings, and a game begins in one tap.
+
+| Mode | Places | Time per place | Ends |
+|:--|:--|:--|:--|
+| Classic | 3, 5 or 10 | Blitz 30, 60, 90, 120 s, or no timer | After the last place |
+| Country streak | Until a miss | 30 or 60 s | Wrong country, a pin in the sea, or the time running out |
+
+Without a timer a place ends with the answer or with "Give up", which scores 0 and shows the place. A streak has no "no timer": without one it turns into a search for the answer on the internet. After each place the player sees it with the distance, the points and their parts and the fact, and goes on when they like. The final shows the sum, or the streak's length, and the record for those settings.
+
+A place is three requests: start, answer, picture. Starting writes when the place began and when it ends, and only then gives the picture; asking again gives the same picture and the same time left, so a reload does not reset the clock, and the place counts as seen from then on. The answer is taken until the end plus 2 s for the network. A game nobody touches closes after a day.
+
+### With friends
+
+Everyone plays the same places at the same time. The host picks the time per place (Blitz 30, 60, 90 or 120 s, no "no timer": one player who walked away would hold everyone) and 3, 5 or 10 places; guests see the settings and cannot change them, and the lobby shows how long the game takes if everyone answers at the end of the time. Starting sends the settings' version, and the server refuses a start on settings someone has changed since.
+
+The bot prepares an invitation, "maply · Blitz · 5 places · 30 s" with a button, and the player sends it to any chat. The button opens the Mini App in the lobby, also for someone who never started the bot. A place shows a ribbon of who has answered, without points; at zero a pin already set goes by itself. Then the place, everyone's pins with names and the points stay for 8 s on a blitz and 10 s on the longer timers, and a place everyone has answered closes early. A player who stops polling for 10 s is not waited for, and one who missed two places in a row is marked away until they answer again. A lobby whose host is silent for 30 s passes to the next player by joining time; a lobby lives 30 minutes.
+
+The final has the standings, "Ahead of 67% of the others" in place of an average place (2nd of 3 and 2nd of 8 do not compare), the closest pin of the game, "Rematch" into a new lobby on the same settings, and "Share". With friends is Telegram only: the site has no sign-in yet.
+
+### Points and records
+
+The judge is the day's: up to 3,500 for the distance and the bonuses for continent, country and city. The speed bonus is up to +200 a place and counts the share of the time left, not the seconds, so the same share earns the same bonus on every timer; it scales with the distance points, so a quick random click earns nothing:
+
+```
+left  = clamp(ends_at − answered_at, 0, T)
+share = min(1, left / (T − 2 s))      -- the first 2 s load the picture
+speed = round10(200 × share × points_for_distance / 3500)
+```
+
+No timer, an answer in the 2 s of grace and a pin the app sent at zero earn none. With friends, equal points rank by fewer kilometres in all, then by less time in all; a missed place counts as half the Earth's circumference and the whole time, or silence would look like a quick answer. Records are kept for each set of settings, "60 s · 5 places" or "Country streak · 30 s", from finished games, alone and with friends together, since the counting is the same. A site guest plays alone and keeps no records.
+
+### Places
+
+A free place never becomes a day's place, and free play never sees a future day's. It takes places from the free pool, which the day's queue does not read (`pool = 'daily'` there), and from days closed in every zone that none of the game's players answered. A place none of the players has had comes first, in a country the game has not had yet if there is one, and the free pool before a closed day; only when there are none left does a repeat come, the one had longest ago, marked as a repeat.
+
+A closed day is public: the days page shows its place, its answer and its picture, and the free game serves the same picture under another address, so a player who has seen the days page may know it. That is why the free pool goes first, and why free play has no world and no stats: it is the price of more places, not a hole in the day.
+
+With friends, the next place is drawn when the one before closes, for the players who are in the party then. Someone who joins in the reveal or the countdown after it would get a place drawn without their history, so one they have had (answered its day, or had it in another free game) waits out as a place already begun, and they play from the place after it.
+
+The picture goes out under the round's own address, the game, the place's number and an HMAC, and only once the place has started, never under the place's image key: the keys of closed days are on the days page. The place's coordinates, name and fact come in the answer alone, and with friends when the place closes.
+
 ## "Where am I?" (after launch)
 
 A participant sends the bot their own photo in a DM and puts a point on the map. Setting the point is mandatory: Telegram strips EXIF from photos sent as photos. The bot turns this into an extra round in the chosen group, usually on weekends: "Guess where Artem was". The author sees a warning not to mark their home and can round the point to the city.
