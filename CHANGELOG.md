@@ -206,6 +206,9 @@ For the operator:
 - The result's pin, target and the others' marks stood off their points, up
   to 40 px from the dashed line on a computer, after the map opened straight
   on a city. They are set again once the camera stops.
+- A click or a double click on the computer's map panel while it was opening
+  left the globe small in the panel's corner. Once the camera stops, the
+  globe comes back to the middle at its size, closer if the player zoomed in.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 
