@@ -113,6 +113,17 @@ func has(m telegram.Markup, action string) bool {
 	return false
 }
 
+// hasOwner reports whether every button of m belongs to owner.
+func hasOwner(m telegram.Markup, owner int64) bool {
+	bs := buttons(m)
+	for _, b := range bs {
+		if got, _, ok := parseMenuCB(b.CallbackData); ok && got != owner {
+			return false
+		}
+	}
+	return len(bs) > 0
+}
+
 // Close exists only where the panel is a message in somebody else's feed.
 func TestCloseOnlyInGroups(t *testing.T) {
 	for _, sc := range []scope{scopePrivate, scopeGroup} {
@@ -273,6 +284,58 @@ func TestGroupStartAdoptsAZone(t *testing.T) {
 	}
 	if has(client.sends[0].markup, actSettings) {
 		t.Fatal("a member was offered Settings")
+	}
+}
+
+// In a forum the panel answers in the topic of the /start; a reply chain
+// outside a forum has a thread id too, and that is the chat itself.
+func TestStartAnswersInTheTopic(t *testing.T) {
+	b, _, client := testBot(t)
+	ctx := context.Background()
+	topic := command(group, member, "/start")
+	topic.Message.MessageThreadID = 4
+	topic.Message.Raw = []byte(`{"message_thread_id":4,"is_topic_message":true}`)
+	b.handle(ctx, topic)
+	chain := command(group, member, "/start")
+	chain.Message.MessageThreadID = 3
+	chain.Message.Raw = []byte(`{"message_thread_id":3}`)
+	b.handle(ctx, chain)
+	if len(client.threads) != 2 || client.threads[0] != 4 || client.threads[1] != 0 {
+		t.Fatalf("threads = %v, want [4 0]", client.threads)
+	}
+}
+
+// An admin who writes as the group opens an admin's panel, and any admin
+// may press it; a member may not.
+func TestAnonymousAdminStart(t *testing.T) {
+	b, store, client := testBot(t)
+	ctx := context.Background()
+	anon := tg.User{ID: groupAnonymousBot, IsBot: true, FirstName: "Group"}
+	start := command(group, anon, "/start")
+	start.Message.Raw = []byte(fmt.Sprintf(`{"sender_chat":{"id":%d,"type":"supergroup"}}`, groupID))
+	b.handle(ctx, start)
+	if len(client.sends) != 1 || !has(client.sends[0].markup, actSettings) {
+		t.Fatalf("sends = %+v, want the admin's panel", client.sends)
+	}
+	// A channel's post in its discussion group is not an admin of the group.
+	channel := command(group, anon, "/start")
+	channel.Message.Raw = []byte(`{"sender_chat":{"id":-1009,"type":"channel"}}`)
+	b.handle(ctx, channel)
+	if len(client.sends) != 1 {
+		t.Fatalf("a channel's post opened a panel: %+v", client.sends)
+	}
+
+	b.handle(ctx, press(group, member, cb(groupAnonymousBot, "zone:Europe/Berlin")))
+	if len(client.alerts) != 1 || client.alerts[0] != i18n.T("ru", "msg.not_yours") || store.zones[groupID] == "Europe/Berlin" {
+		t.Fatalf("a member pressed an admin's panel: alerts = %v, zone = %q", client.alerts, store.zones[groupID])
+	}
+	b.handle(ctx, press(group, admin, cb(groupAnonymousBot, "zone:Europe/Berlin")))
+	if store.zones[groupID] != "Europe/Berlin" || len(client.edits) != 1 {
+		t.Fatalf("zone = %q, edits = %d", store.zones[groupID], len(client.edits))
+	}
+	// The redrawn panel is still every admin's.
+	if !hasOwner(client.edits[0].markup, groupAnonymousBot) {
+		t.Fatalf("redrawn panel = %+v, want it kept for every admin", client.edits[0].markup)
 	}
 }
 

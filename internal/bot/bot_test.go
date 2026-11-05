@@ -175,6 +175,7 @@ type fakeTelegram struct {
 	anims        []sent
 	animated     chan struct{} // told after each animation, when set
 	editErr      error         // every EditText fails with it, when set
+	threads      []int         // the forum topic of each send
 }
 
 func (f *fakeTelegram) EditAnimation(_ context.Context, chatID, messageID int64, a telegram.Animation, caption string, markup telegram.Markup) (tg.Message, error) {
@@ -210,8 +211,13 @@ func (f *fakeTelegram) SetMyCommandsForScope(context.Context, []tg.BotCommand, *
 	return nil
 }
 
-func (f *fakeTelegram) SendText(_ context.Context, chatID int64, text string, markup telegram.Markup) (tg.Message, error) {
+func (f *fakeTelegram) SendText(ctx context.Context, chatID int64, text string, markup telegram.Markup) (tg.Message, error) {
+	return f.SendTextIn(ctx, chatID, 0, text, markup)
+}
+
+func (f *fakeTelegram) SendTextIn(_ context.Context, chatID int64, thread int, text string, markup telegram.Markup) (tg.Message, error) {
 	f.sends = append(f.sends, sent{chatID: chatID, text: text, markup: markup})
+	f.threads = append(f.threads, thread)
 	return tg.Message{MessageID: 100, Chat: tg.Chat{ID: chatID}, Text: text}, nil
 }
 

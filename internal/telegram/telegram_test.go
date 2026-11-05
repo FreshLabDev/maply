@@ -241,4 +241,13 @@ func TestTextPanelCarriesStyleAndWebApp(t *testing.T) {
 	if edit := fake.requests[1]; edit.method != "editMessageText" || edit.body["reply_markup"] != nil || edit.body["message_id"] != float64(9) {
 		t.Fatalf("edit = %+v", edit)
 	}
+	if _, ok := send.body["message_thread_id"]; ok {
+		t.Fatalf("a send to the chat named a topic: %+v", send.body)
+	}
+	if _, err := c.SendTextIn(ctx, 42, 4, "<b>maply</b>", nil); err != nil {
+		t.Fatal(err)
+	}
+	if topic := fake.requests[2]; topic.body["message_thread_id"] != float64(4) {
+		t.Fatalf("send into a topic = %+v", topic.body)
+	}
 }

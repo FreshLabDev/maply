@@ -169,9 +169,18 @@ func (c *Client) SendAnimation(ctx context.Context, chatID int64, a Animation, c
 // SendText posts an HTML message without a link preview. It exists beside
 // tg's SendMessage because tg's keyboard has no web_app button.
 func (c *Client) SendText(ctx context.Context, chatID int64, text string, markup Markup) (tg.Message, error) {
+	return c.SendTextIn(ctx, chatID, 0, text, markup)
+}
+
+// SendTextIn is SendText into a forum topic; thread 0 is the chat itself,
+// or a forum's General.
+func (c *Client) SendTextIn(ctx context.Context, chatID int64, thread int, text string, markup Markup) (tg.Message, error) {
 	req := map[string]any{
 		"chat_id": chatID, "text": text, "parse_mode": "HTML",
 		"link_preview_options": map[string]bool{"is_disabled": true},
+	}
+	if thread != 0 {
+		req["message_thread_id"] = thread
 	}
 	if markup != nil {
 		req["reply_markup"] = markup

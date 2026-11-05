@@ -18,9 +18,10 @@ import (
 )
 
 // isStart reports whether a message is /start for maply. In a group a bare
-// /start is for every bot there, and /start@another is not ours.
+// /start is for every bot there, and /start@another is not ours. An admin
+// who writes anonymously writes as a bot too, on the group's behalf.
 func (b *Bot) isStart(m *tg.Message) bool {
-	if m.From == nil || m.From.IsBot {
+	if m.From == nil || (m.From.IsBot && !anonymousAdmin(m)) {
 		return false
 	}
 	head, _, _ := strings.Cut(strings.TrimSpace(m.Text), " ")
@@ -29,6 +30,42 @@ func (b *Bot) isStart(m *tg.Message) bool {
 		return false
 	}
 	return !addressed || strings.EqualFold(at, b.opts.Username)
+}
+
+// anonymousAdmin reports whether a message comes from an admin who writes
+// as the group. Telegram signs it with GroupAnonymousBot in From and the
+// group itself in sender_chat; only an admin can write so. A channel's post
+// carried into its discussion group names the channel, not the group.
+func anonymousAdmin(m *tg.Message) bool {
+	if m.From == nil || m.From.ID != groupAnonymousBot || len(m.Raw) == 0 {
+		return false
+	}
+	var raw struct {
+		SenderChat *struct {
+			ID int64 `json:"id"`
+		} `json:"sender_chat"`
+	}
+	return json.Unmarshal(m.Raw, &raw) == nil && raw.SenderChat != nil && raw.SenderChat.ID == m.Chat.ID
+}
+
+// groupAnonymousBot is the user Telegram puts in From for an anonymous
+// admin. A panel opened by one belongs to every admin of the group.
+const groupAnonymousBot = 1087968824
+
+// threadOf is the forum topic a message is in, so a reply lands there and
+// not in General. Telegram also numbers reply chains outside forums, and
+// only is_topic_message tells a topic apart.
+func threadOf(m tg.Message) int {
+	if m.MessageThreadID == 0 || len(m.Raw) == 0 {
+		return 0
+	}
+	var raw struct {
+		IsTopicMessage bool `json:"is_topic_message"`
+	}
+	if json.Unmarshal(m.Raw, &raw) != nil || !raw.IsTopicMessage {
+		return 0
+	}
+	return m.MessageThreadID
 }
 
 // publishCommands sets /start's description and the bot's profile texts in
@@ -128,13 +165,15 @@ func (b *Bot) sendHome(ctx context.Context, m *tg.Message) error {
 		if zoneLang == "" {
 			zoneLang = raw
 		}
-		if admin, err = b.isAdmin(ctx, m.Chat.ID, m.From.ID); err != nil {
+		if anonymousAdmin(m) {
+			admin = true
+		} else if admin, err = b.isAdmin(ctx, m.Chat.ID, m.From.ID); err != nil {
 			// The member's panel is the safe one to show.
 			b.log.Warn("admin check failed", "chat", m.Chat.ID, "error", err)
 		}
 	}
 	text, markup := v.home(b.opts.AppURL, admin, round.Name(zone, zoneLang))
-	if _, err := b.tg.SendText(ctx, m.Chat.ID, text, markup); err != nil {
+	if _, err := b.tg.SendTextIn(ctx, m.Chat.ID, threadOf(*m), text, markup); err != nil {
 		return fmt.Errorf("send home to %d: %w", m.Chat.ID, err)
 	}
 	return nil
@@ -189,12 +228,21 @@ func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
 	}
 	reader := i18n.Resolve(raw)
 	if cq.From.ID != owner {
-		return b.tg.AnswerCallbackQueryAlert(ctx, cq.ID, i18n.T(reader, "msg.not_yours"))
+		mine := false
+		if owner == groupAnonymousBot && scopeOf(cq.Message.Chat) == scopeGroup {
+			if mine, err = b.isAdmin(ctx, cq.Message.Chat.ID, cq.From.ID); err != nil {
+				_ = b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
+				return err
+			}
+		}
+		if !mine {
+			return b.tg.AnswerCallbackQueryAlert(ctx, cq.ID, i18n.T(reader, "msg.not_yours"))
+		}
 	}
 	if (!isPanel(cq.Message) && !b.isCard(cq.Message)) || !pressedHere(cq.Message, cq.Data) {
 		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
 	}
-	alert, err := b.runAction(ctx, cq, action, raw)
+	alert, err := b.runAction(ctx, cq, owner, action, raw)
 	if alert != "" {
 		return b.tg.AnswerCallbackQueryAlert(ctx, cq.ID, alert)
 	}
@@ -207,10 +255,11 @@ func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
 }
 
 // runAction does what the button says and redraws the panel. It returns an
-// alert to show instead when the press is refused.
-func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw string) (string, error) {
+// alert to show instead when the press is refused. The panel keeps its
+// owner: one an anonymous admin opened stays every admin's.
+func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, owner int64, action, raw string) (string, error) {
 	chat := cq.Message.Chat
-	v := view{lang: i18n.Resolve(raw), owner: cq.From.ID, sc: scopeOf(chat)}
+	v := view{lang: i18n.Resolve(raw), owner: owner, sc: scopeOf(chat)}
 	if action == actClose {
 		if v.sc != scopeGroup {
 			return "", nil
@@ -254,7 +303,7 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 		}
 		// A picture cannot turn back into text: the panel comes again in a
 		// new message, and the picture goes.
-		msg, err := b.tg.SendText(ctx, chat.ID, text, markup)
+		msg, err := b.tg.SendTextIn(ctx, chat.ID, threadOf(cq.Message), text, markup)
 		if err != nil {
 			return 0, err
 		}

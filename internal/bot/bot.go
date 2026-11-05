@@ -51,6 +51,7 @@ type Telegram interface {
 	GetUpdates(ctx context.Context, offset int64, timeoutSeconds int) ([]tg.Update, error)
 	SetMyCommandsForScope(ctx context.Context, commands []tg.BotCommand, scope *tg.BotCommandScope) error
 	SendText(ctx context.Context, chatID int64, text string, markup telegram.Markup) (tg.Message, error)
+	SendTextIn(ctx context.Context, chatID int64, thread int, text string, markup telegram.Markup) (tg.Message, error)
 	EditText(ctx context.Context, chatID, messageID int64, text string, markup telegram.Markup) error
 	EditAnimation(ctx context.Context, chatID, messageID int64, a telegram.Animation, caption string, markup telegram.Markup) (tg.Message, error)
 	DeleteMessage(ctx context.Context, chatID, messageID int64) error
@@ -221,7 +222,7 @@ func (b *Bot) handle(ctx context.Context, u tg.Update) {
 		}
 	}
 	// Whoever writes to maply gets the day again, after a block too.
-	if u.Message != nil && !user.IsBot {
+	if u.Message != nil && (!user.IsBot || anonymousAdmin(u.Message)) {
 		if err := b.store.ReturnChat(ctx, chat.ID); err != nil {
 			b.log.Error("return chat failed", "update_id", u.UpdateID, "error", err)
 		}
