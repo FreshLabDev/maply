@@ -93,21 +93,35 @@ func (c *Client) EditAnimation(ctx context.Context, chatID, messageID int64, a A
 		}
 		return call[tg.Message](ctx, c, "editMessageMedia", req)
 	}
-	if c.Upload == nil {
-		return tg.Message{}, errors.New("telegram editMessageMedia: no uploader")
-	}
 	media["media"] = "attach://animation"
 	m, err := json.Marshal(media)
 	if err != nil {
 		return tg.Message{}, err
 	}
 	fields := map[string]string{"chat_id": fmt.Sprint(chatID), "message_id": fmt.Sprint(messageID), "media": string(m)}
-	if markup != nil {
-		k, err := json.Marshal(markup)
-		if err != nil {
-			return tg.Message{}, err
-		}
-		fields["reply_markup"] = string(k)
+	if err := withMarkup(fields, markup); err != nil {
+		return tg.Message{}, err
 	}
-	return c.Upload.post(ctx, "editMessageMedia", fields, "animation", "maply.mp4", a.MP4)
+	return c.upload(ctx, "editMessageMedia", fields, "animation", "maply.mp4", a.MP4)
+}
+
+// upload sends a file with its fields in one multipart request.
+func (c *Client) upload(ctx context.Context, method string, fields map[string]string, field, name string, data []byte) (tg.Message, error) {
+	if c.Upload == nil {
+		return tg.Message{}, fmt.Errorf("telegram %s: no uploader", method)
+	}
+	return c.Upload.post(ctx, method, fields, field, name, data)
+}
+
+// withMarkup adds the buttons to an upload's fields; nil adds none.
+func withMarkup(fields map[string]string, markup Markup) error {
+	if markup == nil {
+		return nil
+	}
+	k, err := json.Marshal(markup)
+	if err != nil {
+		return err
+	}
+	fields["reply_markup"] = string(k)
+	return nil
 }

@@ -75,7 +75,9 @@ func client(t *testing.T) (*Client, *fakeBotAPI) {
 	}}
 	srv := httptest.NewServer(fake)
 	t.Cleanup(srv.Close)
-	return New(tg.New("123:abc", tg.WithAPIBase(srv.URL))), fake
+	c := New(tg.New("123:abc", tg.WithAPIBase(srv.URL)))
+	c.Upload = &Uploader{Base: srv.URL, Token: "123:abc"}
+	return c, fake
 }
 
 func TestWebAppButtonByFileID(t *testing.T) {
@@ -94,7 +96,9 @@ func TestWebAppButtonByFileID(t *testing.T) {
 	}
 }
 
-func TestUploadThenButtons(t *testing.T) {
+// An upload carries its caption and buttons in the same request: sent apart,
+// a failed second call would make the job send the message again.
+func TestUploadCarriesItsButtons(t *testing.T) {
 	c, fake := client(t)
 	path := filepath.Join(t.TempDir(), "Zk3qT9xWm2LpV7aN.jpg")
 	if err := os.WriteFile(path, []byte("jpeg"), 0o600); err != nil {
@@ -108,12 +112,17 @@ func TestUploadThenButtons(t *testing.T) {
 	if len(msg.Photo) == 0 || msg.Photo[0].FileID != "F1" {
 		t.Fatalf("message = %+v", msg)
 	}
-	if len(fake.requests) != 2 || fake.requests[0].method != "sendPhoto" || fake.requests[1].method != "editMessageReplyMarkup" {
+	if len(fake.requests) != 1 || fake.requests[0].method != "sendPhoto" {
 		t.Fatalf("requests = %+v", fake.requests)
 	}
+	up := fake.requests[0].upload
 	// Telegram records the upload's name; the key stays on our disk.
-	if got := fake.requests[0].upload["photo"]; got != "file:maply.jpg" {
+	if got := up["photo"]; got != "file:maply.jpg" {
 		t.Fatalf("uploaded as %q", got)
+	}
+	if up["chat_id"] != "-100" || up["caption"] != "caption" || up["parse_mode"] != "HTML" ||
+		!strings.Contains(up["reply_markup"], `"url":"https://t.me/maplyin_bot/play?startapp=x"`) {
+		t.Fatalf("fields = %v", up)
 	}
 }
 
@@ -123,13 +132,13 @@ func TestPNGBytesUploadAsAPhoto(t *testing.T) {
 	if _, err := c.SendPhoto(context.Background(), -100, Photo{PNG: []byte("png")}, "caption", markup); err != nil {
 		t.Fatal(err)
 	}
-	if len(fake.requests) != 2 || fake.requests[0].upload["photo"] != "file:maply.png" {
+	if len(fake.requests) != 1 || fake.requests[0].upload["photo"] != "file:maply.png" || fake.requests[0].upload["reply_markup"] == "" {
 		t.Fatalf("requests = %+v", fake.requests)
 	}
 }
 
-// An animation is uploaded as a document, which Telegram makes an animation
-// of, and then goes to the other chats by file_id with its Mini App button.
+// An animation is uploaded once with its buttons, then goes to the other
+// chats by file_id with its Mini App button.
 func TestAnimationUploadThenByFileID(t *testing.T) {
 	c, fake := client(t)
 	markup := Markup{{{Text: "Guess", URL: "https://t.me/maplyin_bot/play?startapp=x"}}}
@@ -140,15 +149,15 @@ func TestAnimationUploadThenByFileID(t *testing.T) {
 	if msg.Document == nil || msg.Document.FileID != "A1" {
 		t.Fatalf("message = %+v", msg)
 	}
-	if len(fake.requests) != 2 || fake.requests[0].method != "sendDocument" || fake.requests[0].upload["document"] != "file:maply.mp4" ||
-		fake.requests[1].method != "editMessageReplyMarkup" {
+	if up := fake.requests[0].upload; len(fake.requests) != 1 || fake.requests[0].method != "sendAnimation" || up["animation"] != "file:maply.mp4" ||
+		up["width"] != "720" || up["duration"] != "14" || up["reply_markup"] == "" {
 		t.Fatalf("requests = %+v", fake.requests)
 	}
 	if _, err := c.SendAnimation(context.Background(), 42, Animation{FileID: "A1", Width: 720, Height: 900, Duration: 14}, "caption",
 		Markup{{{Text: "Guess", WebApp: "https://maply.ws04.cc/"}}}); err != nil {
 		t.Fatal(err)
 	}
-	req := fake.requests[2]
+	req := fake.requests[1]
 	if req.method != "sendAnimation" || req.body["animation"] != "A1" || req.body["width"] != float64(720) || req.body["reply_markup"] == nil {
 		t.Fatalf("request = %+v", req)
 	}

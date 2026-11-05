@@ -2,12 +2,13 @@
 
 // Package telegram adds to tg what maply needs and tg does not type yet: the
 // web_app button, pinning, the chat menu button and prepared inline messages.
-// Everything goes through tg's Client.Call, so it shares tg's transport,
-// retries and token redaction. When tg learns a method, it moves out of here.
+// Everything but uploads goes through tg's Client.Call, so it shares tg's
+// transport, retries and token redaction; uploads go through Uploader, which
+// carries the buttons in the same request. When tg learns a method, it moves
+// out of here.
 package telegram
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -104,10 +105,10 @@ type Photo struct {
 	PNG    []byte
 }
 
-// SendPhoto posts a photo with an HTML caption and buttons. A file_id goes in
-// one call. An upload goes through tg, which cannot carry a web_app button
-// yet, so the buttons follow in an edit; the returned message holds the
-// file_id to reuse for every other chat.
+// SendPhoto posts a photo with an HTML caption and buttons, always in one
+// request: a message sent first and given its buttons after would, when the
+// second call failed, be sent again by the job's retry. The returned message
+// of an upload holds the file_id to reuse for every other chat.
 func (c *Client) SendPhoto(ctx context.Context, chatID int64, photo Photo, caption string, markup Markup) (tg.Message, error) {
 	if photo.FileID != "" {
 		req := map[string]any{"chat_id": chatID, "photo": photo.FileID, "caption": caption, "parse_mode": "HTML"}
@@ -124,17 +125,13 @@ func (c *Client) SendPhoto(ctx context.Context, chatID int64, photo Photo, capti
 		}
 		ext = filepath.Ext(photo.Path)
 	}
+	fields := map[string]string{"chat_id": fmt.Sprint(chatID), "caption": caption, "parse_mode": "HTML"}
+	if err := withMarkup(fields, markup); err != nil {
+		return tg.Message{}, err
+	}
 	// The upload's name is what Telegram records; the key is random already,
 	// but a fixed name keeps even that out of Telegram.
-	msg, err := c.Client.SendPhoto(ctx, chatID, tg.InputFileUpload{Filename: "maply" + ext, Data: bytes.NewReader(data)},
-		tg.CaptionOptions{Caption: caption})
-	if err != nil || markup == nil {
-		return msg, err
-	}
-	if err := c.EditMarkup(ctx, chatID, msg.MessageID, markup); err != nil {
-		return msg, fmt.Errorf("photo sent without buttons: %w", err)
-	}
-	return msg, nil
+	return c.upload(ctx, "sendPhoto", fields, "photo", "maply"+ext, data)
 }
 
 // Animation is a silent MP4 that Telegram plays as a GIF: a file it already
@@ -145,11 +142,9 @@ type Animation struct {
 	Width, Height, Duration int
 }
 
-// SendAnimation posts an animation with an HTML caption and buttons. tg has
-// no sendAnimation yet, so an upload goes as a document, which Telegram turns
-// into an animation by itself since the MP4 has no sound; the buttons follow
-// in an edit, as for a photo. The returned message's Document holds the
-// file_id to send to every other chat with sendAnimation.
+// SendAnimation posts an animation with an HTML caption and buttons in one
+// request, as SendPhoto does. The returned message's Document holds the
+// file_id to send to every other chat.
 func (c *Client) SendAnimation(ctx context.Context, chatID int64, a Animation, caption string, markup Markup) (tg.Message, error) {
 	if a.FileID != "" {
 		req := map[string]any{"chat_id": chatID, "animation": a.FileID, "caption": caption, "parse_mode": "HTML"}
@@ -161,15 +156,14 @@ func (c *Client) SendAnimation(ctx context.Context, chatID int64, a Animation, c
 		}
 		return call[tg.Message](ctx, c, "sendAnimation", req)
 	}
-	msg, err := c.Client.SendDocument(ctx, chatID, tg.InputFileUpload{Filename: "maply.mp4", Data: bytes.NewReader(a.MP4)},
-		tg.DocumentOptions{CaptionOptions: tg.CaptionOptions{Caption: caption}})
-	if err != nil || markup == nil {
-		return msg, err
+	fields := map[string]string{"chat_id": fmt.Sprint(chatID), "caption": caption, "parse_mode": "HTML"}
+	if a.Width > 0 {
+		fields["width"], fields["height"], fields["duration"] = fmt.Sprint(a.Width), fmt.Sprint(a.Height), fmt.Sprint(a.Duration)
 	}
-	if err := c.EditMarkup(ctx, chatID, msg.MessageID, markup); err != nil {
-		return msg, fmt.Errorf("animation sent without buttons: %w", err)
+	if err := withMarkup(fields, markup); err != nil {
+		return tg.Message{}, err
 	}
-	return msg, nil
+	return c.upload(ctx, "sendAnimation", fields, "animation", "maply.mp4", a.MP4)
 }
 
 // SendText posts an HTML message without a link preview. It exists beside
