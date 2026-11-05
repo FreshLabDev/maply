@@ -27,6 +27,35 @@ func NewIntrigue(day, hour, minute int, weather string, chatHour float64, reveal
 	return &Intrigue{Day: day, Hour: hour, Minute: minute, Weather: weather, ChatHour: chatHour, Reveal: reveal, Lang: ShapingLang(lang)}
 }
 
+// The timeline under the dial: the chat's day from 07:00 to 20:00.
+const lineX0, lineX1 = 112, 552
+
+// filled is how many of the timeline's dots the chat's hour fills.
+func (in *Intrigue) filled() int {
+	n := timelineDots(lineX0, lineX1)
+	share := (in.ChatHour - 7) / 13
+	k := 0
+	for i := range n {
+		if float64(i)/float64(n-1) <= share {
+			k = i + 1
+		}
+	}
+	return k
+}
+
+// share is the filled part of the timeline, halfway between the last filled
+// dot and the next: every hour that fills the same dots draws the same.
+func (in *Intrigue) share() float64 {
+	return (float64(in.filled()) - 0.5) / float64(timelineDots(lineX0, lineX1)-1)
+}
+
+// Key names the loop: intrigues with the same key draw the same frames, so
+// one drawn for a chat serves every chat with the same time there, weather
+// and share of the day left.
+func (in *Intrigue) Key() string {
+	return fmt.Sprintf("intrigue %d %02d:%02d %q %d %q %s", in.Day, in.Hour, in.Minute, in.Weather, in.filled(), in.Reveal, in.Lang)
+}
+
 func (in *Intrigue) Size() (int, int)  { return 720, 720 }
 func (in *Intrigue) Duration() float64 { return intrigueDur }
 
@@ -94,6 +123,6 @@ func (in *Intrigue) Draw(c *Canvas, t float64) {
 	// Here: how much of the day is left before the answer. The badge turns
 	// once a loop.
 	c.badge(60, 664, 28, -0.6+t/intrigueDur*2*math.Pi, nil)
-	c.timeline(112, 552, 664, t, 3, (in.ChatHour-7)/13)
+	c.timeline(lineX0, lineX1, 664, t, 3, in.share())
 	c.Text(Display, 50, in.Reveal, 688, 682, Right, white, 1, nil)
 }

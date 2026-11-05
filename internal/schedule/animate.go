@@ -41,6 +41,49 @@ type Animator struct {
 	// west still posts today.
 	days    map[round.Date]*morningPost
 	dayLock sync.Mutex
+
+	// loops are scenes drawn for one chat that other chats can be sent as
+	// they are, by their Key: the afternoon intrigue is the same picture in
+	// every chat with the same time there and share of the day left.
+	loops    map[string]*sharedLoop
+	loopLock sync.Mutex
+}
+
+// A shared loop: the MP4 until Telegram has it, then its file_id.
+type sharedLoop struct {
+	mp4    []byte
+	fileID string
+}
+
+// maxLoops bounds the shared loops kept; they serve one afternoon.
+const maxLoops = 64
+
+// keyed is a scene whose frames are named by a key.
+type keyed interface{ Key() string }
+
+func (a *Animator) loop(key string) (sharedLoop, bool) {
+	a.loopLock.Lock()
+	defer a.loopLock.Unlock()
+	l, ok := a.loops[key]
+	if !ok {
+		return sharedLoop{}, false
+	}
+	return *l, true
+}
+
+func (a *Animator) setLoop(key string, l sharedLoop) {
+	a.loopLock.Lock()
+	defer a.loopLock.Unlock()
+	if a.loops == nil || len(a.loops) >= maxLoops {
+		a.loops = map[string]*sharedLoop{}
+	}
+	a.loops[key] = &l
+}
+
+func (a *Animator) dropLoop(key string) {
+	a.loopLock.Lock()
+	defer a.loopLock.Unlock()
+	delete(a.loops, key)
 }
 
 type morningPost struct {
@@ -204,14 +247,37 @@ func (s *Scheduler) sendScene(ctx context.Context, chatID int64, scene anim.Scen
 	if s.Anim == nil || scene == nil {
 		return tg.Message{}, false, nil
 	}
-	start := time.Now()
-	mp4, err := s.Anim.render(ctx, scene)
-	if err == nil {
-		s.Log.Debug("animation drawn", "chat", chatID, "bytes", len(mp4), "took", time.Since(start).Round(time.Millisecond))
-		var msg tg.Message
-		if msg, err = s.TG.SendAnimation(ctx, chatID, animation(scene, mp4), caption, markup); err == nil || !refusedPicture(err) {
-			return msg, true, err
+	var key string
+	if k, ok := scene.(keyed); ok {
+		key = k.Key()
+	}
+	a := animation(scene, nil)
+	if l, ok := s.Anim.loop(key); key != "" && ok {
+		a.MP4, a.FileID = l.mp4, l.fileID
+	} else {
+		start := time.Now()
+		mp4, err := s.Anim.render(ctx, scene)
+		if err != nil {
+			s.Log.Warn("animation not drawn, falling back", "chat", chatID, "error", err)
+			return tg.Message{}, false, nil
 		}
+		s.Log.Debug("animation drawn", "chat", chatID, "bytes", len(mp4), "took", time.Since(start).Round(time.Millisecond))
+		a.MP4 = mp4
+	}
+	msg, err := s.TG.SendAnimation(ctx, chatID, a, caption, markup)
+	if key != "" {
+		switch id := animationID(msg); {
+		case err == nil && id != "":
+			s.Anim.setLoop(key, sharedLoop{fileID: id})
+		case err == nil:
+			s.Anim.setLoop(key, sharedLoop{mp4: a.MP4})
+		case refusedPicture(err) && !noRights(err):
+			// The file itself was refused: the next chat draws it anew.
+			s.Anim.dropLoop(key)
+		}
+	}
+	if err == nil || !refusedPicture(err) {
+		return msg, true, err
 	}
 	s.Log.Warn("animation not sent, falling back", "chat", chatID, "error", err)
 	return tg.Message{}, false, nil

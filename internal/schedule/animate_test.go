@@ -157,3 +157,33 @@ func TestAnimationIDIsOnlyForAnimations(t *testing.T) {
 		}
 	}
 }
+
+// The afternoon intrigue is drawn once for every chat with the same time
+// there and share of the day left, then sent by file_id; another share is
+// drawn anew.
+func TestIntrigueIsDrawnOncePerKey(t *testing.T) {
+	ffmpeg, err := osexec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("no ffmpeg")
+	}
+	if raceEnabled {
+		t.Skip("encoding under the race detector takes minutes")
+	}
+	tgc := &animTG{}
+	s, _ := resultSender(nil, panoStore{})
+	s.TG, s.Anim = tgc, &Animator{FFmpeg: ffmpeg}
+	for chat, chatHour := range []float64{16.0, 16.1, 17.5} {
+		sc := anim.NewIntrigue(4, 3, 40, "", chatHour, "20:00", "en")
+		if _, sent, err := s.sendScene(context.Background(), int64(chat), sc, "caption", nil); err != nil || !sent {
+			t.Fatalf("chat %d: sent %v, %v", chat, sent, err)
+		}
+	}
+	if len(tgc.animations) != 3 {
+		t.Fatalf("%d animations", len(tgc.animations))
+	}
+	for i, upload := range []bool{true, false, true} {
+		if a := tgc.animations[i]; (len(a.MP4) > 0) != upload || (a.FileID != "") == upload {
+			t.Errorf("chat %d: uploaded %d bytes, file %q; want upload %v", i, len(a.MP4), a.FileID, upload)
+		}
+	}
+}

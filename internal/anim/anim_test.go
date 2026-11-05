@@ -384,3 +384,27 @@ func TestEncodeWaitsForATurn(t *testing.T) {
 		t.Fatalf("err = %v, want a wait for a turn", err)
 	}
 }
+
+// Intrigues with one key draw the same frames; another share of the day
+// left is another key.
+func TestIntrigueKeyNamesTheFrames(t *testing.T) {
+	a, b := NewIntrigue(4, 3, 40, "22 °C", 16.0, "20:00", "en"), NewIntrigue(4, 3, 40, "22 °C", 16.1, "20:00", "en")
+	if a.Key() != b.Key() {
+		t.Fatalf("keys %q and %q", a.Key(), b.Key())
+	}
+	if !bytes.Equal(Still(a, 1.3).Pix, Still(b, 1.3).Pix) {
+		t.Fatal("same key, different frames")
+	}
+	for _, other := range []*Intrigue{
+		NewIntrigue(4, 3, 40, "22 °C", 17.5, "20:00", "en"),
+		NewIntrigue(4, 3, 41, "22 °C", 16.0, "20:00", "en"),
+		NewIntrigue(4, 3, 40, "23 °C", 16.0, "20:00", "en"),
+	} {
+		if other.Key() == a.Key() {
+			t.Errorf("%q shares the key", other.Key())
+		}
+	}
+	if NewIntrigue(4, 3, 40, "", 6, "20:00", "en").filled() != 0 || NewIntrigue(4, 3, 40, "", 20, "20:00", "en").filled() != timelineDots(lineX0, lineX1) {
+		t.Error("the ends of the day fill none and all dots")
+	}
+}

@@ -89,7 +89,7 @@ func (c *Canvas) header(day int, size, y float64) {
 // timeline is a row of dots from now to the reveal, with a glint running
 // along it towards the time.
 func (c *Canvas) timeline(x0, x1, y, t, period, filled float64) {
-	n := int(math.Round((x1-x0)/17)) + 1
+	n := timelineDots(x0, x1)
 	for i := range n {
 		f := float64(i) / float64(n-1)
 		ph := math.Mod(t/period, 1)*1.4 - 0.2
@@ -101,6 +101,9 @@ func (c *Canvas) timeline(x0, x1, y, t, period, filled float64) {
 		}
 	}
 }
+
+// timelineDots is how many dots a timeline from x0 to x1 has.
+func timelineDots(x0, x1 float64) int { return int(math.Round((x1-x0)/17)) + 1 }
 
 // Thousands writes n rounded, its thousands apart by a no-break space, the
 // narrowest space the brand's faces have: 1 234.
