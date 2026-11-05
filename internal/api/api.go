@@ -37,6 +37,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/card"
 	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/free"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/i18n"
 	"github.com/FreshLabDev/maply/internal/round"
@@ -120,8 +121,14 @@ type Server struct {
 	Avatars Avatars
 	// Accounts signs people in on the site; nil leaves the site to guests.
 	Accounts *account.Service
-	Log      *slog.Logger
-	Now      func() time.Time
+	// Free is the free game; nil turns its endpoints off. People records
+	// its players in core, and Invites prepares a party's invitation; nil
+	// leaves the app on a plain link.
+	Free    *free.Service
+	People  People
+	Invites Inviter
+	Log     *slog.Logger
+	Now     func() time.Time
 
 	ipLimit    *limiter
 	userLimit  *limiter
@@ -141,6 +148,9 @@ type Server struct {
 	ogLimit   *limiter
 	ogAll     *limiter
 	metaLimit *limiter
+	// The free game's own limits: a party polls every two seconds, which
+	// the day's limit per person would not survive.
+	freeLimit, pollLimit, makeLimit, inviteLimit, freeSiteAll *limiter
 
 	// tied remembers who has been tied to which chat's reveal, so a result
 	// polled again does not write to core every time.
@@ -208,6 +218,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /img/{key}", s.image)
 	mux.HandleFunc("GET /thumb/{name}", s.thumb)
 	mux.HandleFunc("GET /og/day/{name}", s.og)
+	s.freeRoutes(mux)
 	return s.withViewer(mux)
 }
 
@@ -322,7 +333,13 @@ func (s *Server) resolveAs(r *http.Request, touch bool) (play, error) {
 	user := tg.User{ID: data.User.ID, FirstName: data.User.FirstName, LastName: data.User.LastName,
 		Username: data.User.Username, LanguageCode: data.User.LanguageCode}
 
-	if data.StartParam == "" {
+	// A party's invitation opens the app as the DM does: the free game has
+	// no chat, and the day's game from it is the person's own. Seen from
+	// there it is the DM's place, so the DM's reveal closes their answers as
+	// it does for a plain link to the app; a refused morning post to someone
+	// who never started the bot is the scheduler's to drop. The free game's
+	// own requests record them without a DM (TouchPerson).
+	if _, invite := free.InviteCode(data.StartParam); data.StartParam == "" || invite {
 		if touch {
 			if err := s.touch(ctx, p); err != nil {
 				return play{}, err

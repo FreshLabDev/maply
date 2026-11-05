@@ -84,6 +84,10 @@ player, and production-minded.
   bold title, an italic hint, the substance in a quote, `◉`/`◎` on choices,
   Success on the current one, Back, and Close only in a group.
 - Bot names are written in lowercase everywhere, including headings and images.
+- Free play (`internal/free`, `/play`, `/party/<code>`) is outside the day:
+  its own `free_*` tables, no place in the world, no stats shared with the
+  day, and no bot message in groups. Its rules are in `docs/design.md` →
+  "Free play". With friends is Telegram only until the site has sign-in.
 
 ## Anti-Cheat Invariants
 
@@ -152,6 +156,24 @@ the diff looks like.
   The site's write endpoints take only JSON from maply's own pages.
 - `/api/log` strips query strings, which can carry `initData`, and is rate
   limited per address and in total.
+- A free place never becomes a day's place: the day's queue reads
+  `pool = 'daily'` only, and free play takes the free pool and days in
+  `day_closed` that none of the game's players answered.
+- A free place's picture is served only under its round's address
+  (`/api/free/img/<token>`: the game, the place's number and an HMAC) and only
+  once the place has started, never under the place's image key, which the
+  days page shows for closed days. Starting a place fixes its start and end;
+  starting it again gives the same time left. The coordinates, name, fact
+  and source come only in the answer, and in a party when the place closes;
+  before that a party's poll says who has answered and nothing else.
+- A Telegram person who makes or joins a free game is recorded with
+  `TouchPerson`, never `Touch`: free play must not add a DM context that
+  closes their day's answer window or puts them on the morning DM post.
+  The day's game opened from a party's invitation is the DM's, and touches
+  as the DM does: the invitation is not a way around the DM's reveal.
+- Free play takes the free pool before closed days: a closed day's picture
+  is public on the days page. A late joiner in a party skips a place drawn
+  before they came that they have had (`FreeKnown`).
 - The `startapp` payload is signed with HMAC; group membership is checked with
   `getChatMember`. `initData` is verified on every request that writes.
 

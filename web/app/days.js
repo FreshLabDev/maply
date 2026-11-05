@@ -82,6 +82,7 @@ function showDays() {
   let html = '<div class="days" id="days"><div class="dl" id="dList">';
   if (SITE) html += '<label class="sh-name"><span class="up">' + esc(T("your_name")) + '</span><input id="shName" lang="' + nameLang() + '" maxlength="24" autocomplete="nickname" placeholder="' + esc(T("guest")) + '" value="' + esc(siteName()) + '"></label>';
   if (typeof accountEntry === "function") html += accountEntry();
+  if (window.Free) html += Free.entry();
   if (!DAYS.days.length) html += '<p class="sh-wait">' + esc(T("no_days")) + '</p>';
   html += '<div id="dRows">' + rows(DAYS.days, null) + '</div>';
   if (DAYS.next) html += '<p class="dmore up" id="dMore">' + esc(lines("loading")[0]) + '</p>';

@@ -22,6 +22,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/card"
 	"github.com/FreshLabDev/maply/internal/config"
 	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/free"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/health"
 	"github.com/FreshLabDev/maply/internal/profile"
@@ -169,6 +170,10 @@ func run(log *slog.Logger) error {
 	}
 	b := bot.New(store, tgc, log, opts)
 
+	// The free game: alone or with friends, apart from the day's ranking.
+	freeGame := &free.Service{Store: store, Countries: countries, ImageKey: signer.Key("maply-free-img-v1"), Log: log}
+	go freeGame.Run(ctx, time.Minute)
+
 	gameAPI := &api.Server{
 		Store:       store,
 		InitData:    auth.NewVerifier(cfg.TelegramBotToken),
@@ -180,6 +185,9 @@ func run(log *slog.Logger) error {
 		BotUsername: me.Username,
 		AppURL:      cfg.AppURL,
 		Avatars:     avatars,
+		Free:        freeGame,
+		People:      store,
+		Invites:     tgc,
 		Log:         log,
 	}
 	if cards != nil {

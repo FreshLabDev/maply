@@ -73,6 +73,25 @@ The session cookie is `__Host-` and `Secure`; browsers keep such cookies on
 `http://127.0.0.1` and `http://localhost`. Open the stand at the address it
 prints: the providers send the browser back there, and a sign-in started on
 another host name has no state to come back to.
+## Free play on the stand
+
+`cmd/maply-dev/free.go` runs free play on the stand's clock. The seed gives
+it a pool: of the approved places no day has used, the first ten stay in the
+day's queue and the rest go to the free pool, and drawn panoramas at 24
+capitals fill a pool still smaller than that. A curation folder of free
+places (`out-free`) loads as free by itself.
+
+The block on `/dev` opens `/play` as the owner on the phone or Telegram
+Desktop, or as a site guest, and lists the parties in a lobby or playing.
+
+- **Bots.** "Добавить ботов" puts up to seven bot players into a party by
+  its code. They join as the invitation would, poll as the app does, answer
+  near the place after a while and now and then let the time run out.
+- **Invitations.** "приглашение как …" opens the party's invitation as
+  another player, as the button under the prepared message does.
+- **Restart.** The bots live in memory: after a restart the party keeps its
+  players, but nobody answers for them until the same form adds them again,
+  in the seats they had.
 
 ## Extensions
 
