@@ -91,10 +91,10 @@ type Meta struct {
 type MetaFunc func(r *http.Request, path string) (Meta, bool)
 
 // Pages are the addresses the app draws itself. The server answers each with
-// index.html, and router.js picks the screen from the path. "*" stands for one
-// path segment: a day, a party code, a player. A screen that needs a new
-// address adds it here.
-var Pages = []string{"/days", "/days/*", "/me", "/play", "/party/*", "/p/*"}
+// index.html, and router.js picks the screen from the path: "/" is the menu
+// and "/today" the day. "*" stands for one path segment: a day, a party code,
+// a player. A screen that needs a new address adds it here.
+var Pages = []string{"/today", "/days", "/days/*", "/top", "/me", "/play", "/party/*", "/p/*"}
 
 // segment is what "*" in Pages matches: short, and nothing a file name or a
 // path trick could need.

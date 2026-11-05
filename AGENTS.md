@@ -21,12 +21,14 @@ player, and production-minded.
 - The app is one page on many addresses: the server answers every path in
   `web.Pages` with `index.html`, and `web/app/router.js` maps the path to a
   screen. A screen registers itself there from its own file; a new address
-  goes into `Pages`. `index.html` names its files from the root.
+  goes into `Pages`. `index.html` names its files from the root. `/` is the
+  menu (`menu.js`) and `/today` the day: a post's button opens the day, the
+  bot's menu button and `/start` open the menu.
 - `desktop.css` lays the app out on a tablet and a computer over `app.css`.
   `html.desk` (from 1024×600, set by `desk.js`) marks the computer's layout;
-  the file's header documents the base a screen builds its own on. A screen
-  in the computer's header passes `nav: { href, t }` to `Router.screen`. The
-  phone's layout must not change.
+  the file's header documents the base a screen builds its own on: a page is
+  `.dk-page` with `.dk-wrap`, up to `--page` (1440 px). The header's links
+  are `desk.js`'s. The phone's layout must not change.
 - The result is a map card when `CARD_RENDERER_URL` names a headless Chromium:
   `internal/card` serves the page `/card/result/<chat>/<date>`, the renderer
   photographs it, and `schedule` sends the PNG. Any renderer failure falls back

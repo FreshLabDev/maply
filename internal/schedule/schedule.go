@@ -15,6 +15,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -652,13 +653,14 @@ func (s *Scheduler) pin(ctx context.Context, c db.Chat, d round.Date, msgID int6
 	return false
 }
 
-// playMarkup is the post's one button. A DM opens the Mini App directly; a
-// group gets a link with a signed payload naming the chat and the date,
-// because Telegram refuses web_app buttons in groups.
+// playMarkup is the post's one button. A DM opens the Mini App on the day,
+// /today, since the app's root is its menu; a group gets a link with a signed
+// payload naming the chat and the date, because Telegram refuses web_app
+// buttons in groups, and the app opens such a start on the day.
 func (s *Scheduler) playMarkup(c db.Chat, d round.Date, lang, key string) (telegram.Markup, error) {
 	text := i18n.T(lang, key)
 	if c.Kind == "dm" && s.AppURL != "" {
-		return telegram.Markup{{{Text: text, WebApp: s.AppURL, Style: tg.StylePrimary}}}, nil
+		return telegram.Markup{{{Text: text, WebApp: dayURL(s.AppURL), Style: tg.StylePrimary}}}, nil
 	}
 	link := "https://t.me/" + s.Username + "/play"
 	if c.Kind == "group" {
@@ -669,6 +671,17 @@ func (s *Scheduler) playMarkup(c db.Chat, d round.Date, lang, key string) (teleg
 		link += "?startapp=" + payload
 	}
 	return telegram.Markup{{{Text: text, URL: link, Style: tg.StylePrimary}}}, nil
+}
+
+// dayURL is the Mini App's address of the day: the app's own path with
+// /today after it.
+func dayURL(appURL string) string {
+	u, err := url.Parse(appURL)
+	if err != nil {
+		return appURL
+	}
+	u.Path = strings.TrimSuffix(u.Path, "/") + "/today"
+	return u.String()
 }
 
 // answeredLine is the post's block of who in the group has answered and the

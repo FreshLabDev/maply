@@ -7,27 +7,28 @@
 //     open(m, from) {},  // m is the path's match, m[1] the day; from is the screen before, "" on the first page.
 //                        // open runs again when the path changes within the screen: /days, then /days/14.
 //     close(to) {},      // optional: put away what open drew; to is the next screen's name.
-//     nav: { href: "/days", t: "days", at: 2 }, // optional: a link in the computer's header, its words under
-//                        // app.<t>, at its place among the links (Today 1, Days 2, Free play 3)
+//     nav: { href: "/days", t: "days", at: 2 }, // optional: the screen is a page of its own, its words under
+//                        // app.<t>; Router.nav() lists them. The computer's header has its own links (desk.js).
 //   });
 //
 //   Router.go("/days/14")            a new page from code: a history entry on the site
 //   Router.go("/", { replace: true }) the same page, another address
 //   Router.back("/days")             the page's own Back: the previous entry if it is ours, else the parent named
 //   Router.on((name, from) => {})    after every change of screen, for the header's navigation
-//   Router.current                   the screen on show: "today", "days", …
-//   Router.nav()                     the header's links in their order: [{ name, href, t }]
+//   Router.current                   the screen on show: "menu", "today", "days", …; "" before the first
+//   Router.nav()                     the screens with a nav, in its order: [{ name, href, t }]
 //
-// A name registered again replaces the screen in its place: a file that takes over an address only registers it.
-// Paths are tried in the order the screens came. An address no screen claims shows today and says so in the
-// address bar.
+// "/" is the menu (menu.js) and "/today" the day (app.js). A name registered again replaces the screen in its
+// place: a file that takes over an address only registers it. Paths are tried in the order the screens came. An
+// address no screen claims shows the menu and says so in the address bar.
 //
 // A link <a href="/days" data-route> goes through the router on a plain click; with a modifier or the middle
 // button the browser opens its own new tab.
 //
 // In Telegram there is no browser history: its Back button is the only one, and the page's history would go back
-// out of the app on some clients. There the router only replaces the address, keeping Telegram's hash, and keeps
-// the pages it went through itself: Back goes to the page before, as on the site, and to the parent at the first.
+// out of the app on some clients. There the router only replaces the address, keeping Telegram's hash and its
+// tgWebApp… launch parameters, and keeps the pages it went through itself: Back goes to the page before, as on the
+// site, and to the parent at the first. A page's own query (/play?mode=classic) stays with that page.
 const Router = (() => {
   const screens = [], listeners = [], trail = [];
   let current = null, started = false;
@@ -61,7 +62,11 @@ const Router = (() => {
   }
   function url(path) {
     const u = new URL(path, location.href);
-    if (telegram()) { if (!u.search) u.search = location.search; u.hash = location.hash; }
+    if (telegram()) {
+      const q = new URLSearchParams(u.search);
+      for (const [k, v] of new URLSearchParams(location.search)) if (k.startsWith("tgWebApp") && !q.has(k)) q.append(k, v);
+      u.search = q.toString(); u.hash = location.hash;
+    }
     return u.pathname + u.search + u.hash;
   }
   function go(path, opts) {

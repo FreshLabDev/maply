@@ -327,8 +327,8 @@ func TestOneDay(t *testing.T) {
 	if b := fake.last("photo", group).buttons; len(b) != 1 || !strings.HasPrefix(b[0][0].URL, "https://t.me/maplyin_bot/play?startapp=") {
 		t.Errorf("group button = %+v, want the signed link", b)
 	}
-	if b := fake.last("photo", alone).buttons; len(b) != 1 || b[0][0].WebApp != "https://maply.example/" {
-		t.Errorf("DM button = %+v, want the Mini App", b)
+	if b := fake.last("photo", alone).buttons; len(b) != 1 || b[0][0].WebApp != "https://maply.example/today" {
+		t.Errorf("DM button = %+v, want the Mini App on the day", b)
 	}
 	result := fake.last("photo", group).text
 	for _, want := range []string{"Lisbon", "Portugal", "Built on seven hills.", "🥇 Pin", "<b>🌍 Places in the world so far, of 1</b>\nPin #1"} {
