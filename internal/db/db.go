@@ -4,6 +4,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -12,6 +13,12 @@ import (
 
 type Store struct {
 	pool *pgxpool.Pool
+
+	// answers keeps the places already read. A place in a round does not
+	// change, and parsing its city's outline was most of every result poll's
+	// work. A place edited by hand shows within answerFor.
+	answersMu sync.Mutex
+	answers   map[int64]keptAnswer
 }
 
 func Connect(ctx context.Context, databaseURL string) (*Store, error) {

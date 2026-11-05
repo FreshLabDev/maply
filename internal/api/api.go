@@ -133,6 +133,12 @@ type Server struct {
 	// again for every visitor.
 	closedMu sync.Mutex
 	closed   map[round.Date]closedDay
+
+	// live keeps an open day's ranking and pins for the polls that saw the
+	// same number of scored answers: a thousand open apps rank the day once
+	// per new answer, not once each.
+	liveMu sync.Mutex
+	live   map[round.Date]liveDay
 }
 
 func (s *Server) Handler() http.Handler {
@@ -797,21 +803,20 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		}
 	}
 	// A poll that has this version already costs two counts, not the
-	// day's whole ranking.
-	if since != "" {
-		chatN, worldN, err := s.Store.ResultCounts(ctx, p.date, p.chatID)
-		if err != nil {
-			return resultResponse{}, err
+	// day's whole ranking; the world count also keys the ranking kept for
+	// the polls that did miss.
+	chatN, worldN, err := s.Store.ResultCounts(ctx, p.date, p.chatID)
+	if err != nil {
+		return resultResponse{}, err
+	}
+	if p.kind != "group" {
+		chatN = 0
+		if answered {
+			chatN = 1
 		}
-		if p.kind != "group" {
-			chatN = 0
-			if answered {
-				chatN = 1
-			}
-		}
-		if version := resultVersion(chatN, worldN, phase, worldOpen); since == version {
-			return resultResponse{Phase: phase, OpensAt: opensAt, Version: version, Same: true}, nil
-		}
+	}
+	if version := resultVersion(chatN, worldN, phase, worldOpen); since != "" && since == version {
+		return resultResponse{Phase: phase, OpensAt: opensAt, Version: version, Same: true}, nil
 	}
 	var guesses []db.Guess
 	if p.kind == "group" {
@@ -826,10 +831,11 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 	if err != nil {
 		return resultResponse{}, err
 	}
-	world, err := s.Store.World(ctx, p.date)
+	day, err := s.liveDay(ctx, p.date, worldN)
 	if err != nil {
 		return resultResponse{}, err
 	}
+	world := day.world
 	version := resultVersion(len(guesses), world.Players(), phase, worldOpen)
 	if since != "" && since == version {
 		return resultResponse{Phase: phase, OpensAt: opensAt, Version: version, Same: true}, nil
@@ -872,9 +878,7 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		resp.Table = append(resp.Table, l)
 	}
 	if answered {
-		if resp.World, err = s.worldNow(ctx, p, world); err != nil {
-			return resultResponse{}, err
-		}
+		resp.World = worldNowOf(p, world, day.pins)
 	}
 	group := map[int64]bool{}
 	if p.kind == "group" {
@@ -888,13 +892,48 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 	return resp, nil
 }
 
-// worldNow is the person's place among everyone scored so far today, and a
-// sample of everyone's pins.
-func (s *Server) worldNow(ctx context.Context, p play, w db.World) (*worldNow, error) {
-	pins, err := s.Store.DayPins(ctx, p.date)
-	if err != nil {
-		return nil, err
+// liveFor is how long an open day's ranking serves the polls that saw the
+// same number of scored answers: a name changed shows within it.
+const liveFor = 10 * time.Second
+
+// liveDay is an open day's ranking and pins at n scored answers.
+type liveDay struct {
+	at    time.Time
+	n     int
+	world db.World
+	pins  [][2]float64
+}
+
+// liveDay is d's ranking and pins when n answers are scored, read once for
+// every poll that saw n. The lock is held while the day is read, so polls
+// that miss together wait for one read instead of each making their own.
+func (s *Server) liveDay(ctx context.Context, d round.Date, n int) (liveDay, error) {
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	if c, ok := s.live[d]; ok && c.n == n && s.Now().Sub(c.at) < liveFor {
+		return c, nil
 	}
+	world, err := s.Store.World(ctx, d)
+	if err != nil {
+		return liveDay{}, err
+	}
+	pins, err := s.Store.DayPins(ctx, d)
+	if err != nil {
+		return liveDay{}, err
+	}
+	// Kept under the count it really has: one more answer may have come in
+	// since the poll counted.
+	c := liveDay{at: s.Now(), n: world.Players(), world: world, pins: pins}
+	if s.live == nil || len(s.live) >= 8 {
+		s.live = map[round.Date]liveDay{}
+	}
+	s.live[d] = c
+	return c, nil
+}
+
+// worldNowOf is the person's place among everyone scored so far today, and
+// a sample of everyone's pins.
+func worldNowOf(p play, w db.World, pins [][2]float64) *worldNow {
 	out := &worldNow{Rank: w.RankOf(p.user.ID), Players: w.Players(), Pins: make([]pin, 0, min(len(pins), worldPinsShown))}
 	step := 1
 	if len(pins) > worldPinsShown {
@@ -903,7 +942,7 @@ func (s *Server) worldNow(ctx context.Context, p play, w db.World) (*worldNow, e
 	for i := 0; i < len(pins); i += step {
 		out.Pins = append(out.Pins, pin{Lat: pins[i][0], Lon: pins[i][1]})
 	}
-	return out, nil
+	return out
 }
 
 // board is the world's table as this person may see it: the best rows, and

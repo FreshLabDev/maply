@@ -48,6 +48,36 @@ type Answer struct {
 }
 
 func (s *Store) Answer(ctx context.Context, placeID int64) (Answer, error) {
+	s.answersMu.Lock()
+	k, ok := s.answers[placeID]
+	s.answersMu.Unlock()
+	if ok && time.Since(k.at) < answerFor {
+		return k.answer, nil
+	}
+	a, err := s.readAnswer(ctx, placeID)
+	if err != nil {
+		return Answer{}, err
+	}
+	s.answersMu.Lock()
+	// A few days' places at a time; the map starts over rather than grow.
+	if s.answers == nil || len(s.answers) >= 16 {
+		s.answers = map[int64]keptAnswer{}
+	}
+	s.answers[placeID] = keptAnswer{at: time.Now(), answer: a}
+	s.answersMu.Unlock()
+	return a, nil
+}
+
+// answerFor is how long a place read once is used again. Callers only read
+// the answer they get: it is shared.
+const answerFor = 10 * time.Minute
+
+type keptAnswer struct {
+	at     time.Time
+	answer Answer
+}
+
+func (s *Store) readAnswer(ctx context.Context, placeID int64) (Answer, error) {
 	var (
 		a                Answer
 		city, poly, fact []byte
