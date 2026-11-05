@@ -44,7 +44,9 @@ For the operator:
   every device, delete the account. Two accounts merge when one's sign-in is
   linked to the other; a closed day is never rewritten. In the Mini App,
   linking Google opens the phone's browser with a five-minute ticket that
-  names the Telegram account before going to Google.
+  names the Telegram account before going to Google; a Google that has an
+  account of its own is linked from the site instead, so a ticket never
+  merges.
 - `/privacy` says what maply keeps, what other players see and how to delete
   the account, in the sixteen languages.
 - The site's menu picks the interface language. Signed in with Telegram it is

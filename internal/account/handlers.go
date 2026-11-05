@@ -28,6 +28,7 @@ const (
 	codeExpired       = "expired"
 	codeFailed        = "failed"
 	codeTaken         = "taken"
+	codeElsewhere     = "elsewhere"
 	codeAlreadyLinked = "already_linked"
 	codeUnavailable   = "unavailable"
 	codeRateLimited   = "rate_limited"
@@ -70,12 +71,23 @@ func (s *Service) redirect(w http.ResponseWriter, r *http.Request, to string) {
 // result logs how a sign-in ended, by its code alone, and sends the browser
 // back with it.
 func (s *Service) result(w http.ResponseWriter, r *http.Request, f flow, code string, err error) {
-	clearCookie(w, FlowCookie)
-	if err != nil {
-		s.log.Warn("sign-in", "provider", f.Provider, "intent", f.Intent, "result", code, "error", errClass(err))
-	} else {
-		s.log.Info("sign-in", "provider", f.Provider, "intent", f.Intent, "result", code)
+	provider := f.Provider
+	if provider != db.KindTelegram && provider != db.KindGoogle {
+		// The path's, which anyone can write.
+		provider = "other"
 	}
+	if err != nil {
+		s.log.Warn("sign-in", "provider", provider, "intent", f.Intent, "result", code, "error", errClass(err))
+	} else {
+		s.log.Info("sign-in", "provider", provider, "intent", f.Intent, "result", code)
+	}
+	s.back(w, r, f, code)
+}
+
+// back sends the browser back with the code, unlogged: a refusal of the
+// rate limiter would otherwise write a line for every request it refuses.
+func (s *Service) back(w http.ResponseWriter, r *http.Request, f flow, code string) {
+	clearCookie(w, FlowCookie)
 	s.redirect(w, r, withCode(f.ReturnTo, code))
 }
 
@@ -97,7 +109,7 @@ func (s *Service) start(w http.ResponseWriter, r *http.Request) {
 	back := safeReturnTo(r.URL.Query().Get("return_to"))
 	f := flow{Provider: name, Intent: intentLogin, ReturnTo: back}
 	if !s.authLimit.allow(clientIP(r)) {
-		s.result(w, r, f, codeRateLimited, nil)
+		s.back(w, r, f, codeRateLimited)
 		return
 	}
 	p := s.provider(name)
@@ -174,12 +186,12 @@ func (s *Service) link(w http.ResponseWriter, r *http.Request) {
 func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("provider")
 	f, err := s.readFlow(r)
-	if err != nil || f.Provider != name {
-		s.result(w, r, flow{Provider: name, ReturnTo: f.ReturnTo}, codeExpired, nil)
+	if !s.authLimit.allow(clientIP(r)) {
+		s.back(w, r, flow{ReturnTo: f.ReturnTo}, codeRateLimited)
 		return
 	}
-	if !s.authLimit.allow(clientIP(r)) {
-		s.result(w, r, f, codeRateLimited, nil)
+	if err != nil || f.Provider != name {
+		s.result(w, r, flow{Provider: name, ReturnTo: f.ReturnTo}, codeExpired, nil)
 		return
 	}
 	q := r.URL.Query()
@@ -197,10 +209,30 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		s.result(w, r, f, codeFailed, errors.New("state does not match"))
 		return
 	}
-	if !f.Ticket {
+	ctx := r.Context()
+	if f.Ticket == "" {
 		h, ok := sessionHash(r)
 		if (f.Session == "") == ok || ok && !sameHash(h, f.Session) {
 			s.result(w, r, f, codeExpired, errors.New("the session changed during the sign-in"))
+			return
+		}
+		// The cookie is the same, but the session behind it must still be
+		// the account's: a sign-out everywhere ends a link under way too.
+		if v := s.viewerOf(r); f.Intent == intentLink && (!v.SignedIn() || v.AccountID != f.Account) {
+			s.result(w, r, f, codeExpired, errors.New("the session ended during the link"))
+			return
+		}
+	} else {
+		// The account still holds the ticket: a sign-out everywhere or an
+		// unlink drops it, and the link it started with it.
+		h, ok := decodeHash(f.Ticket)
+		if !ok {
+			s.result(w, r, f, codeExpired, errors.New("a ticket flow without its ticket"))
+			return
+		}
+		held, err := s.cfg.Store.TicketHeld(ctx, h, f.Account)
+		if err != nil || !held {
+			s.result(w, r, f, codeExpired, err)
 			return
 		}
 	}
@@ -209,7 +241,6 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		s.result(w, r, f, codeUnavailable, nil)
 		return
 	}
-	ctx := r.Context()
 	tok, err := p.Exchange(ctx, q.Get("code"), f.Verifier, f.Nonce)
 	if err != nil {
 		code := codeFailed
@@ -287,7 +318,15 @@ func (s *Service) finishLogin(w http.ResponseWriter, r *http.Request, f flow, id
 
 func (s *Service) finishLink(w http.ResponseWriter, r *http.Request, f flow, id db.Identity) {
 	ctx := r.Context()
-	res, err := s.cfg.Store.Link(ctx, f.Account, id, s.rules())
+	link := s.cfg.Store.Link
+	if f.Ticket != "" {
+		// The browser of a ticket proves the Google sign-in, but not that it
+		// is the person the ticket was made for: a merge would hand their
+		// Google account, history and all, to whoever sent the link. A
+		// Google with an account of its own links Telegram from the site.
+		link = s.cfg.Store.LinkOnly
+	}
+	res, err := link(ctx, f.Account, id, s.rules())
 	if errors.Is(err, db.ErrNoAccount) {
 		s.result(w, r, f, codeExpired, err)
 		return
@@ -303,6 +342,9 @@ func (s *Service) finishLink(w http.ResponseWriter, r *http.Request, f flow, id 
 	case db.AlreadyLinked:
 		s.result(w, r, f, codeAlreadyLinked, nil)
 		return
+	case db.Elsewhere:
+		s.result(w, r, f, codeElsewhere, nil)
+		return
 	case db.Merged:
 		// The merged account's sessions went with it; whatever of them the
 		// cache holds goes too.
@@ -311,10 +353,16 @@ func (s *Service) finishLink(w http.ResponseWriter, r *http.Request, f flow, id 
 		s.forgetAccount(f.Account)
 	}
 	// A new session for the browser that proved the sign-in. A ticket's
-	// browser proved only the new one.
+	// browser proved only the new one, and when it is signed in to another
+	// account it stays there.
+	v := s.viewerOf(r)
 	via := id.Kind
-	if v := s.viewerOf(r); !f.Ticket && v.AccountID == f.Account && v.Via != "" {
+	if f.Ticket == "" && v.AccountID == f.Account && v.Via != "" {
 		via = v.Via
+	}
+	if f.Ticket != "" && v.SignedIn() && v.AccountID != f.Account {
+		s.result(w, r, f, codeLinked, nil)
+		return
 	}
 	if err := s.rotate(ctx, w, r, f.Account, via); err != nil {
 		s.result(w, r, f, codeFailed, err)
@@ -399,6 +447,12 @@ func (s *Service) logoutAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.cfg.Store.DeleteSessions(r.Context(), v.AccountID, ""); err != nil {
+		s.log.Error("sign out everywhere", "error", errClass(err))
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	// A ticket not used yet, or a link it started, would let its holder in.
+	if err := s.cfg.Store.DeleteTickets(r.Context(), v.AccountID); err != nil {
 		s.log.Error("sign out everywhere", "error", errClass(err))
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
@@ -552,7 +606,7 @@ func (s *Service) confirmTicket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusGone, codeExpired)
 		return
 	}
-	f := flow{Provider: db.KindGoogle, Intent: intentLink, ReturnTo: safeReturnTo(body.ReturnTo), Account: accID, Ticket: true}
+	f := flow{Provider: db.KindGoogle, Intent: intentLink, ReturnTo: safeReturnTo(body.ReturnTo), Account: accID, Ticket: encodeHash(hashToken(body.Ticket))}
 	to, f, err := s.begin(ctx, s.cfg.Google, f)
 	if err != nil {
 		s.log.Warn("ticket", "result", codeUnavailable, "error", errClass(err))
@@ -740,11 +794,7 @@ func (s *Service) unlink(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	// A sign-in linked by someone else is unlinked to shut them out, so the
-	// sessions it opened end with it.
-	if _, err := s.cfg.Store.DeleteSessions(ctx, accID, kind); err != nil {
-		s.log.Error("unlink", "error", errClass(err))
-	}
+	// Unlink ended the sessions the sign-in opened, and the tickets.
 	s.forgetAccount(accID)
 	if !fromApp {
 		other := db.KindGoogle

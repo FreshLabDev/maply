@@ -72,6 +72,7 @@ type Store interface {
 	SitePlayer(ctx context.Context, id string, name *string) error
 	SiteName(ctx context.Context, id string) (string, error)
 	InsertSiteGuess(context.Context, db.NewSiteGuess) error
+	InsertAccountSiteGuess(ctx context.Context, accountID string, g db.NewSiteGuess) error
 	SiteGuessOf(context.Context, round.Date, string) (db.SiteGuess, bool, error)
 	AccountSitePlayer(ctx context.Context, accountID, id string, name *string) (string, error)
 	SetAccountName(ctx context.Context, accountID, name string) error

@@ -32,6 +32,9 @@ var (
 	ErrLastIdentity = errors.New("the last sign-in of an account cannot be unlinked")
 	// ErrNotLinked is an unlink of a sign-in the account does not have.
 	ErrNotLinked = errors.New("the account has no such sign-in")
+	// ErrTelegramAccount is a site answer for an account with Telegram,
+	// which answers as its Telegram player.
+	ErrTelegramAccount = errors.New("the account answers as its Telegram player")
 )
 
 // Identity is one sign-in: a Telegram user id or a Google sub.
@@ -131,6 +134,11 @@ type Rules struct {
 	// Deadline is when userID's answer window for d closes, from the site:
 	// the zone of their DM counted with every chat they play in.
 	Deadline func(ctx context.Context, userID int64, d round.Date) (time.Time, error)
+	// Now is when the merge happens. A site answer becomes the Telegram one
+	// only while the person's window is still open: after it they may have
+	// seen the place, and would pick the best of several guests' answers.
+	// Zero moves nothing.
+	Now time.Time
 }
 
 // SignIn finds the account of id, or makes one. A new account takes in
@@ -195,12 +203,26 @@ const (
 	// Taken: the sign-in is another account's, and both have a sign-in of
 	// the other kind. Signing in with that one and unlinking it comes first.
 	Taken LinkResult = "taken"
+	// Elsewhere: the sign-in is another account's, and this link may not
+	// merge (LinkOnly).
+	Elsewhere LinkResult = "elsewhere"
 )
 
 // Link adds id to the account. When id is another account's and that account
 // has no other sign-in, the two merge: its site players and their history
 // come over, and it is gone. A Telegram sign-in needs the person in core.
 func (s *Store) Link(ctx context.Context, accountID string, id Identity, rules Rules) (LinkResult, error) {
+	return s.link(ctx, accountID, id, true, rules)
+}
+
+// LinkOnly is Link without the merge: a sign-in that is another account's
+// is Elsewhere. The Mini App's ticket links this way, since the browser
+// that proves the sign-in may not be the person the ticket was made for.
+func (s *Store) LinkOnly(ctx context.Context, accountID string, id Identity, rules Rules) (LinkResult, error) {
+	return s.link(ctx, accountID, id, false, rules)
+}
+
+func (s *Store) link(ctx context.Context, accountID string, id Identity, merge bool, rules Rules) (LinkResult, error) {
 	if !id.valid() || !uuidShape(accountID) {
 		return "", fmt.Errorf("link: invalid %s identity", id.Kind)
 	}
@@ -251,6 +273,9 @@ func (s *Store) Link(ctx context.Context, accountID string, id Identity, rules R
 		if b.Has(otherKind) {
 			return Taken, nil
 		}
+		if !merge {
+			return Elsewhere, nil
+		}
 		if _, err := tx.Exec(ctx, `UPDATE site_player SET account_id = $1 WHERE account_id = $2`, a.ID, b.ID); err != nil {
 			return "", fmt.Errorf("link: move players: %w", err)
 		}
@@ -275,7 +300,10 @@ func (s *Store) Link(ctx context.Context, accountID string, id Identity, rules R
 	return result, tx.Commit(ctx)
 }
 
-// Unlink removes the account's sign-in of kind. The last one stays.
+// Unlink removes the account's sign-in of kind. The last one stays. The
+// sessions it opened and the account's tickets end with it, in the same
+// transaction: a sign-in linked by someone else is unlinked to shut them
+// out.
 func (s *Store) Unlink(ctx context.Context, accountID, kind string) error {
 	col := Identity{Kind: kind}.column()
 	if kind != KindTelegram && kind != KindGoogle {
@@ -295,14 +323,25 @@ func (s *Store) Unlink(ctx context.Context, accountID, kind string) error {
 	if kind == KindGoogle {
 		other = "telegram_user_id"
 	}
-	tag, err := s.pool.Exec(ctx, `UPDATE account SET `+col+` = NULL WHERE id = $1 AND `+other+` IS NOT NULL`, accountID)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, `UPDATE account SET `+col+` = NULL WHERE id = $1 AND `+other+` IS NOT NULL`, accountID)
 	if err != nil {
 		return fmt.Errorf("unlink: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrLastIdentity
 	}
-	return nil
+	if _, err := tx.Exec(ctx, `DELETE FROM session WHERE account_id = $1 AND via = $2`, accountID, kind); err != nil {
+		return fmt.Errorf("unlink: sessions: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM link_ticket WHERE account_id = $1`, accountID); err != nil {
+		return fmt.Errorf("unlink: tickets: %w", err)
+	}
+	return tx.Commit(ctx)
 }
 
 // AdoptGuest takes the browser's site player into the account, when no
@@ -433,7 +472,7 @@ func (s *Store) settle(ctx context.Context, tx pgx.Tx, accountID string, rules R
 			if err != nil {
 				return fmt.Errorf("settle: deadline: %w", err)
 			}
-			if x.at.After(deadline) {
+			if x.at.After(deadline) || rules.Now.IsZero() || !rules.Now.Before(deadline) {
 				continue
 			}
 			if _, err := tx.Exec(ctx, `
@@ -463,6 +502,14 @@ func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	// The row is held first, so a merge into it waits and its players are
+	// renamed too, or the merge comes first and finds no account.
+	var found bool
+	if err := tx.QueryRow(ctx, `SELECT true FROM account WHERE id = $1 FOR UPDATE`, accountID).Scan(&found); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNoAccount
+	} else if err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `UPDATE site_player SET name = NULL, account_id = NULL WHERE account_id = $1`, accountID); err != nil {
 		return fmt.Errorf("delete account: %w", err)
 	}
@@ -709,6 +756,29 @@ func (s *Store) PeekTicket(ctx context.Context, hash [32]byte, now time.Time) (s
 	return id, true, nil
 }
 
+// TicketHeld reports whether the account still has the ticket, used or
+// not. A sign-out everywhere and an unlink drop the account's tickets, and
+// with them a link the ticket started.
+func (s *Store) TicketHeld(ctx context.Context, hash [32]byte, accountID string) (bool, error) {
+	if !uuidShape(accountID) {
+		return false, nil
+	}
+	var held bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM link_ticket WHERE token_hash = $1 AND account_id = $2)`, hash[:], accountID).Scan(&held)
+	if err != nil {
+		return false, fmt.Errorf("ticket: %w", err)
+	}
+	return held, nil
+}
+
+// DeleteTickets drops every ticket of the account.
+func (s *Store) DeleteTickets(ctx context.Context, accountID string) error {
+	if _, err := s.pool.Exec(ctx, `DELETE FROM link_ticket WHERE account_id = $1`, accountID); err != nil {
+		return fmt.Errorf("delete tickets: %w", err)
+	}
+	return nil
+}
+
 // UseTicket uses a live ticket once and says whose account it was for.
 func (s *Store) UseTicket(ctx context.Context, hash [32]byte, now time.Time) (string, bool, error) {
 	var id string
@@ -789,6 +859,54 @@ func (s *Store) AccountSiteGuessOf(ctx context.Context, d round.Date, accountID 
 		return SiteGuess{}, false, fmt.Errorf("account site guess: %w", err)
 	}
 	return g, true, nil
+}
+
+// InsertAccountSiteGuess is InsertSiteGuess for a site player of the
+// account. The account's row is held while the answer goes in: a link of
+// Telegram at the same moment either comes first, and the answer is
+// refused, or waits and settles it. An account with Telegram answers as its
+// Telegram player, never as a site player beside it.
+func (s *Store) InsertAccountSiteGuess(ctx context.Context, accountID string, g NewSiteGuess) error {
+	if !uuidShape(accountID) {
+		return ErrNoAccount
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var telegram bool
+	err = tx.QueryRow(ctx, `SELECT telegram_user_id IS NOT NULL FROM account WHERE id = $1 FOR SHARE`, accountID).Scan(&telegram)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNoAccount
+	}
+	if err != nil {
+		return fmt.Errorf("account site guess: %w", err)
+	}
+	if telegram {
+		return ErrTelegramAccount
+	}
+	var answered bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM site_guess sg JOIN site_player sp ON sp.id = sg.player
+		                WHERE sg.date = $1 AND sp.account_id = $2)`, g.Date.Time(), accountID).Scan(&answered); err != nil {
+		return fmt.Errorf("account site guess: %w", err)
+	}
+	if answered {
+		return ErrAlreadyAnswered
+	}
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO site_guess (date, player, lat, lon, answered_at, deadline_at, late)
+		SELECT $1, $2, $3, $4, $5, $6, $7 FROM site_player WHERE id = $2 AND account_id = $8
+		ON CONFLICT (date, player) DO NOTHING`,
+		g.Date.Time(), g.Player, g.Pin.Lat, g.Pin.Lon, g.AnsweredAt, g.Deadline, g.Late, accountID)
+	if err != nil {
+		return fmt.Errorf("account site guess: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrAlreadyAnswered
+	}
+	return tx.Commit(ctx)
 }
 
 func uuidShape(s string) bool {

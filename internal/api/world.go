@@ -131,10 +131,20 @@ func (s *Server) siteGuess(w http.ResponseWriter, r *http.Request) {
 		}
 		setPlayer(w, player)
 	}
-	err = s.Store.InsertSiteGuess(ctx, db.NewSiteGuess{
+	g := db.NewSiteGuess{
 		Date: d, Player: player, Pin: pt, AnsweredAt: now, Deadline: deadline,
 		Late: now.After(s.Zones.FirstReveal(d)),
-	})
+	}
+	if v.SignedIn() {
+		// Under the account's row: Telegram linked a moment ago wins.
+		err = s.Store.InsertAccountSiteGuess(ctx, v.AccountID, g)
+	} else {
+		err = s.Store.InsertSiteGuess(ctx, g)
+	}
+	if errors.Is(err, db.ErrTelegramAccount) {
+		s.fail(w, r, errTelegram)
+		return
+	}
 	if errors.Is(err, db.ErrAlreadyAnswered) {
 		s.fail(w, r, errAnswered)
 		return

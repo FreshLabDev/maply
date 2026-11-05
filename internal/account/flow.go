@@ -37,10 +37,10 @@ type flow struct {
 	At       int64  `json:"t"`
 	// Account and Session are set for a link: the account it joins and the
 	// hash of the session it started in, base64url. A ticket's link has no
-	// session; Ticket says so.
+	// session; Ticket is the hash of its ticket instead.
 	Account string `json:"a,omitempty"`
 	Session string `json:"h,omitempty"`
-	Ticket  bool   `json:"k,omitempty"`
+	Ticket  string `json:"k,omitempty"`
 }
 
 var errFlow = errors.New("no valid sign-in under way")
@@ -123,6 +123,16 @@ var tokenShape = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 func hashToken(t string) [32]byte { return sha256.Sum256([]byte(t)) }
 
 func encodeHash(h [32]byte) string { return base64.RawURLEncoding.EncodeToString(h[:]) }
+
+func decodeHash(s string) ([32]byte, bool) {
+	var h [32]byte
+	b, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil || len(b) != len(h) {
+		return h, false
+	}
+	copy(h[:], b)
+	return h, true
+}
 
 func sameHash(a [32]byte, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(encodeHash(a)), []byte(b)) == 1

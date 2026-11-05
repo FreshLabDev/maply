@@ -69,6 +69,7 @@ const (
 type Store interface {
 	SignIn(ctx context.Context, id db.Identity, guest string, rules db.Rules) (db.Account, bool, error)
 	Link(ctx context.Context, accountID string, id db.Identity, rules db.Rules) (db.LinkResult, error)
+	LinkOnly(ctx context.Context, accountID string, id db.Identity, rules db.Rules) (db.LinkResult, error)
 	Unlink(ctx context.Context, accountID, kind string) error
 	AdoptGuest(ctx context.Context, accountID, guest string, rules db.Rules) (int, error)
 	DeleteAccount(ctx context.Context, accountID string) error
@@ -86,6 +87,8 @@ type Store interface {
 	CreateTicket(ctx context.Context, hash [32]byte, accountID string, now, expires time.Time) error
 	PeekTicket(ctx context.Context, hash [32]byte, now time.Time) (string, bool, error)
 	UseTicket(ctx context.Context, hash [32]byte, now time.Time) (string, bool, error)
+	TicketHeld(ctx context.Context, hash [32]byte, accountID string) (bool, error)
+	DeleteTickets(ctx context.Context, accountID string) error
 
 	// TouchPerson records a Telegram sign-in in core without a chat: Touch
 	// would make it a DM with the bot, with the morning post and a new
@@ -370,6 +373,7 @@ func (s *Service) forgetAccount(ids ...string) {
 func (s *Service) rules() db.Rules {
 	now := s.now()
 	return db.Rules{
+		Now:  now,
 		Open: func(d round.Date) bool { return now.Before(s.cfg.Zones.LastReveal(d)) },
 		Deadline: func(ctx context.Context, userID int64, d round.Date) (time.Time, error) {
 			zone, err := s.DMZone(ctx, userID)

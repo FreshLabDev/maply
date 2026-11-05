@@ -467,6 +467,24 @@
     "uk": "Вхід скасовано",
     "zh": "登录已取消"
   },
+  "app.acct.auth.elsewhere": {
+    "ar": "لدى حساب Google هذا حساب maply بالفعل. سجّل الدخول عبر Google في الموقع واربط Telegram من هناك.",
+    "be": "У гэтага Google ужо ёсць акаўнт maply. Увайдзі праз Google на сайце і прывяжы Telegram там.",
+    "ca": "Aquest Google ja té un compte de maply. Inicia la sessió amb Google al web i vincula-hi Telegram.",
+    "cs": "Tento Google už má účet maply. Přihlas se přes Google na webu a propoj tam Telegram.",
+    "de": "Dieses Google hat schon ein maply-Konto. Melde dich auf der Website mit Google an und verknüpfe dort Telegram.",
+    "en": "This Google already has a maply account. Sign in with Google on the site and link Telegram there.",
+    "es": "Este Google ya tiene una cuenta de maply. Inicia sesión con Google en la web y vincula Telegram allí.",
+    "fr": "Ce Google a déjà un compte maply. Connecte-toi avec Google sur le site et associe Telegram là-bas.",
+    "it": "Questo Google ha già un account maply. Accedi con Google sul sito e collega Telegram da lì.",
+    "ja": "このGoogleにはすでにmaplyのアカウントがあります。サイトでGoogleでログインし、そこでTelegramを連携してください。",
+    "pl": "To konto Google ma już konto maply. Zaloguj się przez Google na stronie i połącz tam Telegram.",
+    "ru": "У этого Google уже есть аккаунт maply. Войди через Google на сайте и привяжи Telegram там.",
+    "sv": "Det här Google-kontot har redan ett maply-konto. Logga in med Google på webbplatsen och koppla Telegram där.",
+    "tr": "Bu Google’ın zaten bir maply hesabı var. Sitede Google ile giriş yap ve Telegram’ı orada bağla.",
+    "uk": "Цей Google уже має акаунт maply. Увійди через Google на сайті й прив’яжи Telegram там.",
+    "zh": "这个 Google 账号已经有 maply 账号。请在网站上用 Google 登录，然后在那里绑定 Telegram。"
+  },
   "app.acct.auth.expired": {
     "ar": "استغرق تسجيل الدخول وقتًا طويلًا. حاول مرة أخرى.",
     "be": "Час уваходу выйшаў. Паспрабуй яшчэ раз.",

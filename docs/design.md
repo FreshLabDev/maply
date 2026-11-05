@@ -210,8 +210,9 @@ Planned by the owner on 23 October, built after v0.0.1-alpha.15. A site player c
 - **Google alone plays the site's game**, as a guest does, but keeps its answers and its name across browsers.
 - **The guest's history comes along.** Signing in for the first time takes in the browser's guest answers; signing in to an account that already exists asks "Add N answers from this browser?" first.
 - **Linking.** On the site, from the accounts page. In the Mini App Google refuses to sign in inside Telegram, so maply issues a five-minute ticket, the phone's browser opens with it and asks "Link Google to the Telegram account Name (@username)?" before going to Google. There are no `/start link_…` links.
-- **Merging.** A sign-in that belongs to another account merges the two, unless both have a sign-in of the same kind. A closed day is never rewritten. In an open day the earliest site answer stays, and becomes the Telegram answer when it came before the person's Telegram deadline.
-- **Unlinking** never removes the last sign-in, and ends the sessions opened by the one removed.
+- **Merging.** A sign-in that belongs to another account merges the two, unless both have a sign-in of the same kind. A closed day is never rewritten. In an open day the earliest site answer stays, and becomes the Telegram answer when both the answer and the merge come before the person's Telegram deadline; merged later, it stays a site row, since by then the person may have seen the place. Linking from the Mini App's ticket never merges: a Google that already has an account is linked from the site instead.
+- **Unlinking** never removes the last sign-in, and ends the sessions opened by the one removed and the account's tickets. An account that unlinks Telegram plays the site's game again: the same day it may answer there once, ranked after every Telegram answer, as a new browser could.
+- **A sign-out everywhere** ends every session and every ticket of the account, and a link under way with them.
 - **Deleting** erases the account and its sign-ins at once. Answers given on the site without Telegram stay as "Guest", so nobody's place in a past ranking changes; the Telegram player's answers, from the bot and from the site, stay with that player. What is kept is on `/privacy`, in the sixteen languages.
 
 ## Where places come from

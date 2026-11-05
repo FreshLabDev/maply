@@ -27,9 +27,11 @@ const (
 func telegramID(id int64) Identity { return Identity{Kind: KindTelegram, TelegramUserID: id} }
 func googleID(sub string) Identity { return Identity{Kind: KindGoogle, GoogleSub: sub} }
 
-// openRules keep accountDay open; deadline is the person's Telegram window.
+// openRules keep accountDay open; deadline is the person's Telegram window,
+// still open an hour before it.
 func openRules(deadline time.Time) Rules {
 	return Rules{
+		Now:      deadline.Add(-time.Hour),
 		Open:     func(round.Date) bool { return true },
 		Deadline: func(context.Context, int64, round.Date) (time.Time, error) { return deadline, nil },
 	}
@@ -294,6 +296,36 @@ func TestSettleKeepsOneAnswerInAnOpenDay(t *testing.T) {
 		}
 	})
 
+	// After the deadline the person may have seen the place: a guest's
+	// answer from before it, picked then, would be a Telegram answer
+	// chosen knowing where the place is.
+	t.Run("an answer merged after the deadline stays a site row", func(t *testing.T) {
+		s := testStore(t)
+		seedRound(t, s)
+		person(t, s, 1, "Anya")
+		siteAnswer(t, s, guestA, 9, 0)
+		late := openRules(deadline)
+		late.Now = deadline.Add(5 * time.Minute)
+		a, _, err := s.SignIn(ctx, telegramID(1), guestA, late)
+		if err != nil || a.TelegramUserID != 1 {
+			t.Fatalf("account = %+v %v", a, err)
+		}
+		if n := countOf(t, s, `SELECT count(*) FROM maply.guess`); n != 0 {
+			t.Fatal("a guest's answer became a Telegram one after the deadline")
+		}
+		if n := countOf(t, s, `SELECT count(*) FROM maply.site_guess WHERE player = $1`, guestA); n != 1 {
+			t.Fatal("the site answer is gone")
+		}
+		// Adopting another guest later is no different.
+		siteAnswer(t, s, guestB, 8, 0)
+		if _, err := s.AdoptGuest(ctx, a.ID, guestB, late); err != nil {
+			t.Fatal(err)
+		}
+		if n := countOf(t, s, `SELECT count(*) FROM maply.guess`); n != 0 {
+			t.Fatal("an adopted guest's answer became a Telegram one after the deadline")
+		}
+	})
+
 	t.Run("an answer after the deadline stays a site row", func(t *testing.T) {
 		s := testStore(t)
 		seedRound(t, s)
@@ -414,5 +446,77 @@ func TestSessionsAndTickets(t *testing.T) {
 	}
 	if _, ok, _ := s.PeekTicket(ctx, [32]byte{7}, now); ok {
 		t.Fatal("a used ticket is still shown")
+	}
+}
+
+// An account with Telegram answers as its Telegram player: a site answer
+// for it is refused, held under the account's row against a link at the
+// same moment.
+func TestAnAccountWithTelegramGivesNoSiteAnswer(t *testing.T) {
+	s := testStore(t)
+	seedRound(t, s)
+	ctx := context.Background()
+	person(t, s, 1, "Anya")
+	a, _, err := s.SignIn(ctx, googleID("g-a"), "", closedRules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	player, err := s.AccountSitePlayer(ctx, a.ID, guestA, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, time.November, 1, 9, 0, 0, 0, time.UTC)
+	g := NewSiteGuess{Date: accountDay, Player: player, AnsweredAt: at, Deadline: at.Add(20 * time.Hour)}
+	if _, err := s.Link(ctx, a.ID, telegramID(1), closedRules); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAccountSiteGuess(ctx, a.ID, g); !errors.Is(err, ErrTelegramAccount) {
+		t.Fatalf("a site answer for a Telegram account = %v", err)
+	}
+	// Unlinked, it plays the site's game again, once.
+	if err := s.Unlink(ctx, a.ID, KindTelegram); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAccountSiteGuess(ctx, a.ID, g); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAccountSiteGuess(ctx, a.ID, g); !errors.Is(err, ErrAlreadyAnswered) {
+		t.Fatalf("a second site answer = %v", err)
+	}
+}
+
+// Unlinking ends the sessions the sign-in opened and the account's tickets
+// in one go.
+func TestUnlinkEndsItsSessionsAndTickets(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	person(t, s, 1, "Anya")
+	a, _, _ := s.SignIn(ctx, telegramID(1), "", closedRules)
+	if _, err := s.Link(ctx, a.ID, googleID("g-a"), closedRules); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for i, via := range []string{KindGoogle, KindTelegram} {
+		if err := s.CreateSession(ctx, Session{Hash: [32]byte{byte(i + 1)}, AccountID: a.ID, Via: via, Created: now, Expires: now.Add(time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.CreateTicket(ctx, [32]byte{9}, a.ID, now, now.Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if held, err := s.TicketHeld(ctx, [32]byte{9}, a.ID); err != nil || !held {
+		t.Fatalf("held = %v %v", held, err)
+	}
+	if err := s.Unlink(ctx, a.ID, KindGoogle); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOf(t, s, `SELECT count(*) FROM maply.session WHERE via = 'google'`); n != 0 {
+		t.Fatal("a session of the unlinked Google lives")
+	}
+	if n := countOf(t, s, `SELECT count(*) FROM maply.session WHERE via = 'telegram'`); n != 1 {
+		t.Fatal("the Telegram session went too")
+	}
+	if held, _ := s.TicketHeld(ctx, [32]byte{9}, a.ID); held {
+		t.Fatal("the ticket outlived the unlink")
 	}
 }

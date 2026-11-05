@@ -138,9 +138,11 @@ the diff looks like.
   morning post, and without an answer it sees the place only after the latest
   reveal anywhere. `TestATelegramAccountPlaysOnTheSite` covers it.
 - Merging two accounts never rewrites a closed day. In an open day the
-  earliest site answer stays, and becomes the Telegram answer only when it
-  came before the person's Telegram deadline; a Telegram answer is never
-  replaced.
+  earliest site answer stays, and becomes the Telegram answer only when both
+  the answer and the merge come before the person's Telegram deadline: after
+  it they may have seen the place, and would pick the best of several
+  guests' answers. A Telegram answer is never replaced. The Mini App's
+  ticket links Google but never merges two accounts.
 - A name typed on the site is not checked: bot posts call that player "Guest".
   The site's write endpoints take only JSON from maply's own pages.
 - `/api/log` strips query strings, which can carry `initData`, and is rate
@@ -176,6 +178,8 @@ the diff looks like.
 - A Telegram sign-in records the person with `core.touch_person`, never
   `core.touch`. There are no `/start link_…` links: the Mini App links Google
   with a five-minute ticket that the phone's browser confirms by name first.
+  The ticket's link never merges, keeps another account's browser signed in
+  there, and ends with a sign-out everywhere or an unlink.
 - Connect with `search_path=maply` and call `core.touch` before domain writes
   that reference `core.person`.
 - Secrets live in `.env`, which is gitignored.

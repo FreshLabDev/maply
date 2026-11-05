@@ -727,3 +727,111 @@ func TestPrivacySpeaksEveryLanguage(t *testing.T) {
 		t.Fatalf("privacy = %d %s", resp.StatusCode, body)
 	}
 }
+
+// A link proves the new sign-in in the browser that asked, while its
+// session lives: a sign-out everywhere ends a link under way.
+func TestALinkEndsWithItsSession(t *testing.T) {
+	s := setup(t)
+	s.telegram.SignInAs(anya)
+	b := s.browser()
+	b.open(startURL("telegram"))
+	other := s.browser()
+	other.open(startURL("telegram"))
+	status, out := b.send("POST", "/auth/google/link", `{"return_to":"/"}`)
+	if status != http.StatusOK {
+		t.Fatalf("link = %d %v", status, out)
+	}
+	// Someone with a stolen session started this; the owner signs out
+	// everywhere from another browser.
+	if status, _ := other.send("POST", "/auth/logout/all", "{}"); status != http.StatusOK {
+		t.Fatalf("sign out everywhere = %d", status)
+	}
+	s.google.SignInAs(oidctest.Identity{Sub: "g-thief"})
+	if code := b.open(out["url"].(string)); code != "expired" {
+		t.Fatalf("a link after the sign-out = %q", code)
+	}
+	if n := s.countOf(`SELECT count(*) FROM maply.account WHERE google_sub IS NOT NULL`); n != 0 {
+		t.Fatal("the link went through after the session ended")
+	}
+	// A callback for a provider maply does not have names none in the log.
+	b.open("/auth/" + "x-forged-name" + "/callback?state=1&code=2")
+	if strings.Contains(s.logs.String(), "x-forged-name") {
+		t.Fatal("the log took a name from the path")
+	}
+}
+
+// The browser that opens a ticket proves a Google sign-in, not that it is
+// the ticket's person: the ticket never merges two accounts, ends with a
+// sign-out everywhere, and leaves another account's browser signed in there.
+func TestATicketNeverHandsOverAnAccount(t *testing.T) {
+	s := setup(t)
+	app := s.browser()
+	tma := "tma " + initData(4242, "Anya")
+	ticket := func() string {
+		t.Helper()
+		status, out := app.send("POST", "/api/account/ticket", "{}", "Authorization", tma)
+		if status != http.StatusOK {
+			t.Fatalf("ticket = %d %v", status, out)
+		}
+		return strings.TrimPrefix(out["url"].(string), s.srv.URL+"/#link=")
+	}
+	confirm := func(b *browser, tk string) string {
+		t.Helper()
+		status, out := b.send("POST", "/auth/ticket/confirm", `{"ticket":"`+tk+`"}`)
+		if status != http.StatusOK {
+			t.Fatalf("confirm = %d %v", status, out)
+		}
+		return out["url"].(string)
+	}
+
+	// Gleb plays on the site with his Google. Anya's ticket, opened in his
+	// browser, cannot take his account into hers.
+	s.google.SignInAs(oidctest.Identity{Sub: "g-gleb"})
+	gleb := s.browser()
+	gleb.open(startURL("google"))
+	to := confirm(gleb, ticket())
+	if code := gleb.open(to); code != "elsewhere" {
+		t.Fatalf("a ticket for a Google with an account = %q", code)
+	}
+	if n := s.countOf(`SELECT count(*) FROM maply.account`); n != 2 {
+		t.Fatalf("%d accounts, want Anya's and Gleb's apart", n)
+	}
+	if acc := gleb.me(); acc == nil || acc["telegram"] != nil {
+		t.Fatalf("Gleb's browser = %v", acc)
+	}
+
+	// A ticket confirmed and then shut out: Anya signs out everywhere on the
+	// site before the Google step comes back.
+	s.telegram.SignInAs(anya)
+	site := s.browser()
+	site.open(startURL("telegram"))
+	phone := s.browser()
+	to = confirm(phone, ticket())
+	if status, _ := site.send("POST", "/auth/logout/all", "{}"); status != http.StatusOK {
+		t.Fatalf("sign out everywhere = %d", status)
+	}
+	s.google.SignInAs(oidctest.Identity{Sub: "g-stranger"})
+	if code := phone.open(to); code != "expired" {
+		t.Fatalf("a ticket after the sign-out = %q", code)
+	}
+	if n := s.countOf(`SELECT count(*) FROM maply.link_ticket`); n != 0 {
+		t.Fatal("the account kept its tickets after the sign-out")
+	}
+
+	// Vera's browser, signed in to her own account, links Google to Anya's
+	// by her ticket and stays Vera's.
+	s.telegram.SignInAs(oidctest.Identity{ID: 99, Name: "Vera"})
+	vera := s.browser()
+	vera.open(startURL("telegram"))
+	to = confirm(vera, ticket())
+	s.google.SignInAs(oidctest.Identity{Sub: "g-anya"})
+	if code := vera.open(to); code != "linked" {
+		t.Fatalf("Anya's ticket in Vera's browser = %q", code)
+	}
+	if acc := vera.me(); acc == nil || acc["google"] != false {
+		t.Fatalf("Vera's browser after Anya's ticket = %v", acc)
+	}
+	if n := s.countOf(`SELECT count(*) FROM maply.account WHERE telegram_user_id = 4242 AND google_sub = 'g-anya'`); n != 1 {
+		t.Fatal("Anya's account has no Google")
+	}
+}
