@@ -9,7 +9,7 @@
 // start, and signs everything with a fixed fake bot token.
 //
 //	scripts/dev-db.sh start
-//	go run ./cmd/maply-dev -places ../curation/out-004,../curation/out
+//	go run ./cmd/maply-dev -places ../curation/out-004,../curation/out-free
 //
 // Then open http://127.0.0.1:8399/dev.
 //
