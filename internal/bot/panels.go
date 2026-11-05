@@ -403,8 +403,12 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 		if err != nil {
 			return "", err
 		}
-		if round.Reopens(b.opts.Zones.For(cur, zoneLang), b.opts.Zones.For(name, zoneLang), b.opts.Now()) {
+		from, to := b.opts.Zones.For(cur, zoneLang), b.opts.Zones.For(name, zoneLang)
+		if round.Reopens(from, to, b.opts.Now()) {
 			return v.t("msg.zone_tomorrow"), nil
+		}
+		if round.Outruns(from, to, b.opts.Now()) {
+			return v.t("msg.zone_after_result"), nil
 		}
 		if err := b.store.SetChatZone(ctx, chat.ID, name); err != nil {
 			return "", err

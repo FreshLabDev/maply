@@ -2771,6 +2771,24 @@
     "uk": "Це не твоє меню.",
     "zh": "这不是你的菜单。"
   },
+  "msg.zone_after_result": {
+    "ar": "نتائج اليوم لم تصل بعد، وفي المنطقة الجديدة بدأ الغد بالفعل. غيّرها بعد النتائج.",
+    "be": "Сённяшнія вынікі яшчэ не прыйшлі, а ў новым поясе ўжо заўтра. Змяні пояс пасля вынікаў.",
+    "ca": "Els resultats d’avui encara no han arribat, i a la nova zona ja és demà. Canvia-la després dels resultats.",
+    "cs": "Dnešní výsledky ještě nepřišly a v novém pásmu už je zítra. Změň pásmo po výsledcích.",
+    "de": "Die heutigen Ergebnisse sind noch nicht da, und in der neuen Zeitzone ist schon morgen. Wechsle nach den Ergebnissen.",
+    "en": "Today’s results haven’t come yet, and in the new zone it’s already tomorrow. Switch zones after the results.",
+    "es": "Los resultados de hoy aún no han llegado, y en la nueva zona ya es mañana. Cámbiala después de los resultados.",
+    "fr": "Les résultats du jour ne sont pas encore arrivés, et dans le nouveau fuseau c’est déjà demain. Change après les résultats.",
+    "it": "I risultati di oggi non sono ancora arrivati, e nel nuovo fuso è già domani. Cambialo dopo i risultati.",
+    "ja": "今日の結果はまだ届いておらず、新しいタイムゾーンではもう明日です。結果が出てから変更してください。",
+    "pl": "Dzisiejsze wyniki jeszcze nie przyszły, a w nowej strefie jest już jutro. Zmień strefę po wynikach.",
+    "ru": "Сегодняшние итоги ещё не пришли, а в новом поясе уже завтра. Смени пояс после итогов.",
+    "sv": "Dagens resultat har inte kommit än, och i den nya tidszonen är det redan i morgon. Byt efter resultaten.",
+    "tr": "Bugünün sonuçları henüz gelmedi, yeni saat diliminde ise çoktan yarın oldu. Sonuçlardan sonra değiştir.",
+    "uk": "Сьогоднішні підсумки ще не прийшли, а в новому поясі вже завтра. Зміни пояс після підсумків.",
+    "zh": "今天的结果还没出来，而新时区已经是明天了。等结果出来后再更改吧。"
+  },
   "msg.zone_tomorrow": {
     "ar": "كُشف مكان اليوم في هذه المحادثة بالفعل، وفي المنطقة الجديدة ما زال اليوم مستمرًا. غيّرها غدًا.",
     "be": "У гэтым чаце месца ўжо паказалі, а ў новым поясе дзень яшчэ ідзе. Змяні пояс заўтра.",

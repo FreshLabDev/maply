@@ -115,3 +115,12 @@ func Reopens(from, to *time.Location, now time.Time) bool {
 	d := DateIn(now, to)
 	return !now.Before(d.Reveal(from)) && now.Before(d.Reveal(to))
 }
+
+// Outruns reports whether moving a chat from one zone to another at now
+// would start its next day before today's result: the new zone is a date
+// ahead, and the old one has not revealed yet. The chat would get
+// tomorrow's post first and today's result after it, a fourth message.
+func Outruns(from, to *time.Location, now time.Time) bool {
+	d := DateIn(now, from)
+	return DateIn(now, to).DaysSince(d) > 0 && now.Before(d.Reveal(from))
+}

@@ -65,6 +65,37 @@ func TestReopens(t *testing.T) {
 	}
 }
 
+// A zone change must not bring tomorrow's post before today's result.
+func TestOutruns(t *testing.T) {
+	load := func(n string) *time.Location {
+		l, err := time.LoadLocation(n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	london, la, tokyo := load("Europe/London"), load("America/Los_Angeles"), load("Asia/Tokyo")
+	for _, c := range []struct {
+		from, to *time.Location
+		now      string
+		want     bool
+	}{
+		{la, tokyo, "2026-11-05T20:00:00Z", true},      // noon in LA, already the 6th in Tokyo
+		{la, tokyo, "2026-11-06T04:30:00Z", false},     // LA has revealed the 5th
+		{london, tokyo, "2026-11-04T16:00:00Z", true},  // Tokyo is past midnight, London not at 20:00
+		{london, tokyo, "2026-11-04T10:00:00Z", false}, // the same date in both
+		{tokyo, la, "2026-11-05T01:00:00Z", false},     // moving west never runs ahead
+	} {
+		now, err := time.Parse(time.RFC3339, c.now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := Outruns(c.from, c.to, now); got != c.want {
+			t.Errorf("%s → %s at %s = %v, want %v", c.from, c.to, c.now, got, c.want)
+		}
+	}
+}
+
 // The newest date runs ahead of UTC once midnight has passed in the east.
 func TestNewestRunsAheadOfUTC(t *testing.T) {
 	z, err := LoadZones()

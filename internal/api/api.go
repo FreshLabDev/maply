@@ -500,8 +500,10 @@ func (s *Server) adoptZone(ctx context.Context, r *http.Request, p *play) (strin
 	}
 	// After the DM's reveal the person may have seen the place without
 	// answering; a zone further west would give them the evening to answer
-	// it. The phone's zone waits for a day it cannot reopen.
-	if round.Reopens(p.zone, s.Zones.For(zone, ""), s.Now()) {
+	// it. A zone a date further east would send tomorrow's post before
+	// today's result. The phone's zone waits for a day where neither is so.
+	to := s.Zones.For(zone, "")
+	if round.Reopens(p.zone, to, s.Now()) || round.Outruns(p.zone, to, s.Now()) {
 		return "", nil
 	}
 	set, err := s.Store.AdoptDMZone(ctx, p.user.ID, zone)
