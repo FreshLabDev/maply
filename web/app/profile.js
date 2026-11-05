@@ -12,7 +12,10 @@ function meLetter(name) {
   $("meBtn").innerHTML = n ? esc(initial(n)) : FIGURE;
 }
 meLetter();
-$("meBtn").addEventListener("click", () => openProfile());
+// The profile is the page /me: the letter goes there, and × goes back to the page before it.
+$("meBtn").addEventListener("click", () => Router.go("/me"));
+const leaveMe = () => Router.back("/");
+Router.screen("me", /^\/me$/, { open() { openProfile(); }, close() { closeDays(); } });
 
 // A sheet put aside to come back to: its own nodes, so whatever it bound keeps working, and where it was scrolled.
 // Focus comes back to what was tapped: a row of the history, a pin, a name.
@@ -42,11 +45,11 @@ const wait = () => '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>';
 async function openProfile(saved) {
   haptic("light");
   saved = saved || null;
-  const ticket = sheet(esc(T("prof.title")), wait(), backTo(saved));
+  const ticket = sheet(esc(T("prof.title")), wait(), backTo(saved), leaveMe);
   $("sheet").dataset.kind = "profile";
   let d;
   try { d = await getJSON("/api/profile"); } catch (e) {
-    if (ticket === SHEET) sheet(esc(T("prof.title")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', backTo(saved));
+    if (ticket === SHEET) sheet(esc(T("prof.title")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', backTo(saved), leaveMe);
     return;
   }
   if (ticket !== SHEET) return;
@@ -57,7 +60,7 @@ async function openProfile(saved) {
 
 function showProfile() {
   const d = PROF;
-  sheet(esc(T("prof.title")), '<div class="prof">' + cardHTML(d) + tabsHTML() + '<div id="profTab"></div></div>', backTo(d.saved));
+  sheet(esc(T("prof.title")), '<div class="prof">' + cardHTML(d) + tabsHTML() + '<div id="profTab"></div></div>', backTo(d.saved), leaveMe);
   $("sheet").dataset.kind = "profile";
   $("sheet").querySelectorAll(".ptabs button").forEach((b) => { b.onclick = () => { haptic("select"); setTab(b.dataset.tab); }; });
   $("sheet").querySelector(".ptabs").onkeydown = tabKey;
@@ -164,11 +167,8 @@ function bindRanked(box) {
 }
 
 // A closed day's page, with Back to the profile. Only a day over everywhere has one.
-async function openDayFrom(date) {
-  if (typeof openDay !== "function") return;
-  const saved = keepSheet();
-  await openDay(date, null);
-  if (saved && $("sheet").classList.contains("on") && $("sheet").querySelector(".sh-top") !== saved.top) $("shBack").onclick = () => restoreSheet(saved);
+function openDayFrom(date) {
+  if (typeof openDay === "function") openDay(date, backTo(keepSheet()));
 }
 
 /* ---------- Charts ---------- */

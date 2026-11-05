@@ -25,15 +25,15 @@ For the operator:
   or a guest who joins a game with friends from a link. `Touch` would count
   them as talking to maply in a DM, which closes their answer window by the
   DM's zone and puts them on the morning DM post.
-- The player's profile in the Mini App, behind the name's letter at the end
-  of the header: points, the 30-day average, streaks, the typical miss, the
-  share of countries and cities found, the best day and world place, and the
-  average percentile over the days that are over everywhere. Four charts
-  drawn in SVG (points over 30 days with the median, misses by distance,
-  continents, a map of one's own pins that opens a closed day), the passport
-  of countries found, the history by day and the free play numbers once
-  `free_result` exists. A site guest gets the same from the cookie, closed
-  days only, with a note to sign in.
+- The player's profile in the Mini App, behind the name's letter at the end of
+  the header and at `/me`: points, the 30-day average, streaks, the typical
+  miss, the share of countries and cities found, the best day and world place,
+  and the average percentile over the days that are over everywhere. Four
+  charts drawn in SVG (points over 30 days with the median, misses by
+  distance, continents, a map of one's own pins that opens a closed day), the
+  passport of countries found, the history by day and the free play numbers
+  once `free_result` exists. A site guest gets the same from the cookie,
+  closed days only, with a note to sign in.
 - A tap on a name in the world's tables opens a mini profile: days, streak,
   the 30-day average, best world place, countries, and from free play the
   average per place and duels. Inside a shared group it adds the photo and

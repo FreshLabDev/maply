@@ -1261,10 +1261,11 @@ function showDays() {
 }
 // A later tap wins over an earlier one whose reply comes last; the tapped day says it is on its way. A day opened by its
 // address has no list under it: the sheet waits for it on its own, and Back goes to the list.
-async function openDay(date) {
+// A day opened from another sheet (the profile) is given its way back there.
+async function openDay(date, back) {
   haptic("select");
   const btn = $("sheet").classList.contains("on") && [...$("sheet").querySelectorAll(".dd[data-date]")].find((b) => b.dataset.date === date);
-  const toDays = () => Router.back("/days");
+  const toDays = back || (() => Router.back("/days"));
   const ticket = btn ? ++SHEET : sheet(esc(T("days")), '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>', toDays);
   $("sheet").querySelectorAll(".dd.busy").forEach((b) => { b.classList.remove("busy"); b.removeAttribute("aria-busy"); });
   if (btn) { btn.classList.add("busy"); btn.setAttribute("aria-busy", "true"); }
