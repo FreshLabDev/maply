@@ -44,6 +44,29 @@ func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
 
+// coreNeeds are the core functions maply calls that came after its first
+// release, with the core migration that brought each one. A build that
+// reaches a database without one fails every request that calls it, so the
+// service refuses to start instead.
+var coreNeeds = []struct{ fn, migration string }{
+	{"core.manual_language(core.pref_scope,bigint)", "core 020 (manual_language)"},
+}
+
+// CheckCore makes sure maply may call every core function it needs.
+func (s *Store) CheckCore(ctx context.Context) error {
+	for _, n := range coreNeeds {
+		var ok bool
+		err := s.pool.QueryRow(ctx, `SELECT to_regprocedure($1) IS NOT NULL AND has_function_privilege(to_regprocedure($1), 'EXECUTE')`, n.fn).Scan(&ok)
+		if err != nil {
+			return fmt.Errorf("check %s: %w", n.fn, err)
+		}
+		if !ok {
+			return fmt.Errorf("%s is missing or not granted to maply: apply %s to the core database first", n.fn, n.migration)
+		}
+	}
+	return nil
+}
+
 // Touch records the person, and the chat when it is not a DM, in core. It is
 // also how core.presence learns which groups a person plays in, which the
 // answer window depends on.

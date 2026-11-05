@@ -72,6 +72,9 @@ func run(log *slog.Logger) error {
 			return err
 		}
 	}
+	if err := store.CheckCore(ctx); err != nil {
+		return err
+	}
 
 	client := tg.New(cfg.TelegramBotToken,
 		tg.WithAPIBase(cfg.TelegramAPIBase),

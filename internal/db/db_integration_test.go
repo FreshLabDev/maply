@@ -211,3 +211,19 @@ func TestJobKeyIsIdempotent(t *testing.T) {
 	exec(t, store, insert)
 	rejects(t, store, uniqueViolation, insert)
 }
+
+// The service starts only where it may call every core function it needs,
+// and says which core migration is missing otherwise.
+func TestCheckCoreNamesTheMissingMigration(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+	if err := store.CheckCore(ctx); err != nil {
+		t.Fatalf("with core bootstrapped: %v", err)
+	}
+	saved := coreNeeds
+	t.Cleanup(func() { coreNeeds = saved })
+	coreNeeds = []struct{ fn, migration string }{{"core.no_such_function(bigint)", "core 999"}}
+	if err := store.CheckCore(ctx); err == nil || !strings.Contains(err.Error(), "core 999") {
+		t.Fatalf("missing function: %v", err)
+	}
+}
