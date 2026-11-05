@@ -447,7 +447,13 @@ func TestPlacesComeFromThePoolAndUnplayedDays(t *testing.T) {
 	future := h.addPlace("future", "daily", spot{"NO", "europe", 59.9139, 10.7522})
 	played := h.addPlace("played", "used", spot{"SE", "europe", 59.3293, 18.0686})
 	unplayed := h.addPlace("unplayed", "used", spot{"FI", "europe", 60.1699, 24.9384})
-	for i, id := range []int64{played, unplayed} {
+	// A closed day nobody played whose picture is a flat photo: maply shows
+	// panoramas only, so neither free play nor the archive has it.
+	photo := h.addPlace("photo", "used", spot{"EE", "europe", 59.4370, 24.7536})
+	if _, err := h.pool.Exec(ctx, `UPDATE maply.place SET kind = 'photo' WHERE id = $1`, photo); err != nil {
+		t.Fatal(err)
+	}
+	for i, id := range []int64{played, unplayed, photo} {
 		d := round.NewDate(2026, time.October, 20+i)
 		if _, err := h.pool.Exec(ctx, `INSERT INTO maply.round (date, day_no, place_id) VALUES ($1, $2, $3)`, d.Time(), i+1, id); err != nil {
 			t.Fatal(err)
@@ -481,7 +487,7 @@ func TestPlacesComeFromThePoolAndUnplayedDays(t *testing.T) {
 			if err := h.pool.QueryRow(ctx, `SELECT place_id FROM maply.free_round WHERE game = $1 AND n = $2`, v.ID, n).Scan(&id); err != nil {
 				t.Fatal(err)
 			}
-			if id == future || id == played {
+			if id == future || id == played || id == photo {
 				t.Fatalf("place %d must never come", id)
 			}
 			if wantRepeat := len(seen) >= 13; r.Repeat != wantRepeat || seen[id] != wantRepeat {
@@ -496,6 +502,16 @@ func TestPlacesComeFromThePoolAndUnplayedDays(t *testing.T) {
 	}
 	if !seen[unplayed] {
 		t.Fatal("the closed day Ann did not play is in the game")
+	}
+	days, err := h.svc.ArchiveOf(ctx, ann)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(days) != 2 || days[0].N != 2 || days[1].N != 1 {
+		t.Fatalf("the archive has the panorama days only: %+v", days)
+	}
+	if _, err := h.svc.NewArchive(ctx, ann, "Ann", 3, "en"); !errors.Is(err, free.ErrNotFound) {
+		t.Fatalf("the photo's day taken: %v", err)
 	}
 	// The daily queue never gives a free place.
 	d := round.NewDate(2026, time.November, 6)

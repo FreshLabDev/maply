@@ -37,7 +37,8 @@ func (s *Store) FreeRoundPlace(ctx context.Context, game int64, n int) (int64, e
 // FreeArchive lists only days in day_closed: a day still in play anywhere is
 // not in the archive, whoever asks. A player who answered a day, as a
 // Telegram person or as the site's player, or had its place in a free game,
-// sees it so.
+// sees it so. A day whose picture is a flat photo is left out, as in
+// FreeCandidates.
 func (s *Store) FreeArchive(ctx context.Context, w free.Who) ([]free.ArchiveDay, error) {
 	user, player := whoArgs(w)
 	rows, err := s.pool.Query(ctx, `
@@ -50,7 +51,7 @@ func (s *Store) FreeArchive(ctx context.Context, w free.Who) ([]free.ArchiveDay,
 		            ELSE 'open' END,
 		       COALESCE(a.game, 0),
 		       (SELECT sum(q.pts_km + q.pts_bonus + q.pts_speed) FROM free_guess q WHERE q.game = a.game)
-		  FROM day_closed dc JOIN round r ON r.date = dc.date
+		  FROM day_closed dc JOIN round r ON r.date = dc.date JOIN place p ON p.id = r.place_id AND p.kind = 'panorama'
 		  LEFT JOIN free_archive a ON a.date = dc.date AND (a.user_id = $1 OR a.player = $2::uuid)
 		 ORDER BY r.day_no DESC
 		 LIMIT 1000`, user, player)
@@ -92,6 +93,7 @@ func (s *Store) createArchive(ctx context.Context, dayNo int, g free.NewGame) (i
 	var place int64
 	err = tx.QueryRow(ctx, `
 		SELECT r.date, r.place_id FROM round r JOIN day_closed dc ON dc.date = r.date
+		  JOIN place p ON p.id = r.place_id AND p.kind = 'panorama'
 		 WHERE r.day_no = $1`, dayNo).Scan(&date, &place)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, free.ErrNoRow
