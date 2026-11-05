@@ -98,6 +98,10 @@ player, and production-minded.
   Mini App, or the site with an account that has Telegram, which plays as
   the person and writes nothing to `core`) or an account with Google alone,
   which plays as its own site player. A guest plays alone, without records.
+  Its leaderboards (`/api/top`) count only games on a timer and never an
+  attempt at a challenge, one row a person or an account with their best:
+  an account's site players count for the account, or for its Telegram
+  person once it has one.
 
 ## Anti-Cheat Invariants
 
@@ -176,7 +180,8 @@ the diff looks like.
   group both are in, and the head to head counts only the days whose result
   that group has seen.
 - "Hide me" (`profile_setting.hide_me`) replaces the name with "Telegram
-  player" in the world's tables, the site's result and the days page for
+  player" in the world's tables, the site's result, the days page and the
+  free play's leaderboards for
   everyone outside the person's own groups, from a DM too, and the mini
   profile answers `404 hidden`. A group's own table and card, which a
   player may forward, and the bot's posts, the world's podium in a DM

@@ -1,0 +1,102 @@
+/* Leaderboards (leaders.js): the free play's boards at /top. Same rules as the app: one field colour, white ink, gold
+   for the first place only, no shadows, rounded corners or transparency.
+   Phone, and the sheet anywhere: one column, the boards two by two, your place above the table. Computer (html.desk),
+   on a page of its own: the boards in a column at the start, the table in the middle, your place and the rules at the
+   end from 1280 px, under the boards below. */
+.lead { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; max-width: 1440px; margin: 0 auto; }
+.lead-head { order: 1; }
+.lead-boards { order: 2; }
+.lead-side { display: contents; }
+.lead-you { order: 3; }
+.lead-main { order: 4; }
+.lead-rule { order: 5; }
+.lead-play { order: 6; }
+
+.lead-h { margin: 0; font: 700 34px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; }
+.lead-sub { margin: 6px 0 0; color: var(--ink-soft); font-size: 15px; }
+/* In the sheet its title already names the page. */
+.sh-body .lead-h { display: none; }
+.sh-body .lead-sub { margin-top: 0; }
+
+.lead-boards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; }
+.lead-boards button { min-width: 0; padding: 10px 12px 12px; background: var(--field-deep); text-align: start; }
+.lead-boards b { display: block; font: 700 20px/1.05 var(--display); letter-spacing: .02em; text-transform: uppercase; overflow-wrap: anywhere; }
+.lead-boards small { display: block; margin-top: 4px; color: var(--ink-muted); font-size: 13px; line-height: 1.25; }
+.lead-boards [aria-selected="true"] { background: var(--ink); color: var(--field-deep); }
+.lead-boards [aria-selected="true"] small { color: var(--field-tint); }
+
+.lead-opts { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+.lead-opts:empty { display: none; }
+.lead-chips { display: flex; gap: 2px; padding: 2px; background: var(--field-deep); }
+.lead-chips button { height: 36px; padding: 0 12px; font: 700 12px/1 var(--label); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); white-space: nowrap; }
+.lead-chips [aria-pressed="true"] { background: var(--ink); color: var(--field-deep); }
+
+.lead-list { min-height: 160px; }
+.lead-list[aria-busy="true"] .lead-rows { opacity: .6; }
+.lead-th, .lead-rows li { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.lead-th { padding: 0 10px 6px; color: var(--ink-muted); font-size: 11px; }
+.lead-th span:first-child, .lead-th span:last-child { text-align: end; }
+.lead-rows { list-style: none; margin: 0; padding: 0; }
+.lead-rows li { padding: 9px 10px; border-bottom: 1px solid var(--field-tint); font-variant-numeric: tabular-nums; }
+.lead-rows em { font: 700 18px/1 var(--display); font-style: normal; text-align: end; color: var(--ink-muted); }
+.lead-rows b { font: 700 21px/1 var(--display); letter-spacing: .02em; text-align: end; }
+.lead-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.lead-n[data-who] { cursor: pointer; }
+.lead-n[data-who]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.lead-rows li.m1 em, .lead-rows li.m1 b { color: var(--speed); }
+.lead-rows li.me { background: var(--ink); color: var(--field-deep); }
+.lead-rows li.me em, .lead-rows li.me b { color: var(--field-deep); }
+/* A rank that skips ahead: a dashed line says there are rows between. */
+.lead-rows li.skip { margin-top: 12px; border-top: 1px dashed var(--field-tint); }
+.lead-count { margin: 10px 0 0; color: var(--ink-muted); font-size: 13px; }
+.lead-wait { margin: 8px 0 12px; color: var(--ink-soft); }
+.lead-retry { padding: 10px 14px; background: var(--field-deep); font: 700 13px/1 var(--label); letter-spacing: .08em; text-transform: uppercase; }
+
+.lead-you { padding: 12px; background: var(--field-deep); }
+.lead-you .up { display: block; color: var(--ink-muted); font-size: 11px; letter-spacing: .08em; }
+.lead-you b { display: block; margin-top: 6px; font: 700 28px/1 var(--display); letter-spacing: .02em; }
+.lead-you small { display: block; margin-top: 4px; color: var(--ink-soft); font-size: 13px; }
+.lead-you .lead-wait { margin: 0; }
+.lead-rule { margin: 0; color: var(--ink-soft); font-size: 14px; }
+/* "a.lead-play" outweighs the links of a page shell (desktop.css's .dk-page a), which would paint it in --ink-soft. */
+.lead a.lead-play { display: flex; align-items: center; justify-content: center; height: 48px; background: var(--panel); color: var(--on-panel);
+                    font: 700 15px/1 var(--label); letter-spacing: .06em; text-transform: uppercase; text-decoration: none; }
+
+/* The profile's places, each a way to its board. */
+.lead-places li { padding: 0; }
+.lead-at { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; width: 100%; padding: 9px 2px; text-align: start; }
+.lead-at span { min-width: 0; }
+.lead-at small { display: block; margin-top: 2px; color: var(--ink-muted); font-size: 12px; }
+.lead-at b { flex: none; }
+.lead-at b.gold { color: var(--speed); }
+
+@media (hover: hover) {
+  .lead-boards button:not([aria-selected="true"]):hover, .lead-chips button:not([aria-pressed="true"]):hover { color: var(--ink); background: var(--field-tint); }
+  .lead-rows li:not(.me):hover { background: var(--field-deep); }
+  .lead a.lead-play:hover { background: var(--ink-soft); color: var(--on-panel); }
+  .lead-at:hover span { text-decoration: underline; }
+}
+
+/* ---------- Computer ---------- */
+/* On a page of its own (.lead-wide, not the sheet) the table spans the rows beside the boards and your place; the
+   last row takes its height, so your place stays right under the boards. */
+html.desk .lead-wide { grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: auto auto 1fr; grid-template-areas: "head head" "boards main" "side main";
+                       gap: 24px; align-items: start; }
+html.desk .lead-wide > * { order: 0; }
+html.desk .lead-wide .lead-head { grid-area: head; }
+html.desk .lead-wide .lead-h { font-size: 40px; }
+html.desk .lead-wide .lead-boards { grid-area: boards; grid-template-columns: minmax(0, 1fr); }
+html.desk .lead-wide .lead-boards button { padding: 14px 16px; }
+html.desk .lead-wide .lead-boards b { font-size: 24px; }
+html.desk .lead-wide .lead-main { grid-area: main; }
+html.desk .lead-wide .lead-side { grid-area: side; display: grid; gap: 14px; align-content: start; }
+html.desk .lead-wide .lead-you { padding: 20px; }
+html.desk .lead-wide .lead-you b { font-size: 34px; }
+html.desk .lead-wide .lead-rows li { padding: 11px 14px; }
+html.desk .lead-wide .lead-th { padding: 0 14px 8px; }
+@media (min-width: 1280px) {
+  html.desk .lead-wide { grid-template-columns: 280px minmax(0, 1fr) 300px; grid-template-rows: auto 1fr; grid-template-areas: "head head head" "boards main side"; }
+}
+@media (min-width: 1440px) {
+  html.desk .lead-wide { grid-template-columns: 320px minmax(0, 1fr) 340px; gap: 32px; }
+}

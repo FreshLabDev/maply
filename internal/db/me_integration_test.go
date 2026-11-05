@@ -18,7 +18,11 @@ func TestFreeGamesReadFreeResult(t *testing.T) {
 	// without it.
 	exec(t, store, `TRUNCATE maply.free_game CASCADE`)
 	t.Cleanup(func() { exec(t, store, `TRUNCATE maply.free_game CASCADE`) })
-	if games, err := store.FreeGames(ctx, 7); err != nil || len(games) != 0 {
+	// free-game's migration 024 gives free_result its player; until it
+	// lands, the test does.
+	exec(t, store, `ALTER TABLE maply.free_result ADD COLUMN IF NOT EXISTS player UUID REFERENCES maply.site_player(id) ON DELETE CASCADE`)
+	exec(t, store, `ALTER TABLE maply.free_result ALTER COLUMN user_id DROP NOT NULL`)
+	if games, err := store.FreeGames(ctx, FreeWho{UserID: 7}); err != nil || len(games) != 0 {
 		t.Fatalf("before free play: %v, %v", games, err)
 	}
 	exec(t, store, `INSERT INTO maply.free_game (id, code, kind, mode, seconds, rounds, status, created_at, started_at, finished_at)
@@ -36,7 +40,7 @@ func TestFreeGamesReadFreeResult(t *testing.T) {
 	                VALUES (1, 1, 7, 'duel', 'classic', 30, 3, 9000, 8000, 20400, '{100,300}', 50000, 3, 2, 1, 1, 1, 2, 1, NULL, '2026-11-01 10:00Z'),
 	                       (2, 1, 7, 'solo', 'streak', NULL, NULL, 4000, 3800, 900, '{900}', 20000, 2, 1, 1, 1, NULL, NULL, NULL, 1, '2026-11-02 10:00Z'),
 	                       (3, 1, 8, 'solo', 'classic', NULL, 5, 1, 1, 1, '{}', 1, 5, 0, 0, 1, NULL, NULL, NULL, NULL, '2026-11-02 10:00Z')`)
-	games, err := store.FreeGames(ctx, 7)
+	games, err := store.FreeGames(ctx, FreeWho{UserID: 7})
 	if err != nil || len(games) != 2 {
 		t.Fatalf("games %+v, %v", games, err)
 	}
