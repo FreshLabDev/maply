@@ -12,7 +12,8 @@ player, and production-minded.
   changing behavior.
 - The Go service has config, the database with embedded migrations, Telegram
   long polling that records people and chats in `core`, the game calendar,
-  scoring over embedded Natural Earth borders, the HTTP API and `/healthz`. It
+  scoring over embedded Natural Earth borders, the HTTP API, sign-in on the
+  site with Telegram and Google (`docs/sign-in.md`) and `/healthz`. It
   serves the Mini App from `web/app/` (package `web`). Next to it are the
   original single-file prototype (`web/prototype/index.html`), the curation
   scripts (`scripts/curation/`) and the source measurements
@@ -122,11 +123,24 @@ the diff looks like.
 - Images are rehosted under a random key with EXIF stripped. A Mapillary ID
   resolves to coordinates through the public API, and Panoramax HD frames carry
   GPS in EXIF.
-- The site shows today's place only after the latest reveal across every
-  language. A Telegram player sees the place on answering and a new browser
-  is a new player, so `day_rank` puts every site answer after every Telegram
-  one: a site row never takes a Telegram player's place. Keep it so until the
-  site has sign-in.
+- The site's own game, played by a guest or by an account with Google alone,
+  shows today's place only after the latest reveal across every language. A
+  Telegram player sees the place on answering and a new browser is a new
+  player, so `day_rank` puts every site answer after every Telegram one: a
+  site row never takes a Telegram player's place. Google is not a person the
+  bot knows, so a Google account ranks as the site does.
+- A browser signed in with an account that has Telegram is that Telegram
+  player, not a site player. It answers through `/api/guess` with the session
+  cookie: one answer a day with the bot, closed at the earliest reveal among
+  the person's chats, with the speed bonus, the place on answering and the
+  names at the DM's reveal, as in the DM. It writes nothing to `core`: no
+  presence, so it neither ties the person to a chat nor puts them on the
+  morning post, and without an answer it sees the place only after the latest
+  reveal anywhere. `TestATelegramAccountPlaysOnTheSite` covers it.
+- Merging two accounts never rewrites a closed day. In an open day the
+  earliest site answer stays, and becomes the Telegram answer only when it
+  came before the person's Telegram deadline; a Telegram answer is never
+  replaced.
 - A name typed on the site is not checked: bot posts call that player "Guest".
   The site's write endpoints take only JSON from maply's own pages.
 - `/api/log` strips query strings, which can carry `initData`, and is rate
@@ -149,6 +163,19 @@ the diff looks like.
 
 - Never log the bot token, the Mapillary token, a database URL with its
   password, or full Bot API URLs.
+- Sign-in on the site (`internal/account` over `internal/oidc`) is the code
+  flow with PKCE, a fresh `state` and `nonce` each time, and RS256 id_tokens
+  only. The state lives in a signed ten-minute cookie bound to the browser's
+  session, so a callback from someone else's sign-in, a swapped state or a
+  replayed code signs nobody in. The session cookie is
+  `__Host-maply_session`; the database keeps its SHA-256 only, it lasts 90
+  days from the sign-in and is never extended, and every sign-in and link
+  starts a new one. Writes authenticated by the cookie take only JSON from
+  maply's own pages. The sign-in log carries the result code only: no
+  Telegram id, no Google sub, no address.
+- A Telegram sign-in records the person with `core.touch_person`, never
+  `core.touch`. There are no `/start link_…` links: the Mini App links Google
+  with a five-minute ticket that the phone's browser confirms by name first.
 - Connect with `search_path=maply` and call `core.touch` before domain writes
   that reference `core.person`.
 - Secrets live in `.env`, which is gitignored.
@@ -260,6 +287,9 @@ console has no errors.
 - Images served from `/img/` have no EXIF.
 - `/healthz` reports the database, Telegram polling freshness and the size of
   the place queue.
+- On the site, signing in with Telegram and with Google, linking, unlinking,
+  signing out and deleting the account work; signed in with Telegram, an
+  answer given in the bot shows on the site, and the site refuses a second.
 
 ## License
 
