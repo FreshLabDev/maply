@@ -10,27 +10,31 @@
   setTimeout(() => finish("failed"), 14000);
   try {
     const truth = [data.truth.lon, data.truth.lat];
+    // A pin's longitude on the near side of the point: Tokyo and California are joined across the Pacific, not across
+    // Eurasia, and the view frames the short way too. The Mini App does the same (lngNear).
+    const near = (lon) => truth[0] + ((((lon - truth[0]) % 360) + 540) % 360) - 180;
+    const pins = data.pins.map((p) => ({ ...p, lon: near(p.lon) }));
     const bounds = new maplibregl.LngLatBounds(truth, truth);
-    data.pins.forEach((p) => bounds.extend([p.lon, p.lat]));
+    pins.forEach((p) => bounds.extend([p.lon, p.lat]));
     let tiles = true;
     // A flat map: the renderer draws in software, where the globe the Mini App shows at world scale takes longer than the
     // card may.
     const style = mapStyle(data.lang);
     style.projection = { type: "mercator" };
     const map = new maplibregl.Map({
-      container: "map", style, bounds, fitBoundsOptions: { padding: 100, maxZoom: data.pins.length ? 9 : 4 },
+      container: "map", style, bounds, fitBoundsOptions: { padding: 100, maxZoom: pins.length ? 9 : 4 },
       interactive: false, attributionControl: false, fadeDuration: 0, minZoom: -1, maxPitch: 0,
     });
     map.on("error", (e) => { if (e && e.sourceId === "omt") tiles = false; });
     map.on("load", () => {
       root.dataset.loadAt = String(Math.round(performance.now()));
-      if (data.pins.length) {
-        map.addSource("lines", { type: "geojson", data: { type: "Feature", geometry: { type: "MultiLineString", coordinates: data.pins.map((p) => [[p.lon, p.lat], truth]) } } });
+      if (pins.length) {
+        map.addSource("lines", { type: "geojson", data: { type: "Feature", geometry: { type: "MultiLineString", coordinates: pins.map((p) => [[p.lon, p.lat], truth]) } } });
         map.addLayer({ id: "line-case", type: "line", source: "lines", paint: { "line-color": "#FFFFFF", "line-width": 9 } });
         map.addLayer({ id: "line", type: "line", source: "lines", paint: { "line-color": "#1A412B", "line-width": 4, "line-dasharray": [2, 1.5] } });
       }
       // Best score on top, the point above all of them.
-      data.pins.forEach((p, i) => {
+      pins.forEach((p, i) => {
         const e = document.createElement("i");
         e.className = "av" + (i < 3 ? " w" : "");
         if (p.photo) {
