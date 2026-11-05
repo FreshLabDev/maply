@@ -36,12 +36,40 @@ type Animator struct {
 
 	// The morning post is the same picture in every chat, so it is drawn
 	// once a day and then sent by file_id. A failed day is remembered too,
-	// so the other chats go straight to the photo.
-	day     round.Date
-	mp4     []byte
-	fileID  string
-	failed  error
+	// so the other chats go straight to the photo. Two dates are kept:
+	// around 20:00 UTC the zones east of it post the next day while the
+	// west still posts today.
+	days    map[round.Date]*morningPost
 	dayLock sync.Mutex
+}
+
+type morningPost struct {
+	mp4    []byte
+	fileID string
+	failed error
+}
+
+// post is d's entry, made when missing; the caller holds dayLock.
+func (a *Animator) post(d round.Date) *morningPost {
+	if p, ok := a.days[d]; ok {
+		return p
+	}
+	if a.days == nil {
+		a.days = map[round.Date]*morningPost{}
+	}
+	for len(a.days) >= 2 {
+		var oldest round.Date
+		first := true
+		for k := range a.days {
+			if first || k.Before(oldest) {
+				oldest, first = k, false
+			}
+		}
+		delete(a.days, oldest)
+	}
+	p := &morningPost{}
+	a.days[d] = p
+	return p
 }
 
 // render draws one loop of the scene and returns the MP4.
@@ -83,7 +111,11 @@ func (s *Scheduler) sendPost(ctx context.Context, chatID int64, rd db.Round, cap
 			if !refusedPicture(err) {
 				return msg, err
 			}
-			s.Anim.forget(rd.Date, err)
+			// A chat that does not allow animations says nothing about
+			// the file: only this chat gets the photo.
+			if !noRights(err) {
+				s.Anim.forget(rd.Date, err)
+			}
 		}
 		if !errors.Is(err, errNotPanorama) {
 			s.Log.Warn("morning animation not sent, sending the photo", "chat", chatID, "date", rd.Date, "error", err)
@@ -97,12 +129,9 @@ var errNotPanorama = errors.New("the place is a photo, not a panorama")
 // morning is the day's morning animation: the file Telegram has, or the MP4
 // drawn the first time it is asked for.
 func (s *Scheduler) morning(ctx context.Context, rd db.Round) (telegram.Animation, error) {
-	a := s.Anim
-	a.dayLock.Lock()
-	defer a.dayLock.Unlock()
-	if a.day != rd.Date {
-		a.day, a.mp4, a.fileID, a.failed = rd.Date, nil, "", nil
-	}
+	s.Anim.dayLock.Lock()
+	defer s.Anim.dayLock.Unlock()
+	a := s.Anim.post(rd.Date)
 	switch {
 	case a.failed != nil:
 		return telegram.Animation{}, a.failed
@@ -126,7 +155,7 @@ func (s *Scheduler) morning(ctx context.Context, rd db.Round) (telegram.Animatio
 	}
 	scene := anim.NewMorning(rd.DayNo, pano, revealText(), "en")
 	start := time.Now()
-	mp4, err := a.render(ctx, scene)
+	mp4, err := s.Anim.render(ctx, scene)
 	if err != nil {
 		a.failed = fmt.Errorf("morning animation: %w", err)
 		return telegram.Animation{}, a.failed
@@ -139,16 +168,16 @@ func (s *Scheduler) morning(ctx context.Context, rd db.Round) (telegram.Animatio
 func (a *Animator) keep(d round.Date, fileID string) {
 	a.dayLock.Lock()
 	defer a.dayLock.Unlock()
-	if a.day == d {
-		a.fileID, a.mp4 = fileID, nil
+	if p, ok := a.days[d]; ok {
+		p.fileID, p.mp4 = fileID, nil
 	}
 }
 
 func (a *Animator) forget(d round.Date, err error) {
 	a.dayLock.Lock()
 	defer a.dayLock.Unlock()
-	if a.day == d {
-		a.failed = err
+	if p, ok := a.days[d]; ok {
+		p.failed = err
 	}
 }
 
