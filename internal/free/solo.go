@@ -16,9 +16,15 @@ import (
 // Home is the solo screen: the settings to offer, a game still going, and the
 // player's best for each set of settings.
 type Home struct {
-	Last Settings       `json:"last"`
-	Open *int64         `json:"open"`
+	// Last is the settings of the player's last solo game, the screen's
+	// default.
+	Last Settings `json:"last"`
+	// Open is a solo game the player has not finished.
+	Open *int64 `json:"open"`
+	// Best is the player's best for every settings set they finished.
 	Best map[string]int `json:"best"`
+	// Party is the code of a party the player is in, to go back to.
+	Party string `json:"party,omitempty"`
 }
 
 // SoloRound is a place of a solo game that has been answered.
@@ -77,6 +83,9 @@ func (s *Service) lockSolo(id int64) func() {
 func (s *Service) SoloHome(ctx context.Context, w Who) (Home, error) {
 	s.init()
 	h := Home{Last: DefaultSolo, Best: map[string]int{}}
+	if !w.Valid() {
+		return h, nil
+	}
 	last, ok, err := s.Store.LastFreeSettings(ctx, w)
 	if err != nil {
 		return Home{}, err
@@ -101,8 +110,37 @@ func (s *Service) SoloHome(ctx context.Context, w Who) (Home, error) {
 		if h.Best, err = s.Store.FreeBest(ctx, w.UserID, 0); err != nil {
 			return Home{}, err
 		}
+		if h.Party, err = s.openParty(ctx, w); err != nil {
+			return Home{}, err
+		}
 	}
 	return h, nil
+}
+
+// openParty is the code of a party w is in and has not left, if any.
+func (s *Service) openParty(ctx context.Context, w Who) (string, error) {
+	open, err := s.Store.OpenFreeGames(ctx, w, Party)
+	if err != nil {
+		return "", err
+	}
+	for _, id := range open {
+		p, err := s.load(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		p.mu.Lock()
+		err = s.advance(ctx, p, s.Now())
+		g := p.snap.Game
+		m, ok := p.snap.member(w)
+		p.mu.Unlock()
+		if err != nil {
+			return "", err
+		}
+		if ok && m.LeftAt == nil && (g.Status == StatusLobby || g.Status == StatusPlaying) {
+			return g.Code, nil
+		}
+	}
+	return "", nil
 }
 
 // NewSolo starts a solo game on set. A game the player still had going is

@@ -15,6 +15,7 @@ package free
 import (
 	"math"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -160,4 +161,19 @@ func Speed(seconds int, endsAt, answeredAt time.Time, distancePoints int, auto b
 	share := math.Min(1, float64(left)/float64(limit-loadFree))
 	p := MaxSpeed * share * float64(distancePoints) / maxDistancePoints
 	return int(math.Round(p/10) * 10)
+}
+
+// InvitePrefix starts the startapp payload of a party's invitation: "p" and
+// the party's code. A group post's payload is base64 of a version byte and
+// always starts with "A", so the two never meet.
+const InvitePrefix = "p"
+
+// InviteCode is the party code in a startapp payload, if it is an
+// invitation.
+func InviteCode(startParam string) (string, bool) {
+	code, ok := strings.CutPrefix(startParam, InvitePrefix)
+	if !ok || !ValidCode(code) {
+		return "", false
+	}
+	return code, true
 }

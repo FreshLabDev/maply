@@ -4,6 +4,7 @@ package bot
 import (
 	"fmt"
 	"html"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -209,7 +210,8 @@ func (v view) home(appURL string, admin bool, zone string) (string, telegram.Mar
 		// Playing is what the panel is opened for, so it is the one
 		// highlighted button. Telegram opens a web_app button only in a
 		// direct chat, which is why a group's home has none.
-		rows = append(rows, []telegram.Button{{Text: v.t("btn.play"), WebApp: appURL, Style: tg.StylePrimary}})
+		rows = append(rows, []telegram.Button{{Text: v.t("btn.play"), WebApp: appURL, Style: tg.StylePrimary}},
+			[]telegram.Button{{Text: v.t("free.button"), WebApp: freeURL(appURL)}})
 	}
 	rows = append(rows,
 		[]telegram.Button{v.button("btn.language", actLang), v.button("btn.stats", actStats)},
@@ -217,6 +219,18 @@ func (v view) home(appURL string, admin bool, zone string) (string, telegram.Mar
 		[]telegram.Button{v.button("btn.about", actAbout)},
 	)
 	return text, rows
+}
+
+// freeURL opens the Mini App on the free game.
+func freeURL(appURL string) string {
+	u, err := url.Parse(appURL)
+	if err != nil {
+		return appURL
+	}
+	q := u.Query()
+	q.Set("screen", "free")
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func (v view) help() (string, telegram.Markup) {

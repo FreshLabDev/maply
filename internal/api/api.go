@@ -36,6 +36,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/card"
 	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/free"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/i18n"
 	"github.com/FreshLabDev/maply/internal/round"
@@ -109,6 +110,12 @@ type Server struct {
 	// Avatars gives the players' kept photos for the result's marks; nil
 	// keeps the letters.
 	Avatars Avatars
+	// Free is the free game; nil turns its endpoints off. People records
+	// its players in core, and Invites prepares a party's invitation; nil
+	// leaves the app on a plain link.
+	Free    *free.Service
+	People  People
+	Invites Inviter
 	Log     *slog.Logger
 	Now     func() time.Time
 
@@ -122,6 +129,9 @@ type Server struct {
 	siteAll *limiter
 	// imgLimit bounds the place's pictures per address.
 	imgLimit *limiter
+	// The free game's own limits: a party polls every two seconds, which
+	// the day's limit per person would not survive.
+	freeLimit, pollLimit, makeLimit, inviteLimit, freeSiteAll *limiter
 
 	// tied remembers who has been tied to which chat's reveal, so a result
 	// polled again does not write to core every time.
@@ -170,6 +180,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/days", s.days)
 	mux.HandleFunc("GET /api/day", s.day)
 	mux.HandleFunc("GET /img/{key}", s.image)
+	s.freeRoutes(mux)
 	return mux
 }
 
@@ -190,6 +201,9 @@ type play struct {
 	// shareLang is the language of what the person shares from the app: the
 	// group's, the one the bot posts in there, since that is where it lands.
 	shareLang string
+	// invite is a launch from a party's invitation, which plays as the DM
+	// but is no DM with the bot: the person may never have started it.
+	invite bool
 }
 
 type apiError struct {
@@ -226,6 +240,10 @@ func (s *Server) resolve(r *http.Request) (play, error) { return s.resolveAs(r, 
 func (s *Server) touch(ctx context.Context, p play) error {
 	user := tg.User{ID: p.user.ID, FirstName: p.user.FirstName, LastName: p.user.LastName,
 		Username: p.user.Username, LanguageCode: p.user.LanguageCode}
+	if p.invite && s.People != nil {
+		// Touch would put them on the morning DM post.
+		return s.People.TouchPerson(ctx, user)
+	}
 	if p.kind != "group" {
 		return s.Store.Touch(ctx, user, nil)
 	}
@@ -234,7 +252,7 @@ func (s *Server) touch(ctx context.Context, p play) error {
 
 // tieOnce is touch at most once per person, chat and date in this process.
 func (s *Server) tieOnce(ctx context.Context, p play) error {
-	key := fmt.Sprintf("%s:%d:%d:%s", p.kind, p.chatID, p.user.ID, p.date)
+	key := fmt.Sprintf("%s:%d:%d:%s:%t", p.kind, p.chatID, p.user.ID, p.date, p.invite)
 	s.tiedMu.Lock()
 	done := s.tied[key]
 	s.tiedMu.Unlock()
@@ -274,7 +292,10 @@ func (s *Server) resolveAs(r *http.Request, touch bool) (play, error) {
 	user := tg.User{ID: data.User.ID, FirstName: data.User.FirstName, LastName: data.User.LastName,
 		Username: data.User.Username, LanguageCode: data.User.LanguageCode}
 
-	if data.StartParam == "" {
+	// A party's invitation opens the app as the DM does: the free game has
+	// no chat, and the day's game from it is the person's own.
+	if _, invite := free.InviteCode(data.StartParam); data.StartParam == "" || invite {
+		p.invite = invite
 		if touch {
 			if err := s.touch(ctx, p); err != nil {
 				return play{}, err
