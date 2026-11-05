@@ -809,6 +809,24 @@
     "uk": "без відповіді",
     "zh": "未作答"
   },
+  "app.days.no_day": {
+    "ar": "لا يوجد هذا اليوم في maply.",
+    "be": "Такога дня ў maply не было.",
+    "ca": "Aquest dia no existeix a maply.",
+    "cs": "Takový den v maply nebyl.",
+    "de": "Diesen Tag gab es in maply nicht.",
+    "en": "There was no such day in maply.",
+    "es": "Ese día no existe en maply.",
+    "fr": "Ce jour n’existe pas dans maply.",
+    "it": "Questo giorno non c’è in maply.",
+    "ja": "maply にその日はありません。",
+    "pl": "Takiego dnia w maply nie było.",
+    "ru": "Такого дня в maply не было.",
+    "sv": "Den dagen finns inte i maply.",
+    "tr": "maply’de böyle bir gün yok.",
+    "uk": "Такого дня в maply не було.",
+    "zh": "maply 没有这一天。"
+  },
   "app.days.nobody": {
     "ar": "لم يلعب أحد",
     "be": "ніхто не гуляў",

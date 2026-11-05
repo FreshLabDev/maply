@@ -153,7 +153,7 @@ func TestAppKeysExist(t *testing.T) {
 	for key := range i18n.WithPrefix("en", "unit.") {
 		known[key] = true
 	}
-	uses := regexp.MustCompile(`\b(?:T|lines)\("([a-z_.]*[a-z_])"|data-(?:t|aria)="([a-z_.]+)"|LOOK = \{([^}]*)\}`)
+	uses := regexp.MustCompile(`\b(?:TN?|lines)\("([a-z_.]*[a-z_])"|data-(?:t|aria)="([a-z_.]+)"|LOOK = \{([^}]*)\}`)
 	quoted := regexp.MustCompile(`"([a-z_]+)"`)
 	for _, name := range appFiles(t) {
 		if strings.HasSuffix(name, ".css") {

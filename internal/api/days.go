@@ -360,7 +360,8 @@ func (s *Server) closedPage(ctx context.Context, d round.Date) (closedDay, error
 	if err != nil {
 		return closedDay{}, err
 	}
-	more, err := s.Store.ClosedDay(ctx, d, s.firstDate())
+	// The arrow to the next day stops at the newest one over everywhere.
+	more, err := s.Store.ClosedDay(ctx, d, s.finalDate(s.Now(), s.firstDate()))
 	if err != nil {
 		return closedDay{}, err
 	}

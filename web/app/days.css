@@ -73,7 +73,8 @@ html[dir="rtl"] .dr.best { box-shadow: inset -3px 0 0 var(--speed); }
 .tiles b { display: block; font: 700 22px/1 var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tiles span { display: block; margin-top: 3px; font-size: 11px; line-height: 1.15; color: var(--ink-muted); }
 .axis { padding: 8px 10px 4px; background: var(--field-deep); }
-.axis svg { display: block; width: 100%; height: auto; }
+/* The scale grows with the screen up to a size where its labels are still small print. */
+.axis svg { display: block; width: 100%; max-width: 440px; height: auto; margin: 0 auto; }
 html[dir="rtl"] .axis svg { direction: ltr; }
 .axis .ax { stroke: var(--field-tint); stroke-width: 1; }
 .axis .tk { fill: var(--ink-muted); font: 10px var(--text); }

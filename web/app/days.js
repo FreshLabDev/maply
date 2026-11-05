@@ -6,7 +6,7 @@
 // on a map and the whole ranking. On a phone the page takes the list's place; on a wide screen they stand side by side.
 
 // The flags maply serves, by ISO code: country-flag-icons, 3:2. A code without a file is written in its letters.
-const FLAG_DIR = "vendor/country-flag-icons-1.6.20/3x2/";
+const FLAG_DIR = "/vendor/country-flag-icons-1.6.20/3x2/";
 const FLAGS = new Set(("AC AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY " +
   "BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET EU FI FJ FK FM FO FR GA GB " +
   "GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU IC ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI " +
@@ -23,22 +23,40 @@ const dayPart = (iso, opts) => { try { return new Intl.DateTimeFormat(numLang(),
 const kmNum = (km) => numIn(LANG, km, km < 10 ? 1 : 0);
 const pctT = (pct) => { try { return new Intl.NumberFormat(numLang(), { style: "percent" }).format(pct / 100); } catch { return pct + "%"; } };
 const bwd = () => fwd() === "→" ? "←" : "→";
+// A day's or a rank's number keeps its # on its left in Arabic too: after an Arabic letter the digits are Arabic
+// numbers, which the # does not join, so the number is isolated as left-to-right.
+const no = (s) => String(s).replace(/#[\d.,\u00a0\u202f\u066b\u066c]*\d/g, (m) => "\u2066" + m + "\u2069");
+const TN = (key, vars) => no(T(key, vars));
 
 // DAYS is the list as it was read, page after page; DAY the page open beside or instead of it.
 let DAYS = null, DAY = null, dayTicket = 0;
 
-async function openDays(n) {
+// The list is the page /days and a day is /days/<n>, or /days/<date> as the first addresses had it. The sheet's own
+// Back goes from a day to the list and from the list to the page before it.
+Router.screen("days", /^\/days(?:\/(\d{1,6}|\d{4}-\d{2}-\d{2}))?$/, {
+  open(m) {
+    const key = m[1] || "";
+    if (!$("dPage")) openDays(key);
+    else if (key) openDay(key);
+    else if (DAY && !wide()) closeDay();
+  },
+  close() { DAY = null; closeDays(); },
+});
+const leaveDays = () => Router.back("/");
+const toList = () => Router.back("/days");
+
+async function openDays(key) {
   haptic("light");
-  const ticket = sheet(esc(T("days")), '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>');
+  const ticket = sheet(esc(T("days")), '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>', null, leaveDays);
   let data;
-  try { data = await getJSON("/api/days"); } catch (e) { if (ticket === SHEET) sheet(esc(T("days")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>'); return; }
+  try { data = await getJSON("/api/days"); } catch (e) { if (ticket === SHEET) sheet(esc(T("days")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', null, leaveDays); return; }
   if (ticket !== SHEET) return;
   DAYS = { days: data.days || [], next: data.next || "", best: data.best || "", scroll: 0, more: false };
   showDays();
   // A wide screen has room for a day beside the list: the one asked for, or the newest closed one.
   const first = DAYS.days.find((d) => d.final);
-  if (n) openDay(n);
-  else if (wide() && first) openDay(first.day, true);
+  if (key) openDay(key);
+  else if (wide() && first) openDay(String(first.day), true);
 }
 const wide = () => matchMedia("(min-width: 1024px)").matches;
 
@@ -47,7 +65,7 @@ function sheetHead(title, backTo) {
   $("shTitle").innerHTML = title;
   const b = $("shBack");
   b.textContent = backTo ? bwd() : "×";
-  b.onclick = backTo || closeDays;
+  b.onclick = backTo || leaveDays;
 }
 
 function showDays() {
@@ -57,7 +75,7 @@ function showDays() {
   html += '<div id="dRows">' + rows(DAYS.days, null) + '</div>';
   if (DAYS.next) html += '<p class="dmore up" id="dMore">' + esc(lines("loading")[0]) + '</p>';
   html += '</div><div class="dp" id="dPage"></div></div>';
-  sheet(esc(T("days")), html);
+  sheet(esc(T("days")), html, null, leaveDays);
   $("sheet").dataset.kind = "days";
   const body = $("sheet").querySelector(".sh-body");
   body.scrollTop = DAYS.scroll;
@@ -94,18 +112,18 @@ const dayCell = (d) => '<span class="d"><b>' + esc(dayPart(d.date, { day: "numer
 function closedRow(d) {
   const best = d.date === DAYS.best, nobody = !d.players;
   const country = d.country ? regionName(d.country) : "";
-  const title = d.city || country || T("days.day_n", { n: fmt(d.day) });
+  const title = d.city || country || TN("days.day_n", { n: fmt(d.day) });
   const th = d.thumb ? '<span class="th"><img class="st" src="' + esc(d.thumb) + '" alt="" loading="lazy" decoding="async">' + flag(d.country) + '</span>'
     : '<span class="th ph">' + flag(d.country) + '</span>';
   let r;
   if (d.me) {
-    r = '<b>' + fmt(d.me.points) + '</b><span><i class="km">' + esc(kmT(d.me.km)) + ' · </i>' + esc(T("days.rank_of", { rank: fmt(d.me.rank), n: fmt(d.players) })) + '</span>' +
+    r = '<b>' + fmt(d.me.points) + '</b><span><i class="km">' + esc(kmT(d.me.km)) + ' · </i>' + esc(TN("days.rank_of", { rank: fmt(d.me.rank), n: fmt(d.players) })) + '</span>' +
       (best ? '<small class="star">' + esc(T("days.best")) + '</small>' : '');
   } else {
     r = '<b>–</b><span>' + esc(T("days.no_answer")) + '</span>' + (nobody ? '' : '<small>' + esc(T("days.played", { n: fmt(d.players) })) + '</small>');
   }
   const sub = nobody ? T("days.nobody") : d.median_km != null ? T("days.median", { km: kmT(d.median_km) }) : "";
-  return '<button class="dr' + (best ? ' best' : '') + (d.me ? '' : ' miss') + '" data-n="' + d.day + '">' + dayCell(d) + th +
+  return '<button class="dr' + (best ? ' best' : '') + (d.me ? '' : ' miss') + '" data-n="' + d.day + '" data-date="' + esc(d.date) + '">' + dayCell(d) + th +
     '<span class="t"><b>' + esc(title) + '</b><span>' + esc(d.city ? country : "") + '</span><small>' + esc(sub) + '</small></span>' +
     '<span class="r">' + r + '</span></button>';
 }
@@ -120,15 +138,15 @@ function openRow(d) {
   if (d.played || today && TODAY.answer) r = '<small>' + esc(T("sent")) + '</small>';
   else if (today && secondsTo(TODAY.deadline) > 0) r = '<button class="play" data-play="1">' + esc(T("days.play")) + '</button>';
   else if (today) r = '<small>' + esc(T("days.closed")) + '</small>';
-  return '<div class="dr open">' + dayCell(d) + th + '<span class="t"><b>' + esc(T("days.day_n", { n: fmt(d.day) })) + '</b><span>' +
+  return '<div class="dr open">' + dayCell(d) + th + '<span class="t"><b>' + esc(TN("days.day_n", { n: fmt(d.day) })) + '</b><span>' +
     esc(T("day_answered", { n: fmt(d.pending) })) + '</span><small class="live" data-at="' + esc(d.opens_at) + '">' + esc(T("days.result_in", { time: hm(secondsTo(d.opens_at)) })) +
     '</small></span><span class="r">' + r + '</span></div>';
 }
 
 function onRow(e) {
-  if (e.target.closest("[data-play]")) { closeDays(); haptic("light"); return; }
+  if (e.target.closest("[data-play]")) { haptic("light"); Router.go("/"); return; }
   const b = e.target.closest(".dr[data-n]");
-  if (b) openDay(+b.dataset.n);
+  if (b) Router.go("/days/" + b.dataset.n);
 }
 
 // The next page is read when the end of the list comes into view.
@@ -163,18 +181,22 @@ setInterval(() => {
 }, 30000);
 
 /* ---------- A day's page ---------- */
-// A later tap wins over an earlier one whose reply comes last; the tapped row says it is on its way.
-async function openDay(n, quiet) {
+// A later tap wins over an earlier one whose reply comes last; the tapped row says it is on its way. key is the day's
+// number or its date. A day that cannot be shown leaves the list where it was, at its own address.
+async function openDay(key, quiet) {
   if (!quiet) haptic("select");
-  if (!$("dPage")) return openDays(n);
-  const ticket = ++dayTicket, at = SHEET;
-  const row = $("dRows") && $("dRows").querySelector('.dr[data-n="' + n + '"]');
+  if (!$("dPage")) return openDays(key);
+  const ticket = ++dayTicket, at = SHEET, byDate = !/^\d+$/.test(key);
+  const row = $("dRows").querySelector(byDate ? '.dr[data-date="' + esc(key) + '"]' : '.dr[data-n="' + key + '"]');
   $("dRows").querySelectorAll(".dr.busy").forEach((b) => { b.classList.remove("busy"); b.removeAttribute("aria-busy"); });
   if (row) { row.classList.add("busy"); row.setAttribute("aria-busy", "true"); }
   let d;
-  try { d = await getJSON("/api/day?n=" + encodeURIComponent(n)); } catch (e) {
-    if (ticket === dayTicket && at === SHEET) toast(errorText(e));
+  try { d = await getJSON("/api/day?" + (byDate ? "date=" : "n=") + encodeURIComponent(key)); } catch (e) {
     if (row) { row.classList.remove("busy"); row.removeAttribute("aria-busy"); }
+    if (ticket !== dayTicket || at !== SHEET) return;
+    const opens = e.data && e.data.opens_at;
+    toast(opens ? T("days.result_in", { time: hm(secondsTo(opens)) }) : e.message === "no_round" ? T("days.no_day") : errorText(e));
+    if (!DAY) Router.go("/days", { replace: true });
     return;
   }
   if (row) { row.classList.remove("busy"); row.removeAttribute("aria-busy"); }
@@ -191,7 +213,8 @@ function showDay(d) {
   const row = $("dRows").querySelector('.dr[data-n="' + d.day + '"]');
   if (row) row.classList.add("on");
   $("dPage").innerHTML = dayHTML(d);
-  $("dPage").querySelectorAll("[data-n]").forEach((b) => { b.onclick = () => openDay(+b.dataset.n); });
+  // The neighbouring days take this one's place in the history: Back still goes to the list.
+  $("dPage").querySelectorAll("[data-n]").forEach((b) => { b.onclick = () => Router.go("/days/" + b.dataset.n, { replace: true }); });
   $("dPage").querySelector(".p360").onclick = () => view360(d);
   const mapBtn = $("dMapBtn");
   if (mapBtn) mapBtn.onclick = () => { mapBtn.remove(); dayMap(d); };
@@ -201,7 +224,7 @@ function showDay(d) {
     if (row && row.scrollIntoView) row.scrollIntoView({ block: "nearest" });
   } else {
     body.scrollTop = 0;
-    sheetHead(esc(T("days.day_n", { n: fmt(d.day) })), closeDay);
+    sheetHead(esc(TN("days.day_n", { n: fmt(d.day) })), toList);
   }
 }
 
@@ -218,14 +241,14 @@ function closeDay() {
 
 function dayHTML(d) {
   const P = d.place, country = P.country ? regionName(P.country) : "";
-  const title = P.city || country || "#" + d.day;
+  const title = P.city || country || no("#" + d.day);
   const strip = d.thumb || "";
   let html = '<div class="hero2' + (strip ? '' : d.kind === "panorama" ? ' pano' : ' photo') + '"' +
     (strip ? '' : ' style="background-image:url(&quot;' + esc(d.image) + '&quot;)"') + '>' +
     (strip ? '<img class="st" src="' + esc(strip) + '" alt="">' : '') +
     '<button class="p360" aria-label="' + esc(d.kind === "panorama" ? T("days.view_pano") : T("days.view_photo")) + '">' + (d.kind === "panorama" ? "360°" : "⤢") + '</button>' +
     '<div class="in">' + flag(P.country) + '<b>' + esc(title) + '</b><p>' +
-    esc([P.city ? country : "", "#" + d.day, dayPart(d.date, { day: "numeric", month: "long" })].filter(Boolean).join(" · ")) + '</p></div></div>';
+    esc([P.city ? country : "", no("#" + d.day), dayPart(d.date, { day: "numeric", month: "long" })].filter(Boolean).join(" · ")) + '</p></div></div>';
   html += '<div class="dpi">';
   const src = SOURCES[P.source];
   if (src) {
@@ -236,7 +259,7 @@ function dayHTML(d) {
   html += '</div><div class="dps">';
   if (d.me) {
     const checks = d.me.bonus >= 1500 ? [T("days.country_ok"), T("days.city_ok")] : d.me.bonus >= 800 ? [T("days.country_ok")] : d.me.bonus >= 300 ? [T("days.continent_ok")] : [];
-    html += '<div class="you"><b>' + fmt(d.me.points) + '</b><div><p class="k">' + esc(T("days.you_rank", { rank: fmt(d.me.rank), n: fmt(d.players) })) +
+    html += '<div class="you"><b>' + fmt(d.me.points) + '</b><div><p class="k">' + esc(TN("days.you_rank", { rank: fmt(d.me.rank), n: fmt(d.players) })) +
       '</p><p>' + esc([kmT(d.me.km)].concat(checks).join(" · ")) + '</p></div></div>';
   } else {
     html += '<div class="you none"><p>' + esc(d.players ? T("no_answer") : T("days.nobody")) + '</p></div>';
@@ -257,8 +280,8 @@ function dayHTML(d) {
     }
     html += '</ol><p class="sh-legend"><span>' + SRC_TG + esc(T("from_tg")) + '</span><span>' + SRC_SITE + esc(T("from_site")) + '</span></p></div>';
   }
-  html += '<nav class="dnav">' + (d.prev ? '<button data-n="' + d.prev + '" aria-label="' + esc(T("days.prev")) + '">' + bwd() + ' #' + d.prev + '</button>' : '<span></span>') +
-    (d.next ? '<button data-n="' + d.next + '" aria-label="' + esc(T("days.next")) + '">#' + d.next + ' ' + fwd() + '</button>' : '<span></span>') + '</nav>';
+  html += '<nav class="dnav">' + (d.prev ? '<button data-n="' + d.prev + '" aria-label="' + esc(T("days.prev")) + '">' + bwd() + ' ' + no("#" + d.prev) + '</button>' : '<span></span>') +
+    (d.next ? '<button data-n="' + d.next + '" aria-label="' + esc(T("days.next")) + '">' + no("#" + d.next) + ' ' + fwd() + '</button>' : '<span></span>') + '</nav>';
   return html;
 }
 
@@ -332,7 +355,7 @@ function view360(d) {
     if (DVIEW) { try { DVIEW.destroy(); } catch {} DVIEW = null; }
     box.remove();
     // Back and Escape go to the page again, then out of it.
-    sheetHead(wide() ? esc(T("days")) : esc(T("days.day_n", { n: fmt(d.day) })), wide() ? null : closeDay);
+    sheetHead(wide() ? esc(T("days")) : esc(TN("days.day_n", { n: fmt(d.day) })), wide() ? null : toList);
   };
   box.querySelector(".dview-x").onclick = close;
   $("shBack").onclick = close;
@@ -345,9 +368,11 @@ function view360(d) {
   DVIEW.on("error", () => toast(T("no_image")));
 }
 
-// The list follows the width: a day open on a phone turned wide stays open beside the list, and the other way.
+// The list follows the width: a day open on a phone turned wide stays open beside the list, and the other way. The
+// day a wide screen opened on its own has no address of its own, so a phone shows the list instead.
 matchMedia("(min-width: 1024px)").addEventListener("change", () => {
   if (!$("days")) return;
-  if (DAY) showDay(DAY);
+  if (DAY && (wide() || /^\/days\/./.test(location.pathname))) showDay(DAY);
+  else if (DAY) closeDay();
   else if (!wide()) sheetHead(esc(T("days")), null);
 });
