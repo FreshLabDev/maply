@@ -337,3 +337,31 @@ func TestInitialKeepsAWholeEmoji(t *testing.T) {
 		}
 	}
 }
+
+// Every pin of the result has landed, and every line and chip has started,
+// before the podium rises at 6.2 s, however many people answered.
+func TestResultPinsLandBeforeThePodium(t *testing.T) {
+	for _, n := range []int{1, 3, 10, 27, 40, 120} {
+		r := &Results{Players: make([]Player, n)}
+		pin, line := r.steps()
+		if last := 2.3 + float64(n-1)*pin + 0.42; last > 6.2 {
+			t.Errorf("%d players: the last pin lands at %.2f s", n, last)
+		}
+		if last := 4.7 + float64(n-1)*line; last > 5.6 {
+			t.Errorf("%d players: the last line starts at %.2f s", n, last)
+		}
+	}
+}
+
+// A skin tone or a keycap after a letter or a space goes to the emoji face:
+// the letter's face has no glyph for it and would draw an empty box.
+func TestModifierAfterALetterIsTheEmojiFaces(t *testing.T) {
+	for _, s := range []string{"Ivan \U0001F3FD", "Bob⃣"} {
+		Body.mu.Lock()
+		parts := Body.split([]rune(s))
+		Body.mu.Unlock()
+		if last := parts[len(parts)-1]; last.face != Body.fallback {
+			t.Errorf("%q: the modifier is drawn from the letter's face", s)
+		}
+	}
+}

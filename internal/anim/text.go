@@ -120,14 +120,28 @@ func (f *Font) Layout(s string, size float64, lang language.Language) *Run {
 			pen = f.shape(r, text, part.start, part.end, size, lang, pen)
 			continue
 		}
-		// The fallback belongs to this face alone, but Covered reads it too.
-		part.face.mu.Lock()
-		pen = part.face.shape(r, text, part.start, part.end, size, lang, pen)
-		part.face.mu.Unlock()
+		pen = part.face.shapeLocked(r, text, part.start, part.end, size, lang, pen)
 	}
 	r.Width = pen
+	// Every day brings new names and numbers, so the cache is emptied now
+	// and then rather than kept for the life of the process.
+	if len(f.runs) >= maxRuns {
+		clear(f.runs)
+	}
 	f.runs[key] = r
 	return r
+}
+
+// maxRuns bounds a face's cache: a whole animation draws far fewer strings.
+const maxRuns = 1024
+
+// shapeLocked is shape on the fallback, which belongs to one face but is
+// read by Covered too. The lock is released even if shaping panics: a held
+// one would stop all drawing for good.
+func (f *Font) shapeLocked(r *Run, text []rune, start, end int, size float64, lang language.Language, pen float64) float64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.shape(r, text, start, end, size, lang, pen)
 }
 
 // shape adds text[start:end] to r with the pen at pen, and returns where the
@@ -173,6 +187,11 @@ func (f *Font) split(text []rune) []part {
 		switch {
 		case sticks(r) && len(parts) > 0:
 			face = parts[len(parts)-1].face
+			// A skin tone or a keycap after a letter or a space: the
+			// letter's face has no glyph for it and would draw a box.
+			if face == f && f.fallback != nil && !f.hasLocked(r) && f.fallback.has(r) {
+				face = f.fallback
+			}
 		case f.fallback != nil && !f.hasLocked(r) && f.fallback.has(r):
 			face = f.fallback
 		}
@@ -226,8 +245,9 @@ const (
 )
 
 type textScratch struct {
-	z   vector.Rasterizer
-	pix []byte
+	z    vector.Rasterizer
+	pix  []byte
+	segs []glyphSeg
 }
 
 // Text draws s with its baseline at y and x at the given end, and returns its
@@ -261,7 +281,10 @@ func (m *Mask) Run(r *Run, s *textScratch, at func([2]float64) [2]float64) {
 	if len(r.segs) == 0 {
 		return
 	}
-	segs := make([]glyphSeg, len(r.segs))
+	if cap(s.segs) < len(r.segs) {
+		s.segs = make([]glyphSeg, len(r.segs))
+	}
+	segs := s.segs[:len(r.segs)]
 	x0, y0, x1, y1 := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
 	for i, g := range r.segs {
 		segs[i].op = g.op

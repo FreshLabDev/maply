@@ -239,8 +239,9 @@ func (r *Results) Draw(c *Canvas, t float64) {
 	// where the pins stand.
 	at := make([][2]float64, len(r.Players))
 	buf := make([][2]float64, 0, 42)
+	pinStep, lineStep := r.steps()
 	for i := range r.Players {
-		pr := easeOut(lin(4.7+float64(i)*0.12, 5.6+float64(i)*0.12, t)) * (1 - inOut(lin(9.6, 10.3, t)))
+		pr := easeOut(lin(4.7+float64(i)*lineStep, 5.6+float64(i)*lineStep, t)) * (1 - inOut(lin(9.6, 10.3, t)))
 		x, y, line := r.pinAt(g, i, pr, buf)
 		at[i] = [2]float64{x, y}
 		if pr <= 0 || len(line) < 2 {
@@ -254,7 +255,7 @@ func (r *Results) Draw(c *Canvas, t float64) {
 	// their place.
 	rc := smooth(5.7, 6.2, t)
 	for i, p := range r.Players {
-		t0 := 2.3 + float64(i)*0.32
+		t0 := 2.3 + float64(i)*pinStep
 		f := lin(t0, t0+0.42, t)
 		if f <= 0 {
 			continue
@@ -291,6 +292,18 @@ func (r *Results) Draw(c *Canvas, t float64) {
 	c.confetti(t-(6.2+0.84+0.45), podiumBase-resultsPodium.h[0])
 }
 
+// steps are the delays between one pin's drop and the next, and between one
+// line or chip and the next. They shrink with the group, so the last pin
+// lands before the podium rises however many people answered.
+func (r *Results) steps() (pin, line float64) {
+	n := float64(max(1, len(r.Players)))
+	return min(0.32, 3.2/n), min(0.12, 0.6/n)
+}
+
+// maxChips is how many places get a name beside their pin: past that the
+// chips only cover each other.
+const maxChips = 12
+
 // chips are the name and distance beside each pin. The best place first takes
 // its spot; each chip goes to the side of its pin where it covers the least of
 // the other chips, the pins' heads and the window's edge.
@@ -300,6 +313,10 @@ func (r *Results) chips(c *Canvas, at [][2]float64, t, keep float64, clip *Mask,
 		order[i] = i
 	}
 	slices.SortStableFunc(order, func(a, b int) int { return r.Players[a].Rank - r.Players[b].Rank })
+	if len(order) > maxChips {
+		order = order[:maxChips]
+	}
+	_, step := r.steps()
 	type box struct{ x, y, w, h, weight float64 }
 	over := func(a, b box) float64 {
 		return max(0, min(a.x+a.w, b.x+b.w)-max(a.x, b.x)) * max(0, min(a.y+a.h, b.y+b.h)-max(a.y, b.y))
@@ -320,7 +337,7 @@ func (r *Results) chips(c *Canvas, at [][2]float64, t, keep float64, clip *Mask,
 	}
 	for _, i := range order {
 		p := r.Players[i]
-		ka := smooth(5.3+float64(i)*0.12, 5.7+float64(i)*0.12, t) * keep
+		ka := smooth(5.3+float64(i)*step, 5.7+float64(i)*step, t) * keep
 		if ka <= 0 {
 			continue
 		}

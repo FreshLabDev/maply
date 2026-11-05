@@ -4,6 +4,7 @@ package anim
 import (
 	"math"
 	"strconv"
+	"strings"
 )
 
 // Place is the answer of the day.
@@ -148,36 +149,55 @@ func (c *Canvas) podium(p podium, win [3]*Winner, unit, unitM string, t float64)
 		if a <= 0 {
 			continue
 		}
-		c.streakName(w.Name, w.Streak, w.Face, x+podiumW/2, top+p.nameY, a)
+		c.streakName(w.Name, w.Streak, w.Face, x+podiumW/2, top+p.nameY, podiumW+10, a)
 		c.Text(BodyMedium, 21, Distance(w.Km, unit, unitM)+" · "+Thousands(w.Points), x+podiumW/2, top+p.lineY, Center, paper, a, nil)
 	}
 }
 
 // streakName writes a name centred on x, and after it a flame and the
 // streak when there is one: the 🔥 of the messages, drawn, since the brand's
-// faces have no emoji.
-func (c *Canvas) streakName(name string, streak int, face *Face, x, y, alpha float64) {
+// faces have no emoji. A long name gets smaller, then shorter, to stay within
+// width and off the neighbouring steps.
+func (c *Canvas) streakName(name string, streak int, face *Face, x, y, width, alpha float64) {
 	// The photo sits before the name, its middle on the letters' middle.
 	const faceD, faceGap = 34, 8
-	lead := 0.0
-	if face != nil {
-		lead = faceD + faceGap
-	}
-	if streak <= 0 {
-		x0 := x - (lead+c.Measure(Body, 28, name))/2
-		c.Face(face, x0+faceD/2, y-10, faceD/2, alpha, nil)
-		c.Text(Body, 28, name, x0+lead, y, Left, white, alpha, nil)
-		return
-	}
-	n := strconv.Itoa(streak)
 	const gap, flameW = 10, 15
-	total := lead + c.Measure(Body, 28, name) + gap + flameW + 3 + c.Measure(Body, 28, n)
+	fixed, n := 0.0, ""
+	if face != nil {
+		fixed = faceD + faceGap
+	}
+	if streak > 0 {
+		n = strconv.Itoa(streak)
+		fixed += gap + flameW + 3 + c.Measure(Body, 28, n)
+	}
+	size := c.fit(Body, 28, 20, name, width-fixed)
+	name = c.cut(Body, size, name, width-fixed)
+	total := fixed + c.Measure(Body, size, name)
 	x0 := x - total/2
 	c.Face(face, x0+faceD/2, y-10, faceD/2, alpha, nil)
-	x0 += lead
-	w := c.Text(Body, 28, name, x0, y, Left, white, alpha, nil)
-	c.flame(x0+w+gap+flameW/2, y, 24, alpha)
-	c.Text(Body, 28, n, x0+w+gap+flameW+3, y, Left, white, alpha, nil)
+	if face != nil {
+		x0 += faceD + faceGap
+	}
+	w := c.Text(Body, size, name, x0, y, Left, white, alpha, nil)
+	if streak > 0 {
+		c.flame(x0+w+gap+flameW/2, y, 24, alpha)
+		c.Text(Body, 28, n, x0+w+gap+flameW+3, y, Left, white, alpha, nil)
+	}
+}
+
+// cut shortens s with an ellipsis until it is no wider than width.
+func (c *Canvas) cut(f *Font, size float64, s string, width float64) string {
+	if c.Measure(f, size, s) <= width {
+		return s
+	}
+	rs := []rune(s)
+	for len(rs) > 1 {
+		rs = rs[:len(rs)-1]
+		if t := strings.TrimRight(string(rs), " ") + "…"; c.Measure(f, size, t) <= width {
+			return t
+		}
+	}
+	return "…"
 }
 
 // flame is the pin upside down, bronze, with a gold heart: its base at y,
