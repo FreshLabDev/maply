@@ -90,11 +90,12 @@ async function loadTexts(lang) {
 // In Telegram every request carries initData; the server checks its signature and works out the chat from
 // start_param. In a plain browser it is the site: nobody signs in, a cookie holds a random player id, the one answer
 // a day goes into the world ranking under the name the player gave or "Guest", and the place opens only after the
-// latest reveal among maply's zones. localStorage keeps a copy of the pin and the name.
-const SITE = !inTg;
+// latest reveal among maply's zones. localStorage keeps a copy of the pin and the name. A browser signed in with
+// Telegram (account.js) is no such site: it plays as the bot's player, with its session cookie instead of initData.
+let SITE = !inTg;
 async function api(path, body, wait) {
   if (SITE) return site(path, body);
-  const headers = { Authorization: "tma " + tg.initData };
+  const headers = inTg ? { Authorization: "tma " + tg.initData } : {};
   if (body) headers["Content-Type"] = "application/json";
   return reply(await get(path, { method: body ? "POST" : "GET", headers, body: body && JSON.stringify(body) }, wait));
 }
@@ -151,8 +152,9 @@ async function site(path, body) {
   return reply(await get("/api/site/result?" + new URLSearchParams(q)));
 }
 // On the site a plate under the map says where the real game is: the ranking and the group live in Telegram.
-const tgLink = () => SITE && TODAY && TODAY.bot
-  ? '<a class="pl w tgl" href="https://t.me/' + encodeURIComponent(TODAY.bot) + '" target="_blank" rel="noopener">' + esc(T("play_telegram")) + ' ' + fwd() + '</a>' : "";
+// Signed in with Telegram, the plate offers the bot's daily post instead.
+const tgLink = () => !inTg && TODAY && TODAY.bot
+  ? '<a class="pl w tgl" href="https://t.me/' + encodeURIComponent(TODAY.bot) + '" target="_blank" rel="noopener">' + esc(T(SITE ? "play_telegram" : "acct.get_post")) + ' ' + fwd() + '</a>' : "";
 let toastT = 0;
 function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2300); }
 
@@ -545,7 +547,7 @@ async function send() {
   } finally { $("go").disabled = false; }
 }
 // The DM's zone follows the phone until the person picks one: the server takes it from here.
-const todayPath = () => SITE ? "/api/today" : "/api/today?" + new URLSearchParams({ tz });
+const todayPath = () => SITE ? "/api/today" : "/api/today?" + new URLSearchParams(inTg ? { tz } : { tz, lang: LANG0 });
 // "sent" right after the answer, "closed" when the window shut without one, "restore" when the app reopens after answering.
 let waitShown = false;
 function toWaiting(how) {
@@ -1186,7 +1188,7 @@ const nameOf = (r) => r.name || (r.site ? T("guest") : "?");
 // that is not Cyrillic, Russian forms are the likelier right ones for a Cyrillic name.
 const nameLang = () => ["ru", "uk", "be"].includes(LANG) ? LANG : "ru";
 async function getJSON(path) {
-  if (SITE) return reply(await get(path + (path.includes("?") ? "&" : "?") + "lang=" + encodeURIComponent(LANG)));
+  if (!inTg) return reply(await get(path + (path.includes("?") ? "&" : "?") + "lang=" + encodeURIComponent(LANG)));
   return reply(await get(path, { headers: { Authorization: "tma " + tg.initData } }));
 }
 // The sheet is a dialog over the app: a screen reader announces its title and starts on its close button.
@@ -1226,6 +1228,7 @@ async function openDays() {
   const days = data.days || [];
   let html = "";
   if (SITE) html += '<label class="sh-name"><span class="up">' + esc(T("your_name")) + '</span><input id="shName" lang="' + nameLang() + '" maxlength="24" autocomplete="nickname" placeholder="' + esc(T("guest")) + '" value="' + esc(siteName()) + '"></label>';
+  if (typeof accountEntry === "function") html += accountEntry();
   if (!days.length) html += '<p class="sh-wait">' + esc(T("no_days")) + '</p>';
   for (const d of days) {
     const head = '<span class="up">#' + d.day + ' · ' + esc(dayDate(d.date)) + '</span>';
@@ -1249,6 +1252,7 @@ function showDays() {
   const body = $("sheet").querySelector(".sh-body");
   body.scrollTop = DAYS.scroll;
   $("sheet").querySelectorAll(".dd[data-date]").forEach((b) => { b.onclick = () => { DAYS.scroll = body.scrollTop; Router.go("/days/" + b.dataset.date); }; });
+  if (typeof accountBind === "function") accountBind();
   const name = $("shName");
   if (name) name.value = siteName();
   if (name) name.onchange = async () => {
@@ -1304,10 +1308,12 @@ Router.screen("days", /^\/days(?:\/(\d{4}-\d{2}-\d{2}))?$/, {
 /* ---------- Start ---------- */
 // Opened inside Telegram without initData (a plain link in the in-app browser) there is nothing to play as.
 async function boot() {
+  // Who is signed in on the site decides which API plays.
+  if (typeof accountBoot === "function") await accountBoot();
   // The client's language first, so nothing on the first screen is blank; the person's own choice from core
   // arrives with /api/today and wins.
   const [today] = await Promise.all([
-    SITE || tg.initData ? api(todayPath()).catch((e) => e) : null,
+    !inTg || tg.initData ? api(todayPath()).catch((e) => e) : null,
     loadTexts(LANG0).catch(() => {}),
   ]);
   setCall(T("where"), T("drop_pin"));
@@ -1320,6 +1326,7 @@ async function boot() {
   // The words are final now: the page the address names can open.
   Router.start();
   loadShareTexts();
+  if (typeof accountReady === "function") accountReady();
   $("day").textContent = "#" + TODAY.day;
   HEADING = TODAY.heading || 0;
   AT = new Intl.DateTimeFormat(numLang(), { timeZone: TODAY.zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(TODAY.reveal));

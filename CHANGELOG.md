@@ -15,6 +15,10 @@ For the operator:
 
 - Apply core migration 021 (`core.touch_person`) before deploying. The
   service refuses to start without it and names the migration.
+- Sign-in on the site needs keys from BotFather and Google Cloud, set as
+  `TELEGRAM_LOGIN_CLIENT_ID`/`_SECRET` and `GOOGLE_CLIENT_ID`/`_SECRET`, and
+  `APP_URL`; `docs/sign-in.md` lists the steps. Without them the site plays
+  as before and its sign-in buttons are greyed out.
 
 ### Added
 
@@ -29,6 +33,25 @@ For the operator:
   closed day, so a day can be linked and Back in the browser closes it. An
   address without a screen yet shows today. In Telegram the address changes
   without adding history, so Back stays Telegram's.
+- Sign-in on the site with Telegram or Google, through our server by OpenID
+  Connect with PKCE. Signed in with Telegram, the site is the bot's player:
+  one answer a day across both, the DM's deadline with the speed bonus, the
+  place right after answering and the names at the usual time. Signed in with
+  Google, the site's game keeps its answers and name across browsers. The
+  browser's guest answers join the account, after a question when the account
+  already existed.
+- An accounts page: link and unlink Telegram and Google, sign out here or on
+  every device, delete the account. Two accounts merge when one's sign-in is
+  linked to the other; a closed day is never rewritten. In the Mini App,
+  linking Google opens the phone's browser with a five-minute ticket that
+  names the Telegram account before going to Google; a Google that has an
+  account of its own is linked from the site instead, so a ticket never
+  merges.
+- `/privacy` says what maply keeps, what other players see and how to delete
+  the account, in the sixteen languages.
+- The site's menu picks the interface language. Signed in with Telegram it is
+  the language core keeps for every bot of the family, with "Follow
+  Telegram"; otherwise the browser keeps it.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

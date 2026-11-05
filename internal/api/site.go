@@ -82,16 +82,15 @@ func (s *Server) siteToday(w http.ResponseWriter, r *http.Request) {
 		Heading: puzzle.Heading, Zone: loc.String(), Lang: i18n.Normalize(r.URL.Query().Get("lang")),
 		Deadline: deadline.UTC(), Reveal: s.latestReveal(d).UTC(), Bot: s.BotUsername, Now: s.Now().UTC(),
 	}
-	if player := playerID(r); player != "" {
-		g, ok, err := s.Store.SiteGuessOf(ctx, d, player)
-		if err != nil {
-			s.fail(w, r, err)
-			return
-		}
-		if ok {
-			resp.Answer = &pin{Lat: g.Pin.Lat, Lon: g.Pin.Lon}
-		}
-		if resp.Name, err = s.Store.SiteName(ctx, player); err != nil {
+	v := s.siteViewer(r)
+	if g, ok, err := s.siteGuessOf(r, d, v); err != nil {
+		s.fail(w, r, err)
+		return
+	} else if ok {
+		resp.Answer = &pin{Lat: g.Pin.Lat, Lon: g.Pin.Lon}
+	}
+	if v.Player != "" {
+		if resp.Name, err = s.Store.SiteName(ctx, v.Player); err != nil {
 			s.fail(w, r, err)
 			return
 		}
@@ -150,24 +149,27 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	player := playerID(r)
-	isMe := func(e db.Entry) bool { return player != "" && e.Player == player }
+	v := s.siteViewer(r)
+	mine, err := s.sitePlayers(r, v)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	isMe := func(e db.Entry) bool {
+		return (v.TelegramUserID != 0 && e.UserID == v.TelegramUserID) || (e.Player != "" && mine[e.Player])
+	}
 	secret := s.boardSecret()
 	resp.Board = board(secret, d, 0, world, isMe, nil, nil, true, true)
 	resp.Players = world.Players()
-	if player != "" {
-		g, ok, err := s.Store.SiteGuessOf(ctx, d, player)
-		if err != nil {
-			s.fail(w, r, err)
-			return
-		}
-		if ok && g.Km != nil {
-			total, bonus := g.Total(), *g.PtsBonus
-			resp.Table = append(resp.Table, line{Key: boardKey(secret, d, 0, db.Entry{Player: player}), Lat: g.Pin.Lat, Lon: g.Pin.Lon,
-				Km: g.Km, Points: &total, Bonus: &bonus, Me: true})
-			writeJSON(w, http.StatusOK, resp)
-			return
-		}
+	if g, ok, err := s.siteGuessOf(r, d, v); err != nil {
+		s.fail(w, r, err)
+		return
+	} else if ok && g.Km != nil {
+		total, bonus := g.Total(), *g.PtsBonus
+		resp.Table = append(resp.Table, line{Key: boardKey(secret, d, 0, db.Entry{Player: v.Player}), Lat: g.Pin.Lat, Lon: g.Pin.Lon,
+			Km: g.Km, Points: &total, Bonus: &bonus, Me: true})
+		writeJSON(w, http.StatusOK, resp)
+		return
 	}
 	// An answer kept only in the browser, from before answers were stored,
 	// is scored on the spot and not ranked.
