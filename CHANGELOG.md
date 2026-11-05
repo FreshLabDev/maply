@@ -43,6 +43,16 @@ For the operator:
   days page read "Telegram player" instead of the name for everyone outside
   the person's own groups, and the mini profile does not open. The bot's
   posts keep the name.
+- The month's season: the sum of a player's 20 best days. The 07:00 post of
+  the 1st names the champion inside yesterday's look back, a group's own in
+  a group and the world's in a DM with the person's place; no new message.
+  The profile shows the place in the month so far, in the world and in the
+  group it was opened from.
+- A public link to the profile, off until the player turns it on: `/p/…`
+  opens their numbers over the days over everywhere for anyone with the
+  link, without pins, history or photo, and asks search engines to stay
+  away. "New link" ends the old one, and "Hide me" closes the page while
+  it is on. The link's preview is the profile picture without the pins.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
   the screen the address names. `/days` opens the days and `/days/<date>` a

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/i18n"
 	"github.com/FreshLabDev/maply/internal/round"
 )
 
@@ -83,6 +84,28 @@ func TestAnsweredBlockHidesWhoIsWho(t *testing.T) {
 	}
 	if got := answeredBlock("ru", nil); got != "Ответов пока нет." {
 		t.Fatalf("nobody = %q", got)
+	}
+}
+
+// In a crowded group the day's look back gives way before the month's
+// season, which is said once a month and in no other message.
+func TestPostCaptionKeepsTheSeason(t *testing.T) {
+	var long []db.Guess
+	for i := 0; i < nameLimit; i++ {
+		km := float64(100 + i)
+		long = append(long, db.Guess{UserID: int64(i), FirstName: strings.Repeat("Я", 30) + strconv.Itoa(i), Km: &km})
+	}
+	block := answeredBlock("ru", long)
+	season := "<b>" + i18n.T("ru", "season.title") + "</b>\n🏆 " + i18n.T("ru", "season.group", "name", "Аня", "points", "61 000")
+	back := strings.Repeat("Вчера первое место в мире: Ким, 12 км.\n", 8) + "\n" + season
+	got := postCaption("ru", 3, "20:00 (Киев)", back, block, true)
+	if visibleLen(got) > captionLimit || !strings.Contains(got, "<blockquote>"+season+"</blockquote>") || strings.Contains(got, "Ким") {
+		t.Fatalf("post is %d long: %q", visibleLen(got), got)
+	}
+	// The pin request after it stays with it.
+	ask := i18n.T("ru", "group.pin_rights")
+	if got := postCaption("ru", 3, "20:00 (Киев)", back+"\n\n"+ask, block, true); !strings.Contains(got, season) || !strings.Contains(got, ask) || visibleLen(got) > captionLimit {
+		t.Fatalf("with the pin request: %q", got)
 	}
 }
 

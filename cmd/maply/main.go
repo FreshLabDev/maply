@@ -107,8 +107,9 @@ func run(log *slog.Logger) error {
 		AppURL:   cfg.AppURL,
 		Zones:    zones,
 	}
+	// The public profile's preview is one frame, drawn without ffmpeg.
+	profiles := &profile.Service{Store: store, Zones: zones, FFmpeg: ffmpeg, Log: log}
 	if ffmpeg != "" {
-		profiles := &profile.Service{Store: store, Zones: zones, FFmpeg: ffmpeg, Log: log}
 		opts.Profiles = profiles
 		go profiles.Run(ctx, 10*time.Minute)
 	}
@@ -172,6 +173,7 @@ func run(log *slog.Logger) error {
 		ImagesDir:   cfg.ImagesDir,
 		BotUsername: me.Username,
 		Avatars:     avatars,
+		Stills:      profiles,
 		Log:         log,
 	}
 	if cards != nil {

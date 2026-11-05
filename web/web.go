@@ -159,6 +159,27 @@ func Handler() (http.Handler, error) {
 // page is served on every address in Pages, so it names them from the root.
 var localRef = regexp.MustCompile(`(src|href)="([^":?#]+\.(?:js|css))"`)
 
+// host is a Host header fit to name the preview's address with.
+var host = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$`)
+
+// publicPage is index.html for a player's public page /p/<slug>: kept out of
+// search engines, with the player's picture for a link's preview, which
+// needs an absolute address. slug is a path segment isPage accepted.
+func publicPage(f file, slug string, r *http.Request) file {
+	meta := `<meta name="robots" content="noindex, nofollow">`
+	if host.MatchString(r.Host) {
+		scheme := "https"
+		if h, _, _ := strings.Cut(r.Host, ":"); h == "127.0.0.1" || h == "localhost" {
+			scheme = "http"
+		}
+		meta += `<meta property="og:image" content="` + scheme + "://" + r.Host + "/api/p/" + slug + `/card.png">` +
+			`<meta name="twitter:card" content="summary_large_image">`
+	}
+	data := bytes.Replace(f.data, []byte("</head>"), []byte(meta+"</head>"), 1)
+	sum := sha256.Sum256(data)
+	return file{data: data, etag: `"` + hex.EncodeToString(sum[:12]) + `"`, ctype: f.ctype}
+}
+
 func (h *handler) add(name string, data []byte, immutable bool) {
 	sum := sha256.Sum256(data)
 	ctype, ok := contentTypes[path.Ext(name)]
@@ -198,6 +219,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := path.Clean(r.URL.Path)
+	page := name
 	if name == "/" || isPage(name) {
 		name = "/index.html"
 	}
@@ -206,7 +228,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if slug, ok := strings.CutPrefix(page, "/p/"); ok && name == "/index.html" {
+		f = publicPage(f, slug, r)
+	}
 	hd := w.Header()
+	if strings.HasPrefix(page, "/p/") {
+		hd.Set("X-Robots-Tag", "noindex, nofollow")
+	}
 	hd.Set("Content-Type", f.ctype)
 	hd.Set("Content-Security-Policy", CSP)
 	hd.Set("X-Content-Type-Options", "nosniff")

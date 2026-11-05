@@ -43,6 +43,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/FreshLabDev/maply/internal/profile"
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/migrations"
 	"github.com/FreshLabDev/maply/web"
@@ -231,6 +232,7 @@ func run(logger *slog.Logger, dsn, addr, places, state string, days int, fresh, 
 		Countries:   countries,
 		ImagesDir:   e.ImagesDir,
 		BotUsername: "maplyin_bot",
+		Stills:      &profile.Service{Store: store, Zones: zones, Log: logger, Now: e.Clock.Now},
 		Log:         logger,
 		Now:         e.Clock.Now,
 	}

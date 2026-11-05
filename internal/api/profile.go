@@ -47,6 +47,7 @@ type ProfileStore interface {
 	SharesGroup(ctx context.Context, viewer int64, ids []int64) (map[int64]bool, error)
 	HeadToHead(ctx context.Context, me, other int64, upTo round.Date) (int, int, error)
 	FreeGames(ctx context.Context, userID int64) ([]db.FreeGame, error)
+	SeasonOf(ctx context.Context, first, last round.Date, chatID, userID int64) (db.SeasonRank, error)
 	TouchPerson(ctx context.Context, user tg.User) error
 }
 
@@ -118,6 +119,46 @@ type ownProfile struct {
 	Ranked   profile.Ranked  `json:"ranked"`
 	Free     *profile.Free   `json:"free"`
 	Settings *profileSetting `json:"settings,omitempty"`
+	// Season is the month's season so far, the world's and the group's.
+	Season []seasonPlace `json:"season,omitempty"`
+}
+
+type seasonPlace struct {
+	// Kind is "world" or "group".
+	Kind   string `json:"kind"`
+	Rank   int    `json:"rank"`
+	Of     int    `json:"of"`
+	Points int    `json:"points"`
+}
+
+// season is the player's place in the month's season: the world's, and the
+// group's when the profile was opened from one. It counts the days over
+// everywhere, as the month's end does, and only Telegram players have one.
+// A failure leaves the tiles out rather than the profile.
+func (s *Server) season(ctx context.Context, ps ProfileStore, v profileViewer, now time.Time) []seasonPlace {
+	upTo := profile.LatestClosed(s.Zones, now)
+	t := upTo.Time()
+	first := round.NewDate(t.Year(), t.Month(), 1)
+	type scope struct {
+		kind string
+		chat int64
+	}
+	scopes := []scope{{"world", 0}}
+	if v.chatID < 0 {
+		scopes = append(scopes, scope{"group", v.chatID})
+	}
+	var out []seasonPlace
+	for _, sc := range scopes {
+		r, err := ps.SeasonOf(ctx, first, upTo, sc.chat, v.user)
+		if err != nil {
+			s.Log.Warn("season not read", "error", err)
+			return nil
+		}
+		if r.Rank > 0 {
+			out = append(out, seasonPlace{Kind: sc.kind, Rank: r.Rank, Of: r.Of, Points: r.Points})
+		}
+	}
+	return out
 }
 
 type profileSetting struct {
@@ -236,6 +277,7 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 		}
 		out.Settings = settingView(set)
 		out.Free = s.free(ctx, ps, v.user)
+		out.Season = s.season(ctx, ps, v, now)
 	default:
 		// A site player sees what the site shows: days over everywhere.
 		out.Guest = true

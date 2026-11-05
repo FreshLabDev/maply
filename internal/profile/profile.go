@@ -65,6 +65,9 @@ type Service struct {
 	mu    sync.Mutex
 	drawn map[key]drawn
 	busy  map[key]*drawing
+
+	stillMu sync.Mutex
+	stills  map[stillKey][]byte
 }
 
 type key struct {

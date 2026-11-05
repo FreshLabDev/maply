@@ -53,7 +53,8 @@ player, and production-minded.
 - A group gets at most three messages a day: the 07:00 post, one intrigue
   between 16:00 and 18:00, and the 20:00 result. Edits to the pinned post do not
   count. Do not add a fourth: the rules in a group's first post and the
-  admins' note when maply may not pin go into the post itself.
+  admins' note when maply may not pin go into the post itself, and so does
+  the month's season champion, in the look back of the month's last day.
 - Posts write the reveal with the chat's zone, "20:00 (Kyiv)". A chat's zone is
   stored the first time maply needs it (`FixZone`), so a later change of
   language cannot move a reveal. A DM's stored this way is marked automatic
@@ -146,6 +147,14 @@ the diff looks like.
   included, keep the name. A handle is scoped to its table
   (`profile.Handles.Of`), so one player's rows in two tables cannot be
   matched by it.
+- A public page `/p/<slug>` exists only while its owner keeps it on. The
+  slug is random (`profile.NewSlug`), a new one ends the old, and it never
+  reaches a log line. The page and its preview (`/api/p/<slug>/card.png`)
+  hold a stranger's view: the name and the numbers of days over in every
+  zone, with no id, username, photo, handle, pins, history or answer
+  times, and both ask search engines to stay away. "Hide me" closes it
+  until the player shows again; the preview may stay at the edge for the
+  five minutes it is cached.
 - `/api/log` strips query strings, which can carry `initData`, and is rate
   limited per address and in total.
 - The `startapp` payload is signed with HMAC; group membership is checked with

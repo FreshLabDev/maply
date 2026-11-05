@@ -228,10 +228,12 @@ func (s *Store) SetPublicSlug(ctx context.Context, userID int64, slug string) er
 	return nil
 }
 
-// PublicOwner is the person whose public page slug names, when it is on.
+// PublicOwner is the person whose public page slug names, when it is on and
+// they have not hidden themselves: the page's days would match the hidden
+// rows of the days' tables. Unhidden, the same link works again.
 func (s *Store) PublicOwner(ctx context.Context, slug string) (int64, bool, error) {
 	var id int64
-	err := s.pool.QueryRow(ctx, `SELECT user_id FROM profile_setting WHERE public_slug = $1`, slug).Scan(&id)
+	err := s.pool.QueryRow(ctx, `SELECT user_id FROM profile_setting WHERE public_slug = $1 AND NOT hide_me`, slug).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, false, nil
 	}

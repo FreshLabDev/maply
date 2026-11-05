@@ -59,12 +59,49 @@ func TestVendorIsImmutable(t *testing.T) {
 // hashed scripts as "/".
 func TestPages(t *testing.T) {
 	index := serve(t, "/", nil)
-	for _, p := range []string{"/days", "/days/", "/days/2026-11-04", "/days/14", "/me", "/play", "/party/K7QF", "/p/a1b2c3"} {
+	for _, p := range []string{"/days", "/days/", "/days/2026-11-04", "/days/14", "/me", "/play", "/party/K7QF"} {
 		rec := serve(t, p, nil)
 		if rec.Code != http.StatusOK || rec.Body.String() != index.Body.String() || rec.Header().Get("Content-Security-Policy") != CSP ||
 			rec.Header().Get("ETag") != index.Header().Get("ETag") {
 			t.Errorf("GET %s = %d", p, rec.Code)
 		}
+	}
+}
+
+// A public profile is the app too, kept out of search engines, with the
+// player's picture for a link's preview at the address it was asked by.
+func TestPublicPage(t *testing.T) {
+	h, err := Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(host string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/p/Ab_9-xYz0123456789abcd", nil)
+		req.Host = host
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	rec := get("maply.ws04.cc")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || rec.Header().Get("X-Robots-Tag") != "noindex, nofollow" || rec.Header().Get("Content-Security-Policy") != CSP ||
+		!strings.Contains(body, `<meta name="robots" content="noindex, nofollow">`) ||
+		!strings.Contains(body, `<meta property="og:image" content="https://maply.ws04.cc/api/p/Ab_9-xYz0123456789abcd/card.png">`) ||
+		!strings.Contains(body, `<script defer src="/app.js?v=`) {
+		t.Fatalf("GET /p/… = %d %v\n%s", rec.Code, rec.Header(), body)
+	}
+	if rec.Header().Get("ETag") == serve(t, "/", nil).Header().Get("ETag") {
+		t.Error("the public page shares the app's ETag")
+	}
+	if body := get("127.0.0.1:8416").Body.String(); !strings.Contains(body, `content="http://127.0.0.1:8416/api/p/`) {
+		t.Errorf("the stand's preview address:\n%s", body)
+	}
+	// A Host that could break out of the attribute names no picture.
+	if body := get(`x"><script>`).Body.String(); strings.Contains(body, "og:image") || !strings.Contains(body, `name="robots"`) {
+		t.Errorf("odd Host:\n%s", body)
+	}
+	if rec := serve(t, "/", nil); rec.Header().Get("X-Robots-Tag") != "" || strings.Contains(rec.Body.String(), "og:image") {
+		t.Error("the app's own page is marked as a public profile")
 	}
 }
 

@@ -76,12 +76,16 @@ var query = regexp.MustCompile(`\?[\w%.\-]+=[^\s)]*`)
 // and a pin before the reveal is not for the log.
 var coordinate = regexp.MustCompile(`-?\d{1,3}\.\d{3,}`)
 
-// clean drops URL fragments and queries and control characters and cuts s
-// to n runes.
+// publicSlug is a public profile's address, which is its only key.
+var publicSlug = regexp.MustCompile(`/p/[A-Za-z0-9_-]+`)
+
+// clean drops URL fragments and queries, public profiles' keys and control
+// characters, and cuts s to n runes.
 func clean(s string, n int) string {
 	s = fragment.ReplaceAllString(s, "")
 	s = query.ReplaceAllString(s, "")
 	s = coordinate.ReplaceAllString(s, "…")
+	s = publicSlug.ReplaceAllString(s, "/p/…")
 	s = strings.Map(func(r rune) rune {
 		if r == '\n' {
 			return r

@@ -76,6 +76,14 @@ func TestSitePostsComeFromMaplysPages(t *testing.T) {
 	}
 }
 
+// A public profile's address is its key: the log keeps only that it was one.
+func TestClientLogDropsPublicSlugs(t *testing.T) {
+	got := clean("TypeError at https://maply.example/p/Ab_9-xYz0123456789abcd (profile.js:3:1)", 300)
+	if strings.Contains(got, "Ab_9") || !strings.Contains(got, "/p/…") || !strings.Contains(got, "profile.js:3:1") {
+		t.Fatalf("clean = %q", got)
+	}
+}
+
 // A point in a map library's message stays out of the log.
 func TestClientLogDropsCoordinates(t *testing.T) {
 	got := clean("Invalid LngLat object: (30.523412, -50.4501) at app.js:128:15 v8.0", 300)

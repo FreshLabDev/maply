@@ -126,7 +126,7 @@ type Input struct {
 	Closed func(round.Date) bool
 	// Lang names the cities in History.
 	Lang string
-	// WithHistory adds the list of days: the owner's and the public page's.
+	// WithHistory adds the list of days, which only the owner gets.
 	WithHistory bool
 }
 

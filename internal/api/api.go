@@ -109,8 +109,11 @@ type Server struct {
 	// Avatars gives the players' kept photos for the result's marks; nil
 	// keeps the letters.
 	Avatars Avatars
-	Log     *slog.Logger
-	Now     func() time.Time
+	// Stills draws the preview of a public profile; nil leaves the link
+	// without a picture.
+	Stills Stills
+	Log    *slog.Logger
+	Now    func() time.Time
 
 	ipLimit    *limiter
 	userLimit  *limiter
@@ -125,6 +128,8 @@ type Server struct {
 	// profAll caps the profiles read without signing in, from everyone
 	// together: one is a few queries over a player's whole history.
 	profAll *limiter
+	// cardAll caps the public profiles' previews drawn, from everyone.
+	cardAll *limiter
 
 	// tied remembers who has been tied to which chat's reveal, so a result
 	// polled again does not write to core every time.
@@ -158,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 	s.logAll = newLimiter(30, time.Minute)
 	s.siteAll = newLimiter(120, time.Minute)
 	s.profAll = newLimiter(600, time.Minute)
+	s.cardAll = newLimiter(60, time.Minute)
 	// An app open fetches one picture; Cloudflare keeps the .jpg, so a
 	// loop of fetches past it is all that reaches the bot.
 	s.imgLimit = newLimiter(120, time.Minute)
@@ -176,6 +182,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/profile", s.profile)
 	mux.HandleFunc("GET /api/profile/who", s.mini)
 	mux.HandleFunc("POST /api/profile/settings", s.profileSettings)
+	mux.HandleFunc("POST /api/profile/public", s.profilePublic)
+	mux.HandleFunc("GET /api/p/{slug}", s.publicPage)
+	mux.HandleFunc("GET /api/p/{slug}/card.png", s.publicCard)
 	mux.HandleFunc("GET /img/{key}", s.image)
 	return mux
 }
@@ -1172,8 +1181,13 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	// The error comes from the store or Telegram; neither includes request
-	// bodies, so no pin reaches the log.
-	s.Log.Error("api request failed", "path", r.URL.Path, "error", err)
+	// bodies, so no pin reaches the log. The route's pattern, not the path:
+	// a public page's path is its only key.
+	path := r.URL.Path
+	if r.Pattern != "" {
+		path = r.Pattern
+	}
+	s.Log.Error("api request failed", "path", path, "error", err)
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 }
 

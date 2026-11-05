@@ -122,8 +122,21 @@
 [dir="rtl"] .pswitch input:checked::after { transform: translateX(-20px); }
 .pswitch input:focus-visible { outline-color: var(--speed); }
 .pswitch input:disabled { cursor: wait; }
+.pswitch.held { cursor: default; }
+.pswitch.held input, .pswitch.held b { opacity: .45; cursor: default; }
 .pswitch b { display: block; font-weight: 700; }
 .pswitch small { display: block; margin-top: 4px; color: var(--ink-muted); font-size: 13px; line-height: 1.35; }
+
+/* The public link: the address to copy, and the two things to do with it. */
+.pswitch + .pswitch { margin-top: 2px; }
+.plink { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 2px; }
+.plink input { flex: 1 1 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 0; background: var(--panel); color: var(--on-panel); font: 600 14px/1.2 var(--text); }
+.plink .pbtn { flex: 1 1 0; min-height: 44px; background: var(--field-deep); }
+.plink .pbtn:focus-visible, .plink input:focus-visible { outline: 2px solid var(--speed); outline-offset: -2px; }
+
+/* The month's season under the main tiles, with what it counts. */
+.ptiles.pseason { margin-bottom: 0; }
+.pseason-n { margin: 8px 0 16px; }
 
 .prof.mini .pcard .av.ph { background: var(--field-deep); }
 

@@ -2,7 +2,8 @@
 // The player's own profile opens from the letter at the end of the header; the logo still opens the days. Any element
 // with data-who="<handle>" opens that player's mini profile: the server puts a handle next to a name only, so a row
 // without a name has nothing to tap. Charts are drawn here in SVG, without a library.
-let PROF = null, PROF_TAB = "ranked";
+// PROF is the player's own profile, VIEW the one on show: the own one or a public page.
+let PROF = null, VIEW = null, PROF_TAB = "ranked";
 try { PROF_TAB = localStorage.getItem("maply.prof.tab") === "free" ? "free" : "ranked"; } catch {}
 
 // The letter in the header: the Telegram name, the name typed on the site, or a figure for a guest without one.
@@ -12,10 +13,11 @@ function meLetter(name) {
   $("meBtn").innerHTML = n ? esc(initial(n)) : FIGURE;
 }
 meLetter();
-// The profile is the page /me: the letter goes there, and × goes back to the page before it.
+// The profile is the page /me and a public profile /p/<slug>: the letter goes to /me, and × goes back to the page before.
 $("meBtn").addEventListener("click", () => Router.go("/me"));
-const leaveMe = () => Router.back("/");
+const leavePage = () => Router.back("/");
 Router.screen("me", /^\/me$/, { open() { openProfile(); }, close() { closeDays(); } });
+Router.screen("p", /^\/p\/([\w-]+)$/, { open(m) { openPublic(m[1]); }, close() { closeDays(); } });
 
 // A sheet put aside to come back to: its own nodes, so whatever it bound keeps working, and where it was scrolled.
 // Focus comes back to what was tapped: a row of the history, a pin, a name.
@@ -31,11 +33,11 @@ function restoreSheet(s) {
   sh.replaceChildren(s.top, s.body);
   sh.dataset.kind = s.kind || "";
   if (s.body) s.body.scrollTop = s.scroll;
-  // The world's table may have grown while it was aside, and the setting may have changed in another copy of the profile.
+  // The world's table may have grown while it was aside, and the settings may have changed in another copy of the profile.
   if (s.kind === "board" && typeof fillBoard === "function") fillBoard();
-  const hide = s.kind === "profile" && s.body && s.body.querySelector("#hideMe");
-  if (hide && PROF && PROF.settings) hide.checked = !!PROF.settings.hide_me;
-  (s.focus && s.focus.isConnected ? s.focus : $("shBack")).focus({ preventScroll: true });
+  const was = s.focus && s.focus.id;
+  if (s.kind === "profile") redrawSettings();
+  (s.focus && s.focus.isConnected ? s.focus : (was && $(was)) || $("shBack")).focus({ preventScroll: true });
 }
 // A sheet opened from another comes back to it; opened from the app, it closes.
 const backTo = (saved) => saved ? () => restoreSheet(saved) : null;
@@ -45,11 +47,11 @@ const wait = () => '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>';
 async function openProfile(saved) {
   haptic("light");
   saved = saved || null;
-  const ticket = sheet(esc(T("prof.title")), wait(), backTo(saved), leaveMe);
+  const ticket = sheet(esc(T("prof.title")), wait(), backTo(saved), leavePage);
   $("sheet").dataset.kind = "profile";
   let d;
   try { d = await getJSON("/api/profile"); } catch (e) {
-    if (ticket === SHEET) sheet(esc(T("prof.title")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', backTo(saved), leaveMe);
+    if (ticket === SHEET) sheet(esc(T("prof.title")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', backTo(saved), leavePage);
     return;
   }
   if (ticket !== SHEET) return;
@@ -58,10 +60,11 @@ async function openProfile(saved) {
   showProfile();
 }
 
-function showProfile() {
-  const d = PROF;
-  sheet(esc(T("prof.title")), '<div class="prof">' + cardHTML(d) + tabsHTML() + '<div id="profTab"></div></div>', backTo(d.saved), leaveMe);
-  $("sheet").dataset.kind = "profile";
+function showProfile() { drawProfile(PROF, backTo(PROF.saved), "profile"); }
+function drawProfile(d, back, kind) {
+  VIEW = d;
+  sheet(esc(T("prof.title")), '<div class="prof">' + cardHTML(d) + tabsHTML() + '<div id="profTab"></div></div>', back, leavePage);
+  $("sheet").dataset.kind = kind;
   $("sheet").querySelectorAll(".ptabs button").forEach((b) => { b.onclick = () => { haptic("select"); setTab(b.dataset.tab); }; });
   $("sheet").querySelector(".ptabs").onkeydown = tabKey;
   const signIn = $("profSignIn");
@@ -107,7 +110,7 @@ function setTab(tab, first) {
   const box = $("profTab");
   box.setAttribute("aria-labelledby", "pt-" + tab);
   box.setAttribute("role", "tabpanel");
-  box.innerHTML = tab === "free" ? freeHTML(PROF.free) : rankedHTML(PROF);
+  box.innerHTML = tab === "free" ? freeHTML(VIEW.free) : rankedHTML(VIEW);
   if (tab === "ranked") bindRanked(box);
   // A tab chosen from far down the other one brings the tabs back into view, not the panel's top under the header.
   const tabs = $("sheet").querySelector(".ptabs"), body = $("sheet").querySelector(".sh-body");
@@ -118,7 +121,6 @@ function setTab(tab, first) {
 const tile = (label, value, sub, cls) => '<div class="pt' + (cls ? " " + cls : "") + '"><span class="up">' + esc(label) + '</span><b>' + value + '</b>' +
   (sub ? '<small>' + sub + '</small>' : "") + '</div>';
 const none = "–";
-// A share in the language's own way: "61 %" in French, "%61" in Turkish.
 // The same percent the translations write, "47%", "47 %" or "%47", and not Intl's, which differs from them in ru, uk, es.
 const pctT = (n) => T("prof.pct", { pct: fmt(n) });
 const dayLink = (day, date) => '#' + fmt(day) + ' · ' + esc(dayDate(date));
@@ -131,7 +133,7 @@ const flag = (iso) => !iso ? "" : NO_FLAGS || !/^[A-Z]{2}$/.test(iso)
 
 function rankedHTML(d) {
   const r = d.ranked;
-  if (!r.days) return '<p class="sh-wait">' + esc(T(d.guest ? "prof.no_days_guest" : "prof.no_days")) + '</p>' + settingsHTML(d);
+  if (!r.days) return '<p class="sh-wait">' + esc(T(d.guest || d.pub ? "prof.no_days_guest" : "prof.no_days")) + '</p>' + settingsHTML(d);
   let h = '';
   if (r.percentile != null) h += '<div class="pbig"><b>' + esc(T("prof.better", { pct: fmt(r.percentile) })) + '</b><span>' + esc(T("prof.better_note")) + '</span></div>';
   h += '<div class="ptiles">' +
@@ -143,16 +145,23 @@ function rankedHTML(d) {
     tile(T("prof.found"), esc(pctT(r.country_pct)), esc(T("prof.found_city", { pct: fmt(r.city_pct) }))) +
     tile(T("prof.best_day"), r.best_day ? fmt(r.best_day.points) : none, r.best_day ? dayLink(r.best_day.day, r.best_day.date) : "", "gold") +
     tile(T("prof.best_place"), r.best_place ? placeOf(r.best_place) : none, r.best_place ? dayLink(r.best_place.day, r.best_place.date) : "", r.best_place && r.best_place.rank === 1 ? "gold" : "") +
-    '</div>';
+    '</div>' + seasonHTML(d.season);
   h += '<div class="pcharts">';
   h += section(T("prof.chart_points"), seriesSVG(r.series, r.median30));
   h += section(T("prof.chart_misses"), missesSVG(r.misses));
   h += section(T("prof.chart_continents"), continentsHTML(r));
-  h += section(T("prof.chart_map"), mapSVG(r.history || []) + '<p class="pnote-s">' + esc(T("prof.map_hint")) + '</p>');
+  // The pins and the history are the owner's: a public page has neither.
+  if (r.history) h += section(T("prof.chart_map"), mapSVG(r.history) + '<p class="pnote-s">' + esc(T("prof.map_hint")) + '</p>');
   h += section(T("prof.passport"), passportHTML(r.passport), "wide");
   h += '</div>';
   // The settings come before the history, which grows by a row a day.
-  return h + settingsHTML(d) + section(T("prof.history"), historyHTML(r.history || []));
+  return h + settingsHTML(d) + (r.history ? section(T("prof.history"), historyHTML(r.history)) : "");
+}
+// The month's season so far, the sum of its 20 best days: in the world, and in the group the profile was opened from.
+function seasonHTML(list) {
+  if (!list || !list.length) return "";
+  return '<div class="ptiles pseason">' + list.map((p) => tile(T(p.kind === "group" ? "prof.season_group" : "prof.season_world"), placeOf(p),
+    esc(T("prof.season_points", { points: fmt(p.points) })), p.rank === 1 ? "gold" : "")).join("") + '</div><p class="pnote-s pseason-n">' + esc(T("prof.season_hint")) + '</p>';
 }
 const section = (title, body, cls) => '<section class="psec' + (cls ? " " + cls : "") + '"><h3 class="up">' + esc(title) + '</h3>' + body + '</section>';
 
@@ -162,8 +171,15 @@ function bindRanked(box) {
     e.addEventListener("click", go);
     if (e.tagName !== "BUTTON") e.addEventListener("keydown", (k) => { if (k.key === "Enter" || k.key === " ") { k.preventDefault(); go(); } });
   });
+  bindSettings();
+}
+function bindSettings() {
   const hide = $("hideMe");
   if (hide) hide.onchange = () => saveHide(hide);
+  const pub = $("pubOn");
+  if (pub) pub.onchange = () => savePublic(pub.checked, false, "pubOn");
+  if ($("pubNew")) $("pubNew").onclick = () => savePublic(true, true, "pubNew");
+  if ($("pubCopy")) $("pubCopy").onclick = copyPublic;
 }
 
 // A closed day's page, with Back to the profile. Only a day over everywhere has one.
@@ -346,24 +362,70 @@ function freeHTML(f) {
 function settingsHTML(d) {
   if (!d.settings) return "";
   let h = '<label class="pswitch"><input type="checkbox" id="hideMe"' + (d.settings.hide_me ? " checked" : "") + '><span><b>' + esc(T("prof.hide_me")) + '</b>' +
-    '<small>' + esc(T("prof.hide_me_note")) + '</small></span></label>';
+    '<small>' + esc(T("prof.hide_me_note")) + '</small></span></label>' + publicHTML(d.settings);
   // Linked accounts live on the accounts screen; the profile only points there.
   if (typeof openAccounts === "function") h += '<button class="pbtn wide" id="profAccounts">' + esc(T("prof.accounts")) + ' ' + fwd() + '</button>';
   return section(T("prof.settings"), h);
 }
 async function saveHide(box) {
   haptic("select");
-  const on = box.checked;
   box.disabled = true;
-  try {
-    const s = await api("/api/profile/settings", { hide_me: on });
-    PROF.settings = s; box.checked = !!s.hide_me;
-  } catch (e) { box.checked = !on; toast(errorText(e)); }
-  finally { box.disabled = false; }
+  try { PROF.settings = await api("/api/profile/settings", { hide_me: box.checked }); } catch (e) { toast(errorText(e)); }
+  redrawSettings("hideMe");
+}
+// The settings drawn again from PROF, after a change and when a copy of the profile put aside comes back; the focus
+// goes back to the control named.
+function redrawSettings(focus) {
+  const set = $("hideMe") && $("hideMe").closest(".psec");
+  if (!set || !PROF || !PROF.settings) return;
+  set.outerHTML = settingsHTML(PROF);
+  bindSettings();
+  const to = focus && $(focus);
+  if (to) to.focus({ preventScroll: true });
 }
 document.addEventListener("click", (e) => {
   if (e.target.closest("#profAccounts") && typeof openAccounts === "function") openAccounts();
 });
+
+/* ---------- Public page ---------- */
+// The link to a page anyone may open: on, off, or a new one, which ends the old.
+const publicURL = (path) => location.origin + path;
+// While the player is hidden the page does not open: the switch waits, and the note on hiding above says so.
+function publicHTML(set) {
+  let h = '<label class="pswitch' + (set.hide_me ? ' held' : '') + '"><input type="checkbox" id="pubOn"' + (set.public ? " checked" : "") + (set.hide_me ? " disabled" : "") + '><span><b>' + esc(T("prof.public")) + '</b>' +
+    '<small>' + esc(T("prof.public_note")) + '</small></span></label>';
+  if (set.public && !set.hide_me) h += '<div class="plink"><input id="pubUrl" readonly dir="ltr" value="' + esc(publicURL(set.public)) + '" aria-label="' + esc(T("prof.public")) + '">' +
+    '<button class="pbtn" id="pubCopy">' + esc(T("prof.copy")) + '</button><button class="pbtn" id="pubNew">' + esc(T("prof.public_new")) + '</button></div>';
+  return h;
+}
+// A second tap while the first is on its way would end the link just made.
+async function savePublic(on, renew, from) {
+  haptic("select");
+  ["pubOn", "pubNew", "pubCopy"].forEach((id) => { if ($(id)) $(id).disabled = true; });
+  try {
+    PROF.settings = await api("/api/profile/public", { on });
+    if (renew) toast(T("prof.public_renewed"));
+  } catch (e) { toast(errorText(e)); }
+  redrawSettings($(from) ? from : "pubOn");
+}
+function copyPublic() {
+  const url = $("pubUrl");
+  if (!url) return;
+  const pick = () => { url.focus(); url.select(); };
+  if (navigator.clipboard) navigator.clipboard.writeText(url.value).then(() => toast(T("prof.copied")), pick);
+  else pick();
+}
+
+// A public page, as anyone with its link sees it: the closed days, without pins, history or settings.
+async function openPublic(slug) {
+  const ticket = sheet(esc(T("prof.title")), wait(), null, leavePage);
+  let d;
+  try { d = await reply(await get("/api/p/" + encodeURIComponent(slug) + "?lang=" + encodeURIComponent(LANG))); } catch (e) {
+    if (ticket === SHEET) sheet(esc(T("prof.title")), '<p class="sh-wait">' + esc(e.message === "not_found" ? T("prof.public_gone") : errorText(e)) + '</p>', null, leavePage);
+    return;
+  }
+  if (ticket === SHEET) drawProfile(Object.assign(d, { pub: true }), null, "public");
+}
 
 /* ---------- Mini profile ---------- */
 // A tap on a name: what anyone who sees the name may know. Under the map the table's own taps stay as they were.
