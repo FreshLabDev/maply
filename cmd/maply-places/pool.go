@@ -34,17 +34,32 @@ var insertRE = regexp.MustCompile(`INSERT INTO maply\.place \(([^)]*)\)\s*VALUES
 func readAvoid(paths []string, km float64) (*avoidList, error) {
 	a := &avoidList{ids: map[string]bool{}, km: km}
 	for _, path := range paths {
+		path = strings.TrimSpace(path)
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
 		}
+		// A file that yields no place would leave the pools free to overlap
+		// without a word, so it is an error, as is a place without a frame
+		// or a point.
+		before := len(a.points)
 		if !strings.HasSuffix(path, ".sql") {
-			var cands []candidate
+			var cands []struct {
+				SourceID string   `json:"source_id"`
+				Lat      *float64 `json:"lat"`
+				Lon      *float64 `json:"lon"`
+			}
 			if err := json.Unmarshal(raw, &cands); err != nil {
 				return nil, fmt.Errorf("%s: %w", path, err)
 			}
 			for _, c := range cands {
-				a.add(c.SourceID, c.Lat, c.Lon)
+				if c.SourceID == "" || c.Lat == nil || c.Lon == nil {
+					return nil, fmt.Errorf("%s: a candidate without source_id, lat or lon", path)
+				}
+				a.add(c.SourceID, *c.Lat, *c.Lon)
+			}
+			if len(a.points) == before {
+				return nil, fmt.Errorf("%s: no candidates", path)
 			}
 			continue
 		}
@@ -65,6 +80,9 @@ func readAvoid(paths []string, km float64) (*avoidList, error) {
 				return nil, fmt.Errorf("%s: a place without source_id, lat or lon", path)
 			}
 			a.add(row["source_id"], lat, lon)
+		}
+		if len(a.points) == before {
+			return nil, fmt.Errorf("%s: no INSERT INTO maply.place as this command writes it", path)
 		}
 	}
 	return a, nil
@@ -126,6 +144,18 @@ func sqlTuple(s string) ([]string, error) {
 		}
 	}
 	return nil, fmt.Errorf("unterminated VALUES")
+}
+
+// samePool checks that a batch's reviews were chosen for the pool being
+// prepared. Reviews without a pool are the day's.
+func samePool(reviewed, flag string) error {
+	if reviewed == "" {
+		reviewed = "daily"
+	}
+	if reviewed != flag {
+		return fmt.Errorf("reviews.json was chosen for the %s pool, not -pool %s", reviewed, flag)
+	}
+	return nil
 }
 
 // oneName is the city's name for the free pool, which has no curator to

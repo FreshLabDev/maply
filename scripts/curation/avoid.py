@@ -6,13 +6,13 @@ every place of the day in maply-places' SQL and from every candidate of a
 daily batch (a spare frame there may still go to the queue), and a daily
 batch stays away from the free pool the same way.
 
-    MAPLY_AVOID=curation/out/places.sql,curation/out-004/places.sql,curation/batch-004/candidates.json
+    MAPLY_AVOID=curation/out/places.sql,curation/out-004/places.sql,curation/batch-001/candidates.json,…
     MAPLY_AVOID_KM=10
 
 A frame is refused when it is the same source frame as one of them or lies
 within MAPLY_AVOID_KM of one.
 """
-import json, math, os, re
+import json, math, os, re, sys
 
 INSERT = re.compile(r"INSERT INTO maply\.place \(([^)]*)\)\s*VALUES \(")
 
@@ -62,7 +62,12 @@ def read_sql(path):
 
 
 def read_candidates(path):
-    return [(str(c["source_id"]), c["lat"], c["lon"]) for c in json.load(open(path, encoding="utf-8"))]
+    out = []
+    for c in json.load(open(path, encoding="utf-8")):
+        if not c.get("source_id") or c.get("lat") is None or c.get("lon") is None:
+            raise ValueError(f"{path}: a candidate without source_id, lat or lon")
+        out.append((str(c["source_id"]), c["lat"], c["lon"]))
+    return out
 
 
 def km(lat1, lon1, lat2, lon2):
@@ -77,6 +82,9 @@ class Avoid:
         self.points, self.ids = [], set()
         for p in paths:
             rows = read_sql(p) if p.endswith(".sql") else read_candidates(p)
+            # A file that yields nothing would let the pools overlap unseen.
+            if not rows:
+                raise ValueError(f"{p}: no places of the other pool")
             for sid, lat, lon in rows:
                 self.ids.add(sid)
                 self.points.append((lat, lon))
@@ -104,5 +112,8 @@ class Avoid:
 def from_env():
     paths = [p for p in os.environ.get("MAPLY_AVOID", "").split(",") if p.strip()]
     if not paths:
+        print("MAPLY_AVOID is not set: nothing of the other pool is kept clear", file=sys.stderr)
         return None
-    return Avoid([p.strip() for p in paths], float(os.environ.get("MAPLY_AVOID_KM", "10")))
+    a = Avoid([p.strip() for p in paths], float(os.environ.get("MAPLY_AVOID_KM", "10")))
+    print(f"avoid: {len(a)} places of the other pool, {a.radius:g} km", file=sys.stderr)
+    return a

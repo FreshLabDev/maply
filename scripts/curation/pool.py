@@ -15,7 +15,7 @@ pool of a few hundred places spreads over many countries. MAPLY_COUNTRIES=JP,KE,
 plans in those countries only, to fill a batch where it is thin. MAPLY_AVOID
 keeps the towns and roads clear of the other pool's places (see avoid.py).
 """
-import gzip, json, math, os, random, socket, sys, threading, time, urllib.parse, urllib.request
+import collections, gzip, json, math, os, random, socket, sys, threading, time, urllib.parse, urllib.request
 import concurrent.futures as cf
 import mapbox_vector_tile
 from shapely.geometry import shape, Point
@@ -59,6 +59,18 @@ WEIGHTS = {
 }
 
 
+# The Gulf of Suez's axis, north to south, as (lat, lon).
+SUEZ_AXIS = [(29.95, 32.56), (29.6, 32.56), (29.0, 32.85), (28.4, 33.27), (28.0, 33.55), (27.7, 33.9)]
+
+
+def _between(line, lat):
+    """The longitude of a north-to-south line of (lat, lon) at lat."""
+    for (la1, lo1), (la2, lo2) in zip(line, line[1:]):
+        if la2 <= lat <= la1:
+            return lo1 + (la1 - lat) / (la1 - la2) * (lo2 - lo1)
+    raise ValueError(f"{lat} is off the line")
+
+
 def allowed(iso, lat, lon):
     """False for the parts of a country left out: war zones and the lines
     near them, disputed land, and far islands of another continent."""
@@ -67,6 +79,8 @@ def allowed(iso, lat, lon):
         return (lon < 32.5 and lat > 47.0) or (lon < 31.0 and lat > 45.6)
     if iso == "RU":
         if lon < 40 and lat < 54:  # the regions along the Ukrainian border
+            return False
+        if lon < 40.8 and 47.3 < lat < 50.4:  # east of occupied Luhansk
             return False
         if lat < 44.6 and 42 < lon < 48.6:  # the North Caucasus republics
             return False
@@ -127,10 +141,15 @@ def allowed(iso, lat, lon):
     if iso == "UZ":
         return lat > 37.6  # not by Afghanistan
     if iso == "EG":
-        # The Nile and the Red Sea coast: not Sinai, the Libyan or the Sudanese border.
+        # The Nile and the Red Sea coast: not Sinai, the Libyan or the Sudanese
+        # border. Sinai is east of the canal and of the Gulf of Suez's axis.
         if lat >= 29.95:
             return 27 < lon < 32.35
-        return 27 < lon < 32.55 + (29.95 - lat) * 0.57 and lat > 23.5
+        if not 27 < lon or lat <= 23.5:
+            return False
+        if lat <= 27.7:
+            return lon < 36
+        return lon < _between(SUEZ_AXIS, lat)
     if iso == "DZ":
         return lat > 34.5  # the north only
     if iso == "TN":
@@ -353,10 +372,16 @@ def main():
     done = {"town": 0, "nature": 0}
     lock = threading.Lock()
 
+    fails = collections.Counter()
+
     def pick():
-        # A country is drawn by weight, and not again once it has CAP entries.
+        # A country is drawn by weight, and not again once it has CAP entries
+        # or has failed to give an anchor ten times. None when none is left.
         with lock:
-            free = [(i, w) for i, w in zip(isos, weights) if not CAP or per.get(i, 0) < CAP]
+            free = [(i, w) for i, w in zip(isos, weights)
+                    if (not CAP or per.get(i, 0) < CAP) and fails[i] < 10]
+            if not free:
+                return None
             iso = random.choices([i for i, _ in free], [w for _, w in free])[0]
             per[iso] = per.get(iso, 0) + 1
             return iso
@@ -364,11 +389,15 @@ def main():
     def one(kind):
         while True:
             iso = pick()
+            if iso is None:
+                print(f"{kind}: no country is left to plan in", file=sys.stderr)
+                return
             e = anchor(countries, iso, kind)
             if e:
                 break
             with lock:
                 per[iso] -= 1
+                fails[iso] += 1
         entry = {**e, "kind": kind, "country": iso}
         entry.update({"km": 0.3, "inner": 0})
         with lock:

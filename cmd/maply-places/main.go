@@ -24,7 +24,7 @@
 // batch of the day, and a batch of the day avoids the free pool:
 //
 //	maply-places -pool free -out curation/out-free \
-//	  -avoid curation/out/places.sql,curation/out-004/places.sql,curation/batch-004/candidates.json \
+//	  -avoid curation/out/places.sql,curation/out-004/places.sql,curation/batch-001/candidates.json,… \
 //	  curation/batch-free-001
 package main
 
@@ -38,6 +38,7 @@ import (
 	"image/jpeg"
 	"io"
 	"log"
+	"math"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -67,6 +68,8 @@ type candidate struct {
 }
 
 type reviews struct {
+	// Pool is the pool the batch was chosen for; empty is the day's.
+	Pool string         `json:"pool"`
 	Keep map[string]int `json:"keep"`
 }
 
@@ -118,12 +121,16 @@ func main() {
 	if *poolName == "free" && *factsPath != "" {
 		log.Fatal("the free pool has no facts")
 	}
+	if *poolName == "free" && *avoidPaths == "" {
+		log.Fatal("-pool free needs -avoid with the places and batches of the day")
+	}
 	var avoid *avoidList
 	if *avoidPaths != "" {
 		var err error
 		if avoid, err = readAvoid(strings.Split(*avoidPaths, ","), *avoidKm); err != nil {
 			log.Fatal(err)
 		}
+		log.Printf("avoid: %d places of the other pool, %.0f km", len(avoid.points), *avoidKm)
 	}
 	facts := map[string]curated{}
 	if *factsPath != "" {
@@ -149,6 +156,10 @@ func main() {
 		}
 		if err := readJSON(filepath.Join(batchDir, "reviews.json"), &rev); err != nil {
 			log.Fatal(err)
+		}
+		// A free batch written as the day's would go to the queue of days.
+		if err := samePool(rev.Pool, *poolName); err != nil {
+			log.Fatalf("%s: %v", batchDir, err)
 		}
 		batch := filepath.Base(batchDir)
 		sort.Slice(cands, func(i, j int) bool { return cands[i].N < cands[j].N })
@@ -526,7 +537,12 @@ func (pl *place) insert() string {
 	}
 	heading := "NULL"
 	if pl.heading != nil {
-		heading = strconv.FormatFloat(*pl.heading, 'f', 1, 64)
+		// Rounded to a tenth, 359.96 would be 360.0, which the schema refuses.
+		h := math.Round(*pl.heading*10) / 10
+		if h >= 360 {
+			h -= 360
+		}
+		heading = strconv.FormatFloat(h, 'f', 1, 64)
 	}
 	// A place of the day leaves pool to its default, so its SQL still loads
 	// into a database from before the column.

@@ -18,8 +18,12 @@ frame's centre, where the game opens, is marked.
 
     python -I screen.py <batch>
 
-Output: <batch>/screen.json ({"drop": {n: reason}, "sheets": {name: [n]}}),
-<batch>/pano-K.jpg, and the Overpass answer for every point in <batch>/overpass/.
+Output: <batch>/screen.json ({"drop": {n: reason}, "sheets": {name: [n]},
+"frames": {n: source_id}}), <batch>/pano-K.jpg, and the Overpass answer for
+every point in <batch>/overpass/. An answer and a verdict belong to the frame
+that was screened: if harvest.py writes a batch again, a number may name
+another frame, so the cache keeps the frame's source ID and is asked again
+when it differs, and choose.py refuses reviews of a batch that changed.
 """
 import json, os, sys, time, urllib.parse, urllib.request
 from PIL import Image, ImageDraw, ImageFont
@@ -43,11 +47,17 @@ def overpass(points, cache):
     A query costs about half a minute on the public server however small it
     is, so the points go 40 at a time: each one's statements end with a
     marker element that carries its number, then its matches."""
-    todo = [(n, lat, lon) for n, lat, lon in points if not os.path.exists(f"{cache}/{n:03d}.json")]
+    def cached(n, sid):
+        try:
+            return json.load(open(f"{cache}/{n:03d}.json")).get("source_id") == sid
+        except FileNotFoundError:
+            return False
+
+    todo = [(n, sid, lat, lon) for n, sid, lat, lon in points if not cached(n, sid)]
     for k in range(0, len(todo), 40):
         part = todo[k:k + 40]
         q = ["[out:json][timeout:300];"]
-        for n, lat, lon in part:
+        for n, _, lat, lon in part:
             q.append(f"""is_in({lat},{lon})->.a;
 (area.a["landuse"="military"]; area.a["military"];)->.inside;
 (nwr(around:{MILITARY_M},{lat},{lon})["landuse"="military"];
@@ -74,13 +84,13 @@ make point n={n}; out;
                 per[cur] = []
             elif cur is not None:
                 per[cur].append(el)
-        for n, _, _ in part:
+        for n, sid, _, _ in part:
             if n not in per:
                 raise RuntimeError(f"overpass answer has no marker for {n}")
-            json.dump({"elements": per[n]}, open(f"{cache}/{n:03d}.json", "w"))
+            json.dump({"source_id": sid, "elements": per[n]}, open(f"{cache}/{n:03d}.json", "w"))
         print(f"overpass: {k + len(part)} of {len(todo)}", file=sys.stderr)
         time.sleep(2)  # one query at a time, with a pause: Overpass is shared
-    return {n: json.load(open(f"{cache}/{n:03d}.json")) for n, _, _ in points}
+    return {n: json.load(open(f"{cache}/{n:03d}.json")) for n, _, _, _ in points}
 
 
 def military(data):
@@ -117,8 +127,13 @@ def main():
     drop, ok = {}, []
     for c in sorted(cands, key=lambda c: c["n"]):
         n, lat, lon = c["n"], c["lat"], c["lon"]
-        iso = pool.country_of(countries, lat, lon)
-        if iso and (iso not in pool.WEIGHTS or not pool.allowed(iso, lat, lon)):
+        # A frame on a quay or a small island can lie outside every outline;
+        # then the plan's country stands for it, and without one it goes.
+        iso = pool.country_of(countries, lat, lon) or c.get("country")
+        if not iso:
+            drop[n] = "in no country of the borders"
+            continue
+        if iso not in pool.WEIGHTS or not pool.allowed(iso, lat, lon):
             drop[n] = f"in {iso}, a country or a part of one left out"
             continue
         if other:
@@ -131,7 +146,7 @@ def main():
             drop[n] = f"{avoid.km(lat, lon, near['lat'], near['lon']):.1f} km from candidate {near['n']}"
             continue
         ok.append(c)
-    answers = overpass([(c["n"], c["lat"], c["lon"]) for c in ok], f"{batch}/overpass")
+    answers = overpass([(c["n"], str(c["source_id"]), c["lat"], c["lon"]) for c in ok], f"{batch}/overpass")
     kept = []
     for c in ok:
         mil = military(answers[c["n"]])
@@ -158,7 +173,8 @@ def main():
         name = f"pano-{k // PER_SHEET + 1}.jpg"
         sheet.save(f"{batch}/{name}", quality=85)
         sheets[name] = [c["n"] for c in part]
-    json.dump({"drop": {str(k): v for k, v in drop.items()}, "sheets": sheets},
+    frames = {str(c["n"]): str(c["source_id"]) for c in cands}
+    json.dump({"drop": {str(k): v for k, v in drop.items()}, "sheets": sheets, "frames": frames},
               open(f"{batch}/screen.json", "w"), ensure_ascii=False, indent=1)
     print(f"screened {len(cands)}: {len(kept)} to review on {len(sheets)} sheets, {len(drop)} dropped")
 

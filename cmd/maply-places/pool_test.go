@@ -96,3 +96,63 @@ func TestOneName(t *testing.T) {
 		t.Errorf("oneName without an English or local name = %v, want nil", got)
 	}
 }
+
+func TestAvoidReadsFreeRows(t *testing.T) {
+	free := testPlace("free")
+	free.c.SourceID, free.c.Lat, free.c.Lon = "55", 35.68, 139.69
+	path := filepath.Join(t.TempDir(), "places.sql")
+	if err := os.WriteFile(path, []byte(free.insert()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err := readAvoid([]string{path}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.why(candidate{SourceID: "9", Lat: 35.70, Lon: 139.70}) == "" || a.why(candidate{SourceID: "9", Lat: 48.85, Lon: 2.35}) != "" {
+		t.Errorf("the free row's point was read as %v", a.points)
+	}
+}
+
+func TestAvoidRefusesSilence(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"dump.sql":      "COPY maply.place (id, lat, lon) FROM stdin;\n1\t48.8\t2.3\n\\.\n",
+		"manifest.json": `[{"ref":"batch-001/001","region":"Paris","country":"FR"}]`,
+		"empty.json":    `[]`,
+		"nopoint.json":  `[{"source_id":"1","lat":48.8}]`,
+	} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if a, err := readAvoid([]string{path}, 10); err == nil {
+			t.Errorf("%s read as %d places, want an error", name, len(a.points))
+		}
+	}
+}
+
+func TestSamePool(t *testing.T) {
+	for _, tc := range []struct {
+		reviewed, flag string
+		ok             bool
+	}{
+		{"", "daily", true},
+		{"daily", "daily", true},
+		{"free", "free", true},
+		{"free", "daily", false},
+		{"", "free", false},
+	} {
+		if err := samePool(tc.reviewed, tc.flag); (err == nil) != tc.ok {
+			t.Errorf("samePool(%q, %q) = %v", tc.reviewed, tc.flag, err)
+		}
+	}
+}
+
+func TestInsertHeadingWraps(t *testing.T) {
+	pl := testPlace("free")
+	h := 359.96
+	pl.heading = &h
+	if sql := pl.insert(); strings.Contains(sql, "360.0") || !strings.Contains(sql, ", 0.0,") {
+		t.Errorf("heading 359.96 is not written as 0.0:\n%s", sql)
+	}
+}

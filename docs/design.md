@@ -284,7 +284,7 @@ The pool is curated by the same scripts and the same rules as the places of the 
 - **A wide spread.** At most 15 places a country, more countries than the daily batches (`pool.py` weights), and the scene mix of batch-004: a fifth city outskirts, two fifths towns and villages, two fifths roads and nature. No two frames of a batch closer than 5 km.
 - **More checks before the eyes.** `harvest.py` passes over a soft panorama for another frame of the tile. `screen.py` drops frames within 300 m of an OSM military area or inside one, frames in a part of a country left out, and draws the review sheets as the whole 360° band, so a face or a fence behind the camera is in front of the reviewer too. The daily batches showed only the 120° the game opens on.
 
-The pipeline, for `curation/batch-free-001`:
+The pipeline, for `curation/batch-free-001`, with a virtualenv's Python (`-I` leaves out the user's site-packages) that has shapely, Pillow and mapbox-vector-tile:
 
 ```sh
 pool.py pool-free-001.json 160 270 270          # MAPLY_CAP=20, MAPLY_AVOID=…
@@ -294,7 +294,12 @@ screen.py batch-free-001                        # Overpass, then pano-K.jpg
 choose.py batch-free-001 batch-free-002         # MAPLY_TARGET=500: reviews.json, report.md
 maply-places -pool free -avoid … -out out-free batch-free-001 batch-free-002
 maply-places -out out-free -sharpen out-free/sharpen.csv
+faces.py sheets out-free batch-free-001 batch-free-002
+# reviewers write out-free/faces/review-K.json from the face sheets
+faces.py verdicts out-free batch-free-001 batch-free-002   # then choose.py and maply-places again
 ```
+
+The review sheets show the panorama at about 4.4 px a degree and the game at 11.4, so a face too small to judge on a sheet may be clear in the game. `faces.py` gives every prepared place one more sheet, the two halves at 8.7 px a degree, for faces alone; a place dropped there is replaced by a spare and the spare gets its sheet in turn.
 
 ## Architecture
 

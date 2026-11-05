@@ -34,17 +34,35 @@ For the operator:
   reviewers' verdicts into `reviews.json` with at most 15 places a country
   and 500 in all, counted over every batch it is given, and writes a report
   of them.
+- `scripts/curation/faces.py` gives every prepared place a sheet for faces
+  alone, at twice the detail of the review sheets, close to what the game
+  shows after `-sharpen`, and turns the verdicts into a review `choose.py`
+  reads.
 - `harvest.py` passes over a soft panorama for another frame of the tile.
   `pool.py` plans in more countries, with rules for their troubled borders,
   and `MAPLY_CAP` limits the entries a country gets.
 - `maply-places` writes `sharpen.csv`, the input of `-sharpen`, next to
   `places.sql`.
+- `maply-places` refuses a batch whose `reviews.json` was chosen for the
+  other pool, `-pool free` without `-avoid`, and an `-avoid` file it reads no
+  place from, so a slip of a flag cannot put free places in the queue of days
+  or leave the pools free to overlap. The scripts refuse such a file too and
+  say how many places they keep clear of.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
   the screen the address names. `/days` opens the days and `/days/<date>` a
   closed day, so a day can be linked and Back in the browser closes it. An
   address without a screen yet shows today. In Telegram the address changes
   without adding history, so Back stays Telegram's.
+
+### Fixed
+
+- `maply-places` wrote a heading of 359.96° as `360.0`, which the schema
+  refuses, and the whole `places.sql` failed to load. It is written as `0.0`.
+- `pool.py` leaves out the west coast of Sinai and the Russian strip east of
+  occupied Luhansk, which its rules let through, and a plan no longer dies
+  or spins when every country is used up. `screen.py` checks a frame outside
+  every outline by its plan's country instead of letting it pass.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

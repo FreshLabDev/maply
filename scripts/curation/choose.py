@@ -8,7 +8,8 @@ Reads each batch's candidates.json, screen.json and every review-*.json, each
  "drop": {n: "<code>: <why>"}} with code one of faces, military, sign,
 quality, view, other. A drop in any review wins over a keep in another.
 
-A frame goes in when a reviewer kept it and the screen did not drop it, with
+A frame goes in when a reviewer kept it from a sheet and the screen did not
+drop it, with
 at most MAPLY_KEEP_CAP frames a country (default 15) and at most MAPLY_TARGET
 in all (default 500), counted over all the batches given. Over either limit,
 the frame that goes is from the scene furthest over its share (SHARE: city
@@ -67,6 +68,11 @@ def main():
         for c in json.load(open(f"{b}/candidates.json")):
             cands[(b, c["n"])] = c
         screen = json.load(open(f"{b}/screen.json"))
+        # Verdicts are by number; a batch harvested again after the screen
+        # may hold another frame under it.
+        frames = {k: str(c["source_id"]) for k, c in cands.items() if k[0] == b}
+        if {(b, int(k)): v for k, v in screen.get("frames", {}).items()} != frames:
+            sys.exit(f"{b}: the candidates are not the ones screened; screen and review again")
         drop.update({(b, int(k)): "screen: " + v for k, v in screen["drop"].items()})
         reviewed |= {(b, n) for ns in screen["sheets"].values() for n in ns}
         rdrop = {}
@@ -82,6 +88,8 @@ def main():
     for k in keep:
         if scene.get(k) not in SHARE:
             sys.exit(f"candidate {k} is kept without a scene")
+        if k not in reviewed and k not in drop:
+            sys.exit(f"candidate {k} is kept but was on no sheet")
 
     where = {k: at(c["lat"], c["lon"]) for k, c in cands.items()}
     iso = {k: where[k][0] or cands[k].get("country") for k in cands}
