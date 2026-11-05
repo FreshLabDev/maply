@@ -77,8 +77,8 @@ function acctClose() {
   const d = $("acctDlg");
   if (!d) return;
   d.remove();
-  const sheetOn = $("sheet").classList.contains("on");
-  for (const e of document.body.children) if (e.tagName !== "SCRIPT") e.inert = sheetOn && e.id !== "sheet" && e.id !== "toast";
+  // What was in reach under the dialog is again: the sheet, the menu's page or the game (app.js).
+  behindSheet();
   if (dlgFrom && document.contains(dlgFrom)) dlgFrom.focus({ preventScroll: true });
   dlgFrom = null;
 }

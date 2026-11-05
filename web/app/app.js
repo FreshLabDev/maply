@@ -254,7 +254,8 @@ function seePano() { const s = panoSeen(); pano.still(!s); $("pano").inert = !s;
 function toMap() {
   if (view === "map") return;
   view = "map"; document.body.classList.add("is-map"); haptic("light"); syncBack(); seePano();
-  $("map").inert = false; lookLabel();
+  // Open, but not reachable under a sheet or the menu.
+  behindSheet(); lookLabel();
   globe.toBig();
 }
 function toPhoto() {
@@ -751,7 +752,7 @@ function toReveal(res) {
   if (innerHeight < 640) $("place").classList.add("min");
   setLive(res);
   view = "map"; document.body.classList.add("is-map"); syncBack(); seePano();
-  $("map").inert = false; lookLabel();
+  behindSheet(); lookLabel();
   globe.frame(1200);
   haptic("success");
 }
@@ -835,18 +836,20 @@ function sheet(title, html, back, close) {
   $("shBack").focus({ preventScroll: true });
   return SHEET;
 }
-// While the sheet is open the page behind it is out of reach: Tab and a screen reader stay in the dialog.
-// On a computer the sheet is a page under the header, and the header's links stay in reach. The folded map stays out.
-// A sheet over one of menu.js's pages (a mini profile over the leaderboards) gives the page back, the game still out.
-function behindSheet(on) {
-  const page = document.querySelector(".pg.on");
+// What is in reach, from the top layer down; the rest is inert, out of Tab's and a screen reader's way. While the
+// sheet is open, the sheet, and on a computer, where it is a page under the header, the header's links beside it.
+// Else one of menu.js's pages with the header (a mini profile over the leaderboards gives the page back). Else the
+// game, its folded map left out. The free game keeps only itself. The loading screen is never out of reach: its
+// retry is a tap. Every layer that opens or closes asks here, so none undoes another's.
+function behindSheet(on = $("sheet").classList.contains("on")) {
+  const page = document.querySelector(".pg.on"), free = document.body.classList.contains("is-free") && $("free");
   for (const e of document.body.children) {
-    if (e.id === "sheet" || e.id === "toast" || e.tagName === "SCRIPT") continue;
-    e.inert = on ? !(Desk.on && e.classList.contains("top")) : !!page && e !== page && !e.classList.contains("top");
+    if (e.id === "sheet" || e.id === "toast" || e.id === "loader" || e.tagName === "SCRIPT") continue;
+    e.inert = free ? e !== free : on ? !(Desk.on && e.classList.contains("top")) : !!page && e !== page && !e.classList.contains("top");
   }
   // On a computer the header stays usable beside the sheet, so the sheet is not modal there.
   $("sheet").setAttribute("aria-modal", String(!Desk.on));
-  if (!on && !page) $("map").inert = view === "photo";
+  if (!free && !on && !page) $("map").inert = view === "photo";
 }
 function closeDays() {
   SHEET++;
@@ -856,9 +859,14 @@ function closeDays() {
 }
 // Escape is the sheet's own back button: from a day to the days, from the days out.
 addEventListener("keydown", (e) => { if (e.key === "Escape" && $("sheet").classList.contains("on")) { e.preventDefault(); $("shBack").click(); } });
-// The day is /today, the page under every other: it has nothing of its own to open or close, only Telegram's Back,
-// which leads from it to the menu. The menu is menu.js's, the days days.js's.
-Router.screen("today", /^\/today$/, { open() { syncBack(); } });
+// The day is /today, the page under every other: it has nothing of its own to open, only Telegram's Back, which
+// leads from it to the menu. Leaving it closes a sheet that has no address of its own (a mini profile, the world's
+// table), or the next page would open under it. The menu is menu.js's, the days days.js's.
+Router.screen("today", /^\/today$/, {
+  // Whatever closed before the day (the free game, a page) leaves its reach to be set again.
+  open() { syncBack(); behindSheet(); },
+  close() { if ($("sheet").classList.contains("on")) closeDays(); },
+});
 
 // The window crossed into the computer's layout or out of it: the same state, laid out again. The plates have moved
 // already; the map's box changed its place, so the camera starts over in it.
@@ -899,14 +907,15 @@ async function boot() {
   // A group's post opens the app with its signed payload and no address of its own: that is the day, not the menu.
   // A DM's post names /today itself; the bot's menu button and /start open the menu.
   if (!Router.current && inTg && tg.initDataUnsafe.start_param && /^\/(?:index\.html)?$/.test(location.pathname)) Router.go("/today", { replace: true });
+  // The day and the time of its result, before the first page: the menu writes them.
+  $("day").textContent = "#" + TODAY.day;
+  AT = new Intl.DateTimeFormat(numLang(), { timeZone: TODAY.zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(TODAY.reveal));
+  ZONE_NAME = ZONES[TODAY.zone] || "";
   Router.start();
   // The answer's bar says what it waits for: on a phone it is folded, in the computer's panel it is dimmed.
   if (state === "guess") split(false);
   loadShareTexts();
   if (typeof accountReady === "function") accountReady();
-  $("day").textContent = "#" + TODAY.day;
-  AT = new Intl.DateTimeFormat(numLang(), { timeZone: TODAY.zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(TODAY.reveal));
-  ZONE_NAME = ZONES[TODAY.zone] || "";
   pano.show({ image: TODAY.image, kind: TODAY.kind, heading: TODAY.heading || 0 });
   // Someone who has answered is told so at once, not asked to drop a pin while the map loads.
   if (TODAY.answer) setCall(T("sent"), T("result_at", { time: atZone() }));
