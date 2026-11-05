@@ -322,11 +322,11 @@ func (s *Store) SitePlayer(ctx context.Context, id string, name *string) error {
 func (s *Store) SiteName(ctx context.Context, id string) (string, error) {
 	var name *string
 	err := s.pool.QueryRow(ctx, `SELECT name FROM site_player WHERE id = $1`, id).Scan(&name)
-	if errors.Is(err, pgx.ErrNoRows) || name == nil {
-		return "", nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", fmt.Errorf("site name: %w", err)
+	}
+	if err != nil || name == nil {
+		return "", nil
 	}
 	return *name, nil
 }

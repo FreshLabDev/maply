@@ -265,8 +265,12 @@ func (s *Server) days(w http.ResponseWriter, r *http.Request) {
 				Rank   int     `json:"rank"`
 			}{m.Km, m.Points, m.Rank}
 		}
+		// A day without its place still shows: the rest of the page is
+		// worth more than one name, and the failure is in the log.
 		if c, err := s.closedPlace(ctx, d.Date); err == nil {
 			x.City, x.Country = localized(c.answer.City, v.lang), c.answer.CountryISO
+		} else {
+			s.Log.Warn("day's place not read", "date", d.Date, "error", err)
 		}
 		out = append(out, x)
 	}

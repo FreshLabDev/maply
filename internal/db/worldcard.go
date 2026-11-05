@@ -122,11 +122,11 @@ func (s *Store) SetWorldResult(ctx context.Context, chatID int64, d round.Date, 
 func (s *Store) WorldVersion(ctx context.Context, chatID int64, d round.Date) (string, error) {
 	var v *string
 	err := s.pool.QueryRow(ctx, `SELECT world_version FROM chat_round WHERE chat_id = $1 AND date = $2`, chatID, d.Time()).Scan(&v)
-	if errors.Is(err, pgx.ErrNoRows) || v == nil {
-		return "", nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", fmt.Errorf("world version of %d %s: %w", chatID, d, err)
+	}
+	if err != nil || v == nil {
+		return "", nil
 	}
 	return *v, nil
 }

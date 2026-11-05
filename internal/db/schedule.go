@@ -208,11 +208,11 @@ func (s *Store) LastIntrigue(ctx context.Context, chatID int64, d round.Date) (s
 	var kind *string
 	err := s.pool.QueryRow(ctx, `SELECT intrigue_kind FROM chat_round WHERE chat_id = $1 AND date = $2`,
 		chatID, d.AddDays(-1).Time()).Scan(&kind)
-	if errors.Is(err, pgx.ErrNoRows) || kind == nil {
-		return "", nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", fmt.Errorf("last intrigue of %d: %w", chatID, err)
+	}
+	if err != nil || kind == nil {
+		return "", nil
 	}
 	return *kind, nil
 }
@@ -281,11 +281,11 @@ func (s *Store) SetResultText(ctx context.Context, chatID int64, d round.Date, t
 func (s *Store) ResultAnimation(ctx context.Context, chatID int64, d round.Date) (string, error) {
 	var id *string
 	err := s.pool.QueryRow(ctx, `SELECT result_file_id FROM chat_round WHERE chat_id = $1 AND date = $2`, chatID, d.Time()).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) || id == nil {
-		return "", nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", fmt.Errorf("result animation of %d %s: %w", chatID, d, err)
+	}
+	if err != nil || id == nil {
+		return "", nil
 	}
 	return *id, nil
 }
