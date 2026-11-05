@@ -203,16 +203,16 @@ Temporary domain: `maply.ws04.cc`.
 
 ### Accounts on the site
 
-Planned by the owner on 23 October, built in v2. A site player can sign in with Telegram or with Google, and link the two. Accounts live in maply, not in `core`: an account has at most one Telegram and one Google sign-in, and never none.
+Planned by the owner on 23 October, built after v0.0.1-alpha.15. A site player can sign in with Telegram or with Google, and link the two. Accounts live in maply, not in `core`: an account has at most one Telegram and one Google sign-in, and never none.
 
 - **Sign-in goes through our server.** Both are OpenID Connect: the code flow with PKCE, a fresh state and nonce each time, the state in a signed ten-minute cookie bound to the browser's session. Telegram's is `oauth.telegram.org` with `openid profile`, the account being the `id` claim; Google's asks for `openid` alone, so maply never sees an address, a name or a photo. The session cookie lasts 90 days from the sign-in and is not extended; signing out works here or on every device. The owner's setup is in [`sign-in.md`](sign-in.md).
 - **Telegram makes the site and the bot one player.** One answer a day across both, the DM's zone and deadline with the speed bonus, the place right after answering and the names at the usual time. The site writes no presence, so signing in never puts a person on the morning post; a button leads to the bot for that.
 - **Google alone plays the site's game**, as a guest does, but keeps its answers and its name across browsers.
 - **The guest's history comes along.** Signing in for the first time takes in the browser's guest answers; signing in to an account that already exists asks "Add N answers from this browser?" first.
-- **Linking.** On the site, from the accounts page. In the Mini App Google refuses to sign in inside Telegram, so the bot issues a five-minute ticket, the phone's browser opens with it and asks "Link Google to the Telegram account Name (@username)?" before going to Google. There are no `/start link_…` links.
+- **Linking.** On the site, from the accounts page. In the Mini App Google refuses to sign in inside Telegram, so maply issues a five-minute ticket, the phone's browser opens with it and asks "Link Google to the Telegram account Name (@username)?" before going to Google. There are no `/start link_…` links.
 - **Merging.** A sign-in that belongs to another account merges the two, unless both have a sign-in of the same kind. A closed day is never rewritten. In an open day the earliest site answer stays, and becomes the Telegram answer when it came before the person's Telegram deadline.
 - **Unlinking** never removes the last sign-in, and ends the sessions opened by the one removed.
-- **Deleting** erases the account and its sign-ins at once. The site's rows stay as "Guest", so nobody's place in a past ranking changes. What is kept is on `/privacy`, in the sixteen languages.
+- **Deleting** erases the account and its sign-ins at once. Answers given on the site without Telegram stay as "Guest", so nobody's place in a past ranking changes; the Telegram player's answers, from the bot and from the site, stay with that player. What is kept is on `/privacy`, in the sixteen languages.
 
 ## Where places come from
 

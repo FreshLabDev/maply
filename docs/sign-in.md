@@ -3,8 +3,8 @@
 The site signs people in with Telegram or Google through maply's own server
 (`internal/account`). Both providers need a client registered by the owner of
 @maplyin_bot and of a Google Cloud project. Until a provider's two keys are
-in `.env`, its button on the site says the sign-in is unavailable and the
-rest of the site works as before. The product side is in
+in `.env`, its button on the site is greyed out and the rest of the site
+works as before. The product side is in
 [`design.md`](design.md), under "Accounts on the site".
 
 The addresses below are for production, `APP_URL=https://maply.ws04.cc`. A
@@ -20,7 +20,7 @@ test bot on another address registers its own.
 
    Telegram sends the browser back only to an address on this list.
 3. Under Advanced keep the signing algorithm at **RS256**. maply accepts RS256
-   only, and Telegram refuses the `profile` scope with EdDSA and ES256K.
+   only.
 4. Copy the Client ID, which is the bot's numeric id, and the Client Secret.
 
 maply asks Telegram for `openid profile`: the id, the name and the username.
@@ -54,7 +54,7 @@ project named `maply` and open Google Auth Platform.
 ## 3. Google: brand verification
 
 Without it, Google's sign-in screen names the domain and not the app. It is
-optional; with `openid` alone it usually takes minutes.
+optional.
 
 1. In [Search Console](https://search.google.com/search-console) add the
    domain property `ws04.cc`, signed in as the account that owns the Cloud

@@ -32,7 +32,7 @@ main { max-width: 680px; margin: 0 auto; padding: 24px 16px 48px; }
 header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
 .mark { font: 700 32px/1 "DIN Condensed", "Sofia Sans Extra Condensed", sans-serif; color: var(--ink); text-decoration: none; }
 h1 { font: 700 40px/1.05 "DIN Condensed", "Sofia Sans Extra Condensed", sans-serif; margin: 0 0 12px; }
-h2 { font: 700 14px/1.2 "DIN Alternate", "Sofia Sans", sans-serif; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 32px 0 8px; }
+h2 { font: 700 24px/1.1 "DIN Condensed", "Sofia Sans Extra Condensed", sans-serif; color: var(--ink); margin: 32px 0 8px; }
 p, li { color: var(--soft); }
 ul { margin: 0; padding-inline-start: 20px; }
 li + li { margin-top: 6px; }

@@ -18,7 +18,7 @@ For the operator:
 - Sign-in on the site needs keys from BotFather and Google Cloud, set as
   `TELEGRAM_LOGIN_CLIENT_ID`/`_SECRET` and `GOOGLE_CLIENT_ID`/`_SECRET`, and
   `APP_URL`; `docs/sign-in.md` lists the steps. Without them the site plays
-  as before and its sign-in button says it is unavailable.
+  as before and its sign-in buttons are greyed out.
 
 ### Added
 
@@ -47,6 +47,9 @@ For the operator:
   names the Telegram account before going to Google.
 - `/privacy` says what maply keeps, what other players see and how to delete
   the account, in the sixteen languages.
+- The site's menu picks the interface language. Signed in with Telegram it is
+  the language core keeps for every bot of the family, with "Follow
+  Telegram"; otherwise the browser keeps it.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 
