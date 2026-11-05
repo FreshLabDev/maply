@@ -1,7 +1,7 @@
 """Turn the reviewers' verdicts on a screened batch into the reviews.json
 maply-places reads, and report what the batch holds.
 
-    python -I select.py <batch> [target]
+    python -I choose.py <batch> [target]
 
 Reads <batch>/candidates.json, screen.json and every review-*.json, each
 {"keep": {n: difficulty}, "scene": {n: "city"|"town"|"road"},
@@ -86,7 +86,7 @@ def main():
         cut[n] = f"spare: over the target of {target}"
 
     out = {
-        "reviewer": "claude-sonnet-5-5, with screen.py and select.py",
+        "reviewer": "claude-sonnet-5-5, with screen.py and choose.py",
         "at": datetime.date.today().isoformat(),
         "pool": "free",
         "keep": {str(n): keep[n] for n in chosen},

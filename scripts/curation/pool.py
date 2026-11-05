@@ -11,8 +11,9 @@ centre. So every region has frames, and none is empty taiga.
 Each entry: {"name", "lat", "lon", "km", "inner", "kind", "country"}.
 
 MAPLY_CAP=N plans at most N entries in one country, big cities included, so a
-pool of a few hundred places spreads over many countries. MAPLY_AVOID keeps the
-towns and roads clear of the other pool's places (see avoid.py).
+pool of a few hundred places spreads over many countries. MAPLY_COUNTRIES=JP,KE,…
+plans in those countries only, to fill a batch where it is thin. MAPLY_AVOID
+keeps the towns and roads clear of the other pool's places (see avoid.py).
 """
 import gzip, json, math, os, random, socket, sys, threading, time, urllib.parse, urllib.request
 import concurrent.futures as cf
@@ -212,6 +213,7 @@ socket.getaddrinfo = lambda host, *a, **k: [r for r in _getaddrinfo(host, *a, **
 TOKEN = os.environ["MAPILLARY_TOKEN"]
 AVOID = avoid.from_env()
 CAP = int(os.environ.get("MAPLY_CAP", "0"))
+ONLY = {c.strip() for c in os.environ.get("MAPLY_COUNTRIES", "").split(",") if c.strip()}
 MIN_TS = 1514764800000  # 2018-01-01, as harvest.py
 # The game shows 360° panoramas: only drives shot with a 360° camera count.
 PANO_ONLY = os.environ.get("MAPLY_PANO_ONLY", "1") != "0"
@@ -328,7 +330,7 @@ def main():
     n_cities, n_towns, n_nature = (int(x) for x in (sys.argv[2:5] + ["45", "100", "110"][len(sys.argv[2:5]):]))
     random.seed()
     countries = load_countries()
-    isos = sorted(i for i in countries if i in WEIGHTS)
+    isos = sorted(i for i in countries if i in WEIGHTS and (not ONLY or i in ONLY))
     weights = [WEIGHTS[i] for i in isos]
     plan = []
     per = {}
@@ -337,7 +339,7 @@ def main():
     cities = []
     for name, lat, lon, r in REGIONS:
         iso = country_of(countries, lat, lon)
-        if iso and not allowed(iso, lat, lon):
+        if iso and not allowed(iso, lat, lon) or ONLY and iso not in ONLY:
             continue
         cities.append((name, lat, lon, r, iso))
     for name, lat, lon, r, iso in random.sample(cities, len(cities)):

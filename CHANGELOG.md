@@ -30,7 +30,7 @@ For the operator:
   place of the day and the free game never shows the spot of a future one.
 - `scripts/curation/screen.py` drops frames near or inside an OSM military
   area and in the parts of a country left out, and draws review sheets of the
-  whole panorama instead of the 120° the game opens on. `select.py` turns the
+  whole panorama instead of the 120° the game opens on. `choose.py` turns the
   reviewers' verdicts into `reviews.json` with at most 15 places a country,
   and writes a report of the batch.
 - `harvest.py` passes over a soft panorama for another frame of the tile.
