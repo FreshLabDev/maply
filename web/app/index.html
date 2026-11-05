@@ -17,7 +17,7 @@
 <header class="top">
   <button class="logo" id="logo" aria-label="maply"><b>maply</b><span class="up" id="day"></span></button>
   <div class="timer" id="timer"><span class="up" data-t="until_truth"></span><b id="left">…</b></div>
-  <div class="prog" id="prog"><div class="lb" id="lb"></div><div class="foot"><button class="more hidden" id="more" aria-haspopup="dialog"></button><span class="none hidden" id="none" data-t="no_answer"></span><button class="info" id="rulesBtn" aria-expanded="false" aria-controls="rules" data-aria="rules"><i>i</i></button><button class="fold hidden" id="foldBtn" aria-expanded="true" aria-controls="lb"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 10l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></div><div class="rules hidden" id="rules" role="note"></div><div class="tip" id="tip"></div></div>
+  <div class="prog" id="prog"><div class="lb" id="lb"></div><div class="foot"><button class="more hidden" id="more" aria-haspopup="dialog"></button><span class="none hidden" id="none" data-t="no_answer"></span><button class="info hidden" id="rulesBtn" aria-expanded="false" aria-controls="rules" data-aria="rules"><i>i</i></button><button class="fold hidden" id="foldBtn" aria-expanded="true" aria-controls="lb"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 10l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></div><div class="rules hidden" id="rules" role="note"></div><div class="tip" id="tip"></div></div>
 </header>
 
 <main class="stage">
@@ -44,6 +44,7 @@
 <!-- The loading screen runs first; MapLibre, Pannellum and the app are deferred, so it turns while they load. -->
 <script src="land.js"></script>
 <script src="loader.js"></script>
+<script src="ready.js"></script>
 
 <script defer src="tg.js"></script>
 <script defer src="mapstyle.js"></script>

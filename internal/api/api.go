@@ -428,6 +428,9 @@ type todayResponse struct {
 	// ZoneSet is the zone the DM just took from the phone, so the app can say
 	// so once.
 	ZoneSet string `json:"zone_set,omitempty"`
+	// Now is the server's clock: the app counts down by it, not by a phone
+	// that may run minutes off.
+	Now time.Time `json:"now"`
 }
 
 func (s *Server) today(w http.ResponseWriter, r *http.Request) {
@@ -469,7 +472,7 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 	resp := todayResponse{
 		Date: p.date.String(), Day: rd.DayNo, Image: imagePath(puzzle.ImageKey), Kind: puzzle.Kind,
 		Heading: puzzle.Heading, Zone: p.zone.String(), Lang: p.lang, Deadline: deadline.UTC(), Reveal: opens.UTC(),
-		ZoneSet: zoneSet,
+		ZoneSet: zoneSet, Now: s.Now().UTC(),
 	}
 	if p.shareLang != "" && p.shareLang != p.lang {
 		resp.ShareLang = p.shareLang

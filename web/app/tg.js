@@ -8,12 +8,7 @@ const tgAt = (v) => inTg && tg.isVersionAtLeast(v);
 const LANG0 = (((inTg && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code) || navigator.language || "en") + "")
   .toLowerCase().split(/[-_]/)[0];
 if (inTg) {
-  tg.ready(); tg.expand();
-  // Telegram header and backdrop in the field colour, bottom bar in the credits-row colour.
-  if (tgAt("6.9")) { tg.setHeaderColor("#245A3C"); tg.setBackgroundColor("#245A3C"); }
-  if (tgAt("7.10")) tg.setBottomBarColor("#1A412B");
-  // The panorama and globe are dragged in every direction: a swipe down must not collapse the app.
-  if (tgAt("7.7")) tg.disableVerticalSwipes();
+  // ready.js has already told Telegram the app is up and set its colours.
   // Cutouts, fullscreen buttons or window height changed: recompute the camera, tape and panorama.
   ["viewportChanged", "safeAreaChanged", "contentSafeAreaChanged"].forEach((e) => tg.onEvent(e, () => dispatchEvent(new Event("resize"))));
   // Outside fullscreen Telegram draws its own title bar with the app's name right above the page: the header then

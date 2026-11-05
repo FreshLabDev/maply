@@ -80,7 +80,7 @@ func (s *Server) siteToday(w http.ResponseWriter, r *http.Request) {
 	resp := todayResponse{
 		Date: d.String(), Day: rd.DayNo, Image: imagePath(puzzle.ImageKey), Kind: puzzle.Kind,
 		Heading: puzzle.Heading, Zone: loc.String(), Lang: i18n.Normalize(r.URL.Query().Get("lang")),
-		Deadline: deadline.UTC(), Reveal: s.latestReveal(d).UTC(), Bot: s.BotUsername,
+		Deadline: deadline.UTC(), Reveal: s.latestReveal(d).UTC(), Bot: s.BotUsername, Now: s.Now().UTC(),
 	}
 	if player := playerID(r); player != "" {
 		g, ok, err := s.Store.SiteGuessOf(ctx, d, player)

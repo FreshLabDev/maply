@@ -7,7 +7,7 @@ function setMapLanguage(l) {
     ["streets", "oceans", "cities"].forEach((id) => map.setLayoutProperty(id, "text-field", nameIn(l)));
     map.setLayoutProperty("countries", "text-field", countryIn(l));
   };
-  mapReady ? apply() : map.once("load", apply);
+  whenMapReady(apply);
 }
 function createMap(zoom) {
   const m = new maplibregl.Map({ container: "map", style, center: [25, 30], zoom, minZoom: -1, maxPitch: 0, attributionControl: false, dragRotate: false, pitchWithRotate: false, fadeDuration: 150 });
