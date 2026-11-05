@@ -11,6 +11,8 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.14 - 2026-11-05
+
 Fixes from two reviews on 4 November: one name could take the whole
 service down, several paths let a player see the place and still answer,
 the world's names came out too early, and the site showed an
