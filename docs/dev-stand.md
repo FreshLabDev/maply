@@ -60,6 +60,20 @@ animations the scheduler posts, edits, pins and buttons.
 The chats live in memory: a restart or `/dev/fresh` starts them empty, and
 `/dev/fresh` restarts the bot and the scheduler on the new data.
 
+## Sign-in on the stand
+
+`cmd/maply-dev/accounts.go` serves fake Telegram and Google providers under
+`/dev/accounts/` and points the site's sign-in at them, so Sign in, linking,
+merging, signing out and deleting run as in production, code exchange and
+PKCE included. Each provider shows a page to pick who signs in: Telegram
+offers the stand's players, Google two of them and a person known to Google
+only. `/dev/accounts/list` lists the accounts with their sessions.
+
+The session cookie is `__Host-` and `Secure`; browsers keep such cookies on
+`http://127.0.0.1` and `http://localhost`. Open the stand at the address it
+prints: the providers send the browser back there, and a sign-in started on
+another host name has no state to come back to.
+
 ## Extensions
 
 A feature adds its own part in its own file under `cmd/maply-dev/` with
