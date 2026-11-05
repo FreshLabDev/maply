@@ -130,10 +130,14 @@
 
   /* ---------- Settings ---------- */
   const ROUNDS = { 3: "free.r3", 5: "free.r5", 10: "free.r10" };
-  const key = (s) => s.mode === "streak" ? "streak/" + s.seconds : "classic/" + s.seconds + "/" + s.rounds;
+  // A streak and a game against the clock have no number of places; the clock's game has three minutes in all.
+  const endless = (s) => s.mode === "streak" || s.mode === "timed";
+  const key = (s) => endless(s) ? s.mode + "/" + s.seconds : "classic/" + s.seconds + "/" + s.rounds;
+  const bestKey = (s) => s.mode === "streak" ? "free.best_streak" : s.mode === "timed" ? "free.best_timed" : "free.best";
   const secLabel = (n) => n === 30 ? T("free.blitz") + " " + fmt(30) : n ? T("free.sec", { n: fmt(n) }) : T("free.no_timer");
   // "Blitz · 5 places", "60 s · 10 places", "Country streak · 30 s": the name of a set of settings and its records.
   function setLabel(s) {
+    if (s.mode === "timed") return T("free.timed_set");
     if (s.mode === "streak") return T("free.streak") + " · " + T("free.sec", { n: fmt(s.seconds) });
     return (s.seconds === 30 ? T("free.blitz") : s.seconds ? T("free.sec", { n: fmt(s.seconds) }) : T("free.no_timer")) + " · " + T(ROUNDS[s.rounds]);
   }
@@ -146,20 +150,24 @@
   function settings(s, party, locked) {
     let html = "";
     if (!party) {
-      html += '<p class="fr-l up" id="frL-mode">' + esc(T("free.mode")) + '</p>' + seg("mode", [["classic", T("free.classic")], ["streak", T("free.streak")]], s.mode, locked);
+      html += '<p class="fr-l up" id="frL-mode">' + esc(T("free.mode")) + '</p>' +
+        seg("mode", [["classic", T("free.classic")], ["streak", T("free.streak")], ["timed", T("free.timed")]], s.mode, locked);
       if (s.mode === "streak") html += '<p class="fr-hint">' + esc(T("free.streak_hint")) + '</p>';
+      if (s.mode === "timed") return html + '<p class="fr-hint">' + esc(T("free.timed_hint")) + '</p>';
     }
     const times = s.mode === "streak" ? [30, 60] : party ? [30, 60, 90, 120] : [30, 60, 90, 120, 0];
     html += '<p class="fr-l up" id="frL-seconds">' + esc(T("free.time")) + '</p>' + seg("seconds", times.map((n) => [n, secLabel(n)]), s.seconds, locked);
     if (s.mode !== "streak") html += '<p class="fr-l up" id="frL-rounds">' + esc(T("free.places")) + '</p>' + seg("rounds", [3, 5, 10].map((n) => [n, fmt(n)]), s.rounds, locked);
     return html;
   }
-  // A choice made: a streak has a 30 or 60 s timer and no number of places.
+  // A choice made: a streak has a 30 or 60 s timer and no number of places, the clock's game three minutes and nothing
+  // to choose.
   function choose(s, k, v) {
     const n = Object.assign({}, s);
     n[k] = k === "mode" ? v : +v;
-    if (n.mode === "streak") { n.rounds = 0; if (n.seconds !== 30) n.seconds = 60; }
-    else if (!n.rounds) n.rounds = 5;
+    if (n.mode === "timed") { n.seconds = 180; n.rounds = 0; }
+    else if (n.mode === "streak") { n.rounds = 0; if (n.seconds !== 30) n.seconds = 60; }
+    else { if (!n.rounds) n.rounds = 5; if (n.seconds === 180) n.seconds = 60; }
     return n;
   }
 
@@ -169,7 +177,7 @@
     $("frPage").classList.add("hidden");
     $("frPlay").classList.remove("hidden");
     $("frRes").classList.add("hidden");
-    $("frPlay").classList.remove("grown", "rev");
+    $("frPlay").classList.remove("grown", "rev", "nopic");
     $("frGrow").setAttribute("aria-label", T("free.map_bigger"));
     if (!fmap) makeMap(); else requestAnimationFrame(() => fmap.resize());
   }
@@ -378,12 +386,14 @@
     return '<p class="fr-cred">© ' + (p.author ? esc(p.author) + ", " : "") + '<a href="' + url + '" target="_blank" rel="noopener">' + name + '</a> ' + esc(lic) + '</p>';
   }
   // The place after an answer: where it was, how far, the points in parts, the fact.
-  function placeBlock(p, g, note) {
+  // after goes under the points, above the fact.
+  function placeBlock(p, g, note, after) {
     let html = '<b class="fr-where">' + esc(whereOf(p)) + '</b>';
     if (note) html += '<p class="fr-note">' + esc(note) + '</p>';
     if (g && g.lat != null) html += '<p class="fr-score"><span>' + kmT(g.km) + '</span><b>' + fmt(g.points) + '</b></p>' +
       (parts(g) ? '<p class="fr-parts">' + esc(parts(g)) + '</p>' : '');
     else html += '<p class="fr-score"><b>0</b></p>';
+    if (after) html += after;
     if (p.fact) html += '<p class="fr-fact">' + esc(p.fact) + '</p>';
     return html + credit(p);
   }
@@ -409,14 +419,22 @@
     let html = "";
     if (h.party) html += '<button class="fr-wide" data-act="toParty" data-code="' + esc(h.party) + '">' + esc(T("free.to_party")) + ' <em>' + fwd() + '</em></button>';
     if (h.open) html += '<button class="fr-wide" data-act="resume">' + esc(T("free.continue")) + ' <em>' + fwd() + '</em></button>';
+    if (h.archive) html += '<button class="fr-wide alt" data-act="archive">' + esc(T("free.archive")) + ' <em>' + fmt(h.archive) + ' ' + fwd() + '</em></button>';
     html += settings(s, false, false);
     const best = h.best && h.best[key(s)];
     // A record of nothing is not shown; the line keeps its height so the buttons do not jump between settings.
-    if (person()) html += '<p class="fr-best">' + (best ? esc(T(s.mode === "streak" ? "free.best_streak" : "free.best", { set: setLabel(s), n: fmt(best) })) : "") + '</p>';
+    if (person()) html += '<p class="fr-best">' + (best ? esc(T(bestKey(s), { set: setLabel(s), n: fmt(best) })) : "") + '</p>';
     else html += '<p class="fr-hint">' + esc(T("free.guest_note")) + '</p>';
     html += '<div class="fr-go"><button class="fr-pri" data-act="go">' + esc(T("free.go")) + '</button>';
     if (person()) html += '<button class="fr-sec" data-act="friends">' + esc(T("free.friends")) + '</button>';
-    page(html + '</div>', "fr-home", keep);
+    html += '</div>';
+    if (h.challenges && h.challenges.length) {
+      html += '<p class="fr-l up">' + esc(T("free.challenges")) + '</p><div class="fr-chs">' + h.challenges.map((c) =>
+        '<button class="fr-ch" data-act="toChallenge" data-code="' + esc(c.code) + '"><b lang="' + nameLang() + '">' +
+        esc(c.maker ? T("free.challenge_mine") : T("free.challenge_by", { name: c.by })) + '</b><span>' + esc(setLabel(c.settings)) + ' · ' +
+        esc(T("free.players", { n: fmt(c.players) })) + '</span><em>' + fwd() + '</em></button>').join("") + '</div>';
+    }
+    page(html, "fr-home", keep);
   }
   const ACTS = {
     set(b) {
@@ -433,7 +451,10 @@
       try { GAME = await req("/api/free/solo/" + HOME.open); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
       continueGame();
     },
-    friends() { Kit.party.create(SET.mode === "streak" ? { mode: "classic", seconds: SET.seconds, rounds: 5 } : { mode: "classic", seconds: SET.seconds || 60, rounds: SET.rounds }); },
+    friends() {
+      Kit.party.create(SET.mode === "timed" ? { mode: "classic", seconds: 60, rounds: 5 } : SET.mode === "streak" ? { mode: "classic", seconds: SET.seconds, rounds: 5 } :
+        { mode: "classic", seconds: SET.seconds || 60, rounds: SET.rounds });
+    },
     toParty(b) { Router.go("/party/" + b.dataset.code); },
     grow() {
       const on = $("frPlay").classList.toggle("grown");
@@ -445,8 +466,60 @@
     next(b) { b.disabled = true; haptic("light"); GAME.next ? next() : final(); },
     again(b) { ACTS.go(b); },
     settings() { home(HOME); },
+    archive() { archive(); },
+    day(b) { takeDay(b, +b.dataset.n); },
+    async played(b) {
+      b.disabled = true;
+      try { GAME = await req("/api/free/solo/" + b.dataset.game); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
+      continueGame();
+    },
+    nextDay(b) { const d = nextOpen(); d ? takeDay(b, d.n) : archive(); },
+    toDay() { Router.go("/days/" + GAME.day.date); },
+    toChallenge(b) { challenge(b.dataset.code); },
+    async dare(b) {
+      b.disabled = true;
+      let d;
+      try { d = await req("/api/free/solo/" + GAME.id + "/challenge", {}); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
+      GAME.challenge = d.code; haptic("success"); challenge(d.code);
+    },
+    async take(b) {
+      b.disabled = true;
+      try { GAME = await req("/api/free/challenge/" + CH.code + "/play", {}); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
+      haptic("medium"); continueGame();
+    },
+    async mine(b) {
+      b.disabled = true;
+      try { GAME = await req("/api/free/solo/" + CH.mine); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
+      continueGame();
+    },
+    async invite(b) {
+      b.disabled = true;
+      let d = null;
+      try { d = await req("/api/free/challenge/" + CH.code + "/invite", {}); } catch (e) { toast(ferr(e)); }
+      b.disabled = false;
+      if (!d) return;
+      // shareMessage throws while its sheet is still open; the link is the fallback.
+      if (d.id && signed() && tgAt("8.0") && tg.shareMessage) { try { tg.shareMessage(d.id); return; } catch {} }
+      const url = "https://t.me/share/url?" + new URLSearchParams({ url: d.link, text: T("free.challenge_text", { set: setLabel(CH.settings) }) });
+      if (signed() && tgAt("6.1")) tg.openTelegramLink(url); else window.open(url, "_blank", "noopener");
+    },
+    inTelegram() {
+      const url = "https://t.me/" + (HOME && HOME.bot || "") + "/play?startapp=c" + CH.code;
+      window.open(url, "_blank", "noopener");
+    },
   };
+  // A day taken is the player's from then on: the list here says so without asking the server again.
+  async function takeDay(b, n) {
+    b.disabled = true;
+    try { GAME = await req("/api/free/archive", { n }); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
+    const d = DAYS && DAYS.find((x) => x.n === n);
+    if (d) { d.state = "played"; d.game = GAME.id; }
+    haptic("medium"); continueGame();
+  }
+  const nextOpen = () => DAYS && DAYS.find((x) => x.state === "open" && (!GAME || !GAME.day || x.n !== GAME.day.n));
+  // A day from the archive ends on its one place, so its place is its end; so is an over game's last.
   function continueGame() {
+    if (GAME.day && GAME.status !== "playing" && GAME.done.length) return revealSolo();
     if (GAME.status !== "playing") return final();
     if (GAME.current) return play(GAME.current);
     if (GAME.next) return next();
@@ -456,14 +529,33 @@
     const my = ++gen;
     wait();
     let r;
-    try { r = await req("/api/free/solo/" + GAME.id + "/start", { n: GAME.next }); } catch (e) { if (my === gen) failed(e, () => next()); return; }
+    try { r = await req("/api/free/solo/" + GAME.id + "/start", { n: GAME.next }); }
+    catch (e) {
+      if (my !== gen) return;
+      // The clock's game ran out between the answer and the next place: the game read again is over.
+      if (e.message === "game_over") {
+        let g = null;
+        try { g = await req("/api/free/solo/" + GAME.id); } catch {}
+        if (my === gen) { if (g) GAME = g; final(); }
+        return;
+      }
+      failed(e, () => next()); return;
+    }
     if (my === gen) play(r);
   }
-  const placeTitle = (g, n) => g.settings.mode === "streak" ? T("free.place", { n: fmt(n) }) : T("free.place_n", { n: fmt(n), total: fmt(g.settings.rounds) });
+  // Where Back goes from a game: a day to the archive, a game of a challenge to its standings, anything else to the screen.
+  const gameBack = () => GAME.day ? archive() : GAME.challenge ? challenge(GAME.challenge) : home();
+  const placeTitle = (g, n) => g.day ? no("#" + fmt(g.day.n)) : endless(g.settings) ? T("free.place", { n: fmt(n) }) : T("free.place_n", { n: fmt(n), total: fmt(g.settings.rounds) });
+  function nowLine(g) {
+    if (g.day) return dayDate(g.day.date) + " · " + T("free.archive");
+    if (g.settings.mode === "streak") return T("free.streak_now", { n: fmt(g.streak) });
+    if (g.settings.mode === "timed") return T("free.timed_now", { n: fmt(g.countries) });
+    return T("free.points_now", { n: fmt(g.points) });
+  }
   function play(r) {
     gen++; clearTimeout(missT);
     ROUND = r; mine = null; sending = false;
-    top(placeTitle(GAME, r.n), GAME.settings.mode === "streak" ? T("free.streak_now", { n: fmt(GAME.streak) }) : T("free.points_now", { n: fmt(GAME.points) }), () => home());
+    top(placeTitle(GAME, r.n), nowLine(GAME), gameBack);
     showPlay();
     picture(r.image, r.kind);
     if (r.repeat) toast(T("free.repeat"));
@@ -477,7 +569,9 @@
     });
   }
   function buttons() {
-    const give = !ROUND.ends_at ? '<button class="fr-sec" data-act="giveUp">' + esc(T("free.give_up")) + '</button>' : "";
+    // Without a timer giving up is the way out; against the clock a place may be passed, which costs the time it took.
+    const give = !ROUND.ends_at ? '<button class="fr-sec" data-act="giveUp">' + esc(T("free.give_up")) + '</button>' :
+      GAME.settings.mode === "timed" ? '<button class="fr-sec" data-act="giveUp"' + (sending ? " disabled" : "") + '>' + esc(T("free.pass")) + '</button>' : "";
     return give + '<button class="fr-pri" data-act="send"' + (mine && !sending ? "" : " disabled") + '>' + esc(mine ? T("free.answer") : T("free.tap_map")) + '</button>';
   }
   async function sendSolo(auto, skip) {
@@ -493,8 +587,8 @@
       if (e.message === "already_answered") return missed();
       toast(ferr(e)); return;
     }
-    GAME = g;
     if (my !== gen) return;
+    GAME = g;
     haptic(skip ? "light" : "success");
     revealSolo();
   }
@@ -504,20 +598,47 @@
     const my = gen, n = ROUND.n;
     let g;
     try { g = await req("/api/free/solo/" + GAME.id); } catch (e) { if (my === gen) toast(ferr(e)); return; }
+    if (my !== gen) return;
     GAME = g;
-    if (my === gen && GAME.done.some((d) => d.n === n)) revealSolo();
+    if (GAME.done.some((d) => d.n === n)) revealSolo();
   }
   function revealSolo() {
     stopClock();
-    const d = GAME.done[GAME.done.length - 1], g = d.guess;
+    const d = GAME.done[GAME.done.length - 1], g = d.guess, s = GAME.settings;
+    // A day played before opens on its reveal: the map is made here, and there is no picture to show beside it.
+    if (!ROUND && $("frPlay").classList.contains("hidden")) { showPlay(); freshMap(() => {}); $("frPlay").classList.add("nopic"); }
     ROUND = null;
-    top(placeTitle(GAME, d.n), GAME.settings.mode === "streak" ? T("free.streak_now", { n: fmt(GAME.streak) }) : T("free.points_now", { n: fmt(GAME.points) }), () => home());
+    top(placeTitle(GAME, d.n), nowLine(GAME), gameBack);
     act("");
-    const note = d.late ? T("free.late") : g.lat == null ? (GAME.settings.seconds ? T("free.missed") : T("free.gave_up"))
-      : GAME.settings.mode === "streak" ? T(g.country ? "free.country_ok" : "free.country_miss") : "";
+    const note = d.late ? T("free.late") : g.lat == null ? (s.mode === "timed" ? T("free.passed") : s.seconds ? T("free.missed") : T("free.gave_up"))
+      : s.mode === "timed" ? T(g.country ? "free.timed_ok" : "free.timed_miss") : s.mode === "streak" ? T(g.country ? "free.country_ok" : "free.country_miss") : "";
+    let html;
+    if (GAME.day) {
+      // A day from the archive ends here: where it would have stood among the day's answers, and the way on.
+      const f = GAME.final || {}, e = DAYS && DAYS.find((x) => x.n === GAME.day.n);
+      if (e) { e.state = "played"; e.game = GAME.id; e.points = f.points; }
+      const rank = f.day_of > 1 ? T("free.day_rank", { rank: fmt(f.day_rank), of: fmt(f.day_of) }) : f.day_of === 1 ? T("free.day_nobody") : "";
+      html = placeBlock(d.place, g, note, rank ? '<p class="fr-rank">' + esc(rank) + '</p>' : "");
+      const more = !!nextOpen();
+      html += '<div class="fr-go fr-way' + (more ? " two" : "") + '">' + (more ? '<button class="fr-pri" data-act="nextDay">' + esc(T("free.next_day")) + '</button>' : '') +
+        '<button class="' + (more ? "fr-sec" : "fr-pri") + '" data-act="archive">' + esc(T("free.to_archive")) + '</button>' +
+        '<button class="fr-link" data-act="toDay">' + esc(T("free.day_page")) + '</button></div>';
+    } else html = placeBlock(d.place, g, note) + '<button class="fr-pri" data-act="next">' + esc(T(GAME.next ? "free.next" : "free.to_final")) + '</button>';
     // The panel first: the map takes its reveal size, and the camera frames that.
-    result(placeBlock(d.place, g, note) + '<button class="fr-pri" data-act="next">' + esc(T(GAME.next ? "free.next" : "free.to_final")) + '</button>');
+    result(html);
     revealMap(d.place, [{ me: true, lat: g.lat, lon: g.lon }]);
+    // Against the clock the time runs on through the reveal; at zero the game is over.
+    if (s.mode === "timed" && GAME.next && GAME.ends_at) {
+      const my = gen;
+      clock(null, GAME.ends_at, s.seconds, async () => {
+        let g;
+        try { g = await req("/api/free/solo/" + GAME.id); } catch { return; }
+        if (my !== gen) return;
+        GAME = g;
+        const b = $("frRes").querySelector("[data-act=next]");
+        if (b && !GAME.next) b.textContent = T("free.to_final");
+      });
+    }
   }
   function final() {
     gen++;
@@ -525,22 +646,84 @@
     top(T("free.final"), setLabel(s), () => home());
     let html = '<div class="fr-big">';
     if (s.mode === "streak") html += '<b>' + fmt(f.streak || 0) + '</b><span class="up">' + esc(T("free.streak_len")) + '</span>';
+    else if (s.mode === "timed") html += '<b>' + fmt(f.countries || 0) + '</b><span class="up">' + esc(T("free.timed_len")) + '</span>';
     else html += '<b>' + fmt(f.points || 0) + '</b>';
     html += '</div>';
     if (f.record) html += '<p class="fr-rec">' + esc(T("free.record", { n: fmt(f.best) })) + '</p>';
     else if (f.best == null) html += person() ? '<p class="fr-best">' + esc(T("free.first_set")) + '</p>' : "";
-    else if (f.best) html += '<p class="fr-best">' + esc(T(s.mode === "streak" ? "free.best_streak" : "free.best", { set: setLabel(s), n: fmt(f.best) })) + '</p>';
+    else if (f.best) html += '<p class="fr-best">' + esc(T(bestKey(s), { set: setLabel(s), n: fmt(f.best) })) + '</p>';
     html += '<ol class="fr-list">';
     for (const d of GAME.done) {
       html += '<li><span class="n">' + fmt(d.n) + '</span><span class="w">' + esc(whereOf(d.place)) + '</span><span class="k">' +
         (d.guess.lat != null ? kmT(d.guess.km) : "") + '</span><b>' + fmt(d.guess.points) + '</b></li>';
     }
-    html += '</ol><div class="fr-go"><button class="fr-pri" data-act="again">' + esc(T("free.again")) + '</button>' +
+    // A classic on a timer becomes a challenge: friends play its places in their own time. An attempt, and a game made
+    // into one, lead to its standings.
+    const dare = person() && GAME.status === "done" && (GAME.challenge ? '<button class="fr-pri" data-act="toChallenge" data-code="' + esc(GAME.challenge) + '">' +
+      esc(T("free.to_challenge")) + '</button>' : s.mode === "classic" && s.seconds ? '<button class="fr-sec" data-act="dare">' + esc(T("free.dare")) + '</button>' : "");
+    html += '</ol><div class="fr-go">' + (GAME.challenge && dare ? dare : '') + '<button class="' + (GAME.challenge && dare ? "fr-sec" : "fr-pri") + '" data-act="again">' + esc(T("free.again")) + '</button>' +
+      (!GAME.challenge && dare ? dare : '') +
       (person() ? '<button class="fr-sec" data-act="friends">' + esc(T("free.friends")) + '</button>' : '') +
       '<button class="fr-link" data-act="settings">' + esc(T("free.settings")) + '</button></div>';
     page(html, "fr-final");
     HOME = Object.assign({}, HOME || {}, { open: null });
-    if (f.points != null && HOME.best) HOME.best[key(s)] = Math.max(HOME.best[key(s)] || 0, s.mode === "streak" ? f.streak || 0 : f.points);
+    const score = s.mode === "streak" ? f.streak || 0 : s.mode === "timed" ? f.countries || 0 : f.points;
+    if (score != null && HOME.best) HOME.best[key(s)] = Math.max(HOME.best[key(s)] || 0, score);
+    // "Again" plays the settings of the game just played, and Settings shows them.
+    if (s.mode !== "archive") SET = Object.assign({}, s);
+  }
+
+  /* ---------- The archive: days closed in every zone, one place each, without a timer ---------- */
+  let DAYS = null;
+  // "#41" reads left to right in a right-to-left line.
+  const no = (s) => "\u2066" + s + "\u2069";
+  function dayDate(iso) {
+    try { return new Intl.DateTimeFormat(numLang(), { timeZone: "UTC", day: "numeric", month: "long", year: iso.slice(0, 4) === String(new Date().getUTCFullYear()) ? undefined : "numeric" }).format(new Date(iso + "T00:00:00Z")); }
+    catch { return iso; }
+  }
+  async function archive() {
+    gen++; ROUND = null; clearTimeout(missT);
+    top(T("free.archive"), "", () => home());
+    if (!DAYS) wait();
+    try { DAYS = (await req("/api/free/archive")).days; } catch (e) { if (!DAYS) { failed(e, () => archive()); return; } }
+    const open = DAYS.filter((d) => d.state === "open").length;
+    if (HOME) HOME.archive = open;
+    let html = '<p class="fr-hint">' + esc(T("free.archive_hint")) + '</p>';
+    if (!DAYS.length) html += '<p class="fr-wait">' + esc(T("free.archive_empty")) + '</p>';
+    html += '<div class="fr-days">' + DAYS.map((d) => {
+      const name = '<b>' + no("#" + fmt(d.n)) + '</b><span>' + esc(dayDate(d.date)) + '</span>';
+      if (d.state === "open") return '<button class="fr-day" data-act="day" data-n="' + d.n + '">' + name + '<em>' + esc(T("free.play_day")) + ' ' + fwd() + '</em></button>';
+      if (d.state === "played") return '<button class="fr-day done" data-act="played" data-game="' + d.game + '">' + name + '<em>' +
+        (d.points != null ? '<i>' + fmt(d.points) + '</i>' : esc(T("free.day_going"))) + ' ' + fwd() + '</em></button>';
+      return '<div class="fr-day off">' + name + '<em>' + esc(T(d.state === "answered" ? "free.day_answered" : "free.day_seen")) + '</em></div>';
+    }).join("") + '</div>';
+    page(html, "fr-arch");
+  }
+
+  /* ---------- A challenge: the places of one game, for friends to play in their own time ---------- */
+  let CH = null;
+  async function challenge(code) {
+    gen++; ROUND = null; clearTimeout(missT);
+    top(T("free.challenge"), "", () => home());
+    if (!CH || CH.code !== code) wait();
+    try { CH = await req("/api/free/challenge/" + code); } catch (e) { failed(e, () => challenge(code)); return; }
+    top(T("free.challenge"), setLabel(CH.settings), () => home());
+    const made = CH.lines.some((l) => l.me && l.maker);
+    let html = '<p class="fr-chby" lang="' + nameLang() + '">' + esc(made ? T("free.challenge_mine") : T("free.challenge_by", { name: CH.by })) + '</p>' +
+      '<p class="fr-hint">' + esc(T("free.challenge_hint")) + '</p><ol class="fr-list fr-table">';
+    for (const l of CH.lines) {
+      const how = l.status === "done" ? (l.seen ? '<em class="fr-under">' + esc(T("free.seen_n", { n: fmt(l.seen) })) + '</em>' : '')
+        : '<em class="fr-under">' + esc(l.status === "playing" ? T("free.ch_playing", { n: fmt(l.played), total: fmt(CH.settings.rounds) }) : T("free.ch_left")) + '</em>';
+      html += '<li' + (l.me ? ' class="me"' : '') + '><span class="n">' + (l.rank ? fmt(l.rank) : "") + '</span><span class="w"><span lang="' + nameLang() + '">' +
+        esc(l.name) + '</span>' + how + '</span><b>' + (l.status === "done" ? fmt(l.points) : "") + '</b></li>';
+    }
+    html += '</ol><div class="fr-go">';
+    if (CH.mine == null) {
+      if (person()) html += '<button class="fr-pri" data-act="take">' + esc(T("free.take")) + '</button>';
+      else html += '<p class="fr-hint">' + esc(T("free.challenge_tg")) + '</p>' + (HOME && HOME.bot ? '<button class="fr-pri" data-act="inTelegram">' + esc(T("free.open_tg")) + '</button>' : '');
+    } else if (CH.status === "playing") html += '<button class="fr-pri" data-act="mine">' + esc(T("free.continue")) + '</button>';
+    if (CH.mine != null) html += '<button class="' + (CH.status === "playing" ? "fr-sec" : "fr-pri") + '" data-act="invite">' + esc(T("free.invite_friends")) + '</button>';
+    page(html + '<button class="fr-link" data-act="settings">' + esc(T("free.title")) + '</button></div>', "fr-ch-page");
   }
 
   /* ---------- What party.js uses ---------- */
@@ -563,9 +746,19 @@
   // The free game is the page /play and a party /party/<code>; an invitation opens the app with "p" and the code as its
   // start_param, and the app moves to the party's address. Leaving goes to the day, the page under every other.
   const PARTY = /^\/party\/([0-9A-HJKMNP-TV-Z]{8})$/;
+  const startParam = () => signed() && tg.initDataUnsafe && tg.initDataUnsafe.start_param || "";
   function invite() {
-    const p = signed() && tg.initDataUnsafe && tg.initDataUnsafe.start_param || "";
+    const p = startParam();
     return p[0] === "p" && CODE.test(p.slice(1)) ? p.slice(1) : "";
+  }
+  // A challenge opens the free screen on it: from the invitation's "c" and code, or on the site from /play?c=<code>.
+  // Each is taken once: Back from the challenge is the free screen, not the challenge again.
+  let dared = false;
+  function dareCode() {
+    if (dared) return "";
+    const p = startParam(), q = new URLSearchParams(location.search).get("c") || "";
+    const c = p[0] === "c" ? p.slice(1) : q;
+    return CODE.test(c) ? c : "";
   }
   // Telegram has no history, so Back goes to the parent: the list of days when the game was opened from it.
   let parent = "/";
@@ -574,7 +767,12 @@
   // The home fetched before the router opened the page, used once.
   let first = null;
   Router.screen("play", /^\/play$/, {
-    open(m, from) { came(from); open(); const h = first; first = null; home(h); },
+    open(m, from) {
+      came(from); open();
+      const h = first, c = dareCode(); first = null; dared = true;
+      if (h) { HOME = h; if (!SET) SET = Object.assign({}, h.last); }
+      c ? challenge(c) : home(h);
+    },
     close(to) { if (to !== "party") close(); },
   });
   Router.screen("party", PARTY, {
@@ -583,7 +781,7 @@
   });
   window.Free = {
     // Whether the app opens on the free game rather than the day: once, before the day has started.
-    takes() { return !dayBoot && !opened && (!!invite() || /^\/play$/.test(location.pathname) || PARTY.test(location.pathname)); },
+    takes() { return !dayBoot && !opened && (!!invite() || !!dareCode() || /^\/play$/.test(location.pathname) || PARTY.test(location.pathname)); },
     // start opens it in place of the day; boot is the day's start, run when the free game is left.
     async start(boot) {
       dayBoot = boot;
@@ -596,6 +794,7 @@
       hideLoader();
       const code = invite();
       if (code && !PARTY.test(location.pathname)) Router.go("/party/" + code, { replace: true });
+      else if (dareCode() && !/^\/play$/.test(location.pathname)) Router.go("/play", { replace: true });
       Router.start();
     },
     // The way in from the day's list of days.
