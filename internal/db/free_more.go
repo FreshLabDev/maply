@@ -144,34 +144,34 @@ func (s *Store) createArchive(ctx context.Context, dayNo int, g free.NewGame) (i
 // FreeDayRank compares with every answer the day kept, each counted as its
 // distance and its continent, country or city: the speed bonus a timer gave
 // on the day the archive has nothing to match. An answer worth as much stood
-// ahead: it came first.
-func (s *Store) FreeDayRank(ctx context.Context, date time.Time, base int, km float64) (int, int, error) {
+// ahead: it came first, on the day.
+func (s *Store) FreeDayRank(ctx context.Context, date time.Time, base int) (int, int, error) {
 	var rank, of int
 	err := s.pool.QueryRow(ctx, `
-		SELECT count(*) FILTER (WHERE b > $2 OR (b = $2 AND km <= $3)) + 1, count(*) + 1
-		  FROM (SELECT d.km, COALESCE(g.pts_km + g.pts_bonus, s.pts_km + s.pts_bonus, d.points) AS b
+		SELECT count(*) FILTER (WHERE b >= $2) + 1, count(*) + 1
+		  FROM (SELECT COALESCE(g.pts_km + g.pts_bonus, s.pts_km + s.pts_bonus, d.points) AS b
 		          FROM day_place d
 		          LEFT JOIN guess g ON g.date = d.date AND g.user_id = d.user_id
 		          LEFT JOIN site_guess s ON s.date = d.date AND s.player = d.player
-		         WHERE d.date = $1) x`, date, base, km).Scan(&rank, &of)
+		         WHERE d.date = $1) x`, date, base).Scan(&rank, &of)
 	if err != nil {
 		return 0, 0, fmt.Errorf("day rank of %s: %w", date.Format(time.DateOnly), err)
 	}
 	return rank, of, nil
 }
 
-func (s *Store) MakeFreeChallenge(ctx context.Context, game, userID int64, code string, at time.Time) (string, error) {
-	got, err := s.makeChallenge(ctx, game, userID, code, at)
+func (s *Store) MakeFreeChallenge(ctx context.Context, game int64, w free.Who, code string, at time.Time) (string, error) {
+	got, err := s.makeChallenge(ctx, game, w, code, at)
 	if violates(err, "free_challenge_code_key") {
 		return "", free.ErrCodeTaken
 	}
 	if violates(err, "free_challenge_game_key") {
-		return s.makeChallenge(ctx, game, userID, code, at)
+		return s.makeChallenge(ctx, game, w, code, at)
 	}
 	return got, err
 }
 
-func (s *Store) makeChallenge(ctx context.Context, game, userID int64, code string, at time.Time) (string, error) {
+func (s *Store) makeChallenge(ctx context.Context, game int64, w free.Who, code string, at time.Time) (string, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", err
@@ -190,8 +190,9 @@ func (s *Store) makeChallenge(ctx context.Context, game, userID int64, code stri
 		INSERT INTO free_challenge (code, game, created_at) VALUES ($1, $2, $3) RETURNING id`, code, game, at).Scan(&id); err != nil {
 		return "", fmt.Errorf("challenge of %d: %w", game, err)
 	}
+	user, player := whoArgs(w)
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO free_attempt (challenge, user_id, game) VALUES ($1, $2, $3)`, id, userID, game); err != nil {
+		INSERT INTO free_attempt (challenge, user_id, player, game) VALUES ($1, $2, $3, $4)`, id, user, player, game); err != nil {
 		return "", fmt.Errorf("challenge of %d: %w", game, err)
 	}
 	return code, tx.Commit(ctx)
@@ -212,7 +213,7 @@ func (s *Store) FreeChallenge(ctx context.Context, code string) (free.ChallengeR
 		return free.ChallengeRow{}, fmt.Errorf("challenge %s: %w", code, err)
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT a.user_id, m.name, g.id, g.status, g.id = $2,
+		SELECT COALESCE(a.user_id, 0), COALESCE(a.player::text, ''), m.name, g.id, g.status, g.id = $2,
 		       count(q.n), count(q.n) FILTER (WHERE q.lat IS NOT NULL),
 		       COALESCE(sum(q.pts_km + q.pts_bonus + q.pts_speed), 0), COALESCE(sum(q.pts_km + q.pts_bonus), 0),
 		       COALESCE(sum(COALESCE(q.km, $3)), 0), COALESCE(sum(q.time_ms), 0),
@@ -223,7 +224,7 @@ func (s *Store) FreeChallenge(ctx context.Context, code string) (free.ChallengeR
 		  JOIN free_member m ON m.game = g.id AND m.m = 1
 		  LEFT JOIN free_guess q ON q.game = g.id AND q.m = 1
 		 WHERE a.challenge = $1
-		 GROUP BY a.user_id, m.name, g.id
+		 GROUP BY a.user_id, a.player, m.name, g.id
 		 ORDER BY g.id = $2 DESC, g.created_at, g.id`, c.ID, c.Game, free.MaxKm)
 	if err != nil {
 		return free.ChallengeRow{}, fmt.Errorf("challenge %s attempts: %w", code, err)
@@ -231,7 +232,7 @@ func (s *Store) FreeChallenge(ctx context.Context, code string) (free.ChallengeR
 	c.Attempts, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (free.Attempt, error) {
 		var a free.Attempt
 		l := &a.Line
-		err := row.Scan(&a.UserID, &a.Name, &a.Game, &a.Status, &a.Maker, &l.Played, &l.Answered,
+		err := row.Scan(&a.UserID, &a.Player, &a.Name, &a.Game, &a.Status, &a.Maker, &l.Played, &l.Answered,
 			&l.Points, &l.Base, &l.Km, &l.TimeMs, &l.Countries, &a.Seen)
 		l.FromRound = 1
 		return a, err
@@ -244,7 +245,8 @@ func (s *Store) FreeChallenge(ctx context.Context, code string) (free.ChallengeR
 
 func (s *Store) TakeFreeChallenge(ctx context.Context, challenge int64, g free.NewGame) (int64, error) {
 	id, err := s.takeChallenge(ctx, challenge, g)
-	if violates(err, "free_attempt_pkey") {
+	// Taken at the same moment in another request: that attempt is the one.
+	if violates(err, "free_attempt_user_key") || violates(err, "free_attempt_player_key") {
 		return s.takeChallenge(ctx, challenge, g)
 	}
 	return id, err
@@ -256,9 +258,11 @@ func (s *Store) takeChallenge(ctx context.Context, challenge int64, g free.NewGa
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	user, player := whoArgs(g.Host.Who)
 	var game int64
 	err = tx.QueryRow(ctx, `
-		SELECT game FROM free_attempt WHERE challenge = $1 AND user_id = $2`, challenge, g.Host.Who.UserID).Scan(&game)
+		SELECT game FROM free_attempt WHERE challenge = $1 AND (user_id = $2 OR player = $3::uuid)`,
+		challenge, user, player).Scan(&game)
 	if err == nil {
 		return game, nil
 	}
@@ -270,13 +274,19 @@ func (s *Store) takeChallenge(ctx context.Context, challenge int64, g free.NewGa
 		return 0, err
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO free_attempt (challenge, user_id, game) VALUES ($1, $2, $3)`, challenge, g.Host.Who.UserID, id); err != nil {
+		INSERT INTO free_attempt (challenge, user_id, player, game) VALUES ($1, $2, $3, $4)`, challenge, user, player, id); err != nil {
 		return 0, fmt.Errorf("attempt at %d: %w", challenge, err)
 	}
 	return id, tx.Commit(ctx)
 }
 
-func (s *Store) FreeChallenges(ctx context.Context, userID int64, since time.Time) ([]free.ChallengeBrief, error) {
+// FreeChallenges lists at most twenty: the free screen shows a week's.
+func (s *Store) FreeChallenges(ctx context.Context, w free.Who, since time.Time) ([]free.ChallengeBrief, error) {
+	cond := `a.user_id = $1`
+	var arg any = w.UserID
+	if w.UserID == 0 {
+		cond, arg = `a.player = $1::uuid`, w.Player
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.code, mk.name, g0.mode, COALESCE(g0.seconds, 0), COALESCE(g0.rounds, 0),
 		       (SELECT count(*) FROM free_attempt x WHERE x.challenge = c.id),
@@ -288,10 +298,10 @@ func (s *Store) FreeChallenges(ctx context.Context, userID int64, since time.Tim
 		  JOIN free_game g0 ON g0.id = c.game
 		  JOIN free_member mk ON mk.game = c.game AND mk.m = 1
 		  JOIN free_game g ON g.id = a.game
-		 WHERE a.user_id = $1 AND c.created_at > $2
-		 ORDER BY at DESC, c.id DESC LIMIT 5`, userID, since)
+		 WHERE `+cond+` AND c.created_at > $2
+		 ORDER BY at DESC, c.id DESC LIMIT 20`, arg, since)
 	if err != nil {
-		return nil, fmt.Errorf("challenges of %d: %w", userID, err)
+		return nil, fmt.Errorf("challenges: %w", err)
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (free.ChallengeBrief, error) {
 		var b free.ChallengeBrief

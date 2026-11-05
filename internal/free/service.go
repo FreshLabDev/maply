@@ -31,10 +31,12 @@ type Error struct {
 func (e *Error) Error() string { return e.Code }
 
 var (
-	ErrNotFound   = &Error{404, "not_found"}
-	ErrNotMember  = &Error{403, "not_a_member"}
-	ErrNotHost    = &Error{403, "not_host"}
-	ErrTelegram   = &Error{403, "telegram_only"}
+	ErrNotFound  = &Error{404, "not_found"}
+	ErrNotMember = &Error{403, "not_a_member"}
+	ErrNotHost   = &Error{403, "not_host"}
+	// ErrSignIn is a guest of the site asking for what needs an account:
+	// records, friends and challenges.
+	ErrSignIn     = &Error{403, "sign_in"}
 	ErrBadRequest = &Error{400, "bad_request"}
 	ErrOrder      = &Error{409, "out_of_order"}
 	ErrNotYet     = &Error{409, "not_yet"}
@@ -165,17 +167,18 @@ func timeOf(set Settings, r Round, at time.Time) int64 {
 	return d.Milliseconds()
 }
 
-// results is a finished game's lines for its Telegram players.
+// results is a finished game's lines for its players who keep records: its
+// Telegram people and its accounts' site players, never a guest.
 func results(snap *Snapshot, at time.Time) []Result {
 	members := players(snap)
 	lines := Lines(snap.Game.Settings, members, snap.Rounds, snap.Guesses)
 	out := make([]Result, 0, len(lines))
 	for _, l := range lines {
 		m, _ := snap.memberNo(l.M)
-		if !m.Who.Telegram() {
+		if !m.Who.Keeps() {
 			continue
 		}
-		r := Result{Line: l, UserID: m.Who.UserID, Kind: snap.Game.Kind, Settings: snap.Game.Settings, At: at}
+		r := Result{Line: l, UserID: m.Who.UserID, Player: m.Who.Player, Kind: snap.Game.Kind, Settings: snap.Game.Settings, At: at}
 		if !alone(snap.Game.Kind) {
 			r.Place, r.Players, r.Beaten = l.Rank, len(lines), l.Beaten
 		}

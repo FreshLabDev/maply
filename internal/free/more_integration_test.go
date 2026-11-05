@@ -170,6 +170,14 @@ func TestArchive(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// As many points as a day's answer stand behind it: it came first, on
+	// the day.
+	for base, want := range map[int]int{4001: 1, 4000: 2, 2001: 2, 2000: 3, 500: 4, 0: 4} {
+		rank, of, err := h.store.FreeDayRank(ctx, time.Date(2026, time.October, 21, 0, 0, 0, 0, time.UTC), base)
+		if err != nil || rank != want || of != 4 {
+			t.Fatalf("%d points: %d of %d %v, want %d of 4", base, rank, of, err, want)
+		}
+	}
 
 	days, err := h.svc.ArchiveOf(ctx, ann)
 	if err != nil {
@@ -211,6 +219,15 @@ func TestArchive(t *testing.T) {
 	home, err := h.svc.SoloHome(ctx, ann)
 	if err != nil || home.Open == nil || *home.Open != other.ID || home.Last != free.DefaultSolo || home.Archive != 0 {
 		t.Fatalf("home: %+v %v", home, err)
+	}
+	// Left for two days, a day from the archive still waits for its answer:
+	// the sweep passes it by, and so does reading it.
+	h.tick(48 * time.Hour)
+	if err := h.svc.Sweep(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if v, err = h.svc.SoloGame(ctx, ann, v.ID, "en"); err != nil || v.Status != free.StatusPlaying || v.Current == nil {
+		t.Fatalf("a day left for two days: %+v %v", v, err)
 	}
 	h.tick(time.Hour)
 	v, err = h.svc.GuessSolo(ctx, ann, v.ID, free.GuessIn{N: 1, Pin: &geo.Point{Lat: 60.17, Lon: 24.94}}, "en")
@@ -308,7 +325,7 @@ func TestChallenge(t *testing.T) {
 	if _, err := h.svc.MakeChallenge(ctx, bob, v.ID); !is(err, free.ErrNotMember) {
 		t.Fatalf("someone else's game: %v", err)
 	}
-	if _, err := h.svc.MakeChallenge(ctx, free.Who{Player: "6f1c6d2e-6b0e-4c3a-9a51-0e1d2c3b4a59"}, v.ID); !is(err, free.ErrTelegram) {
+	if _, err := h.svc.MakeChallenge(ctx, free.Who{Player: "6f1c6d2e-6b0e-4c3a-9a51-0e1d2c3b4a59"}, v.ID); !is(err, free.ErrSignIn) {
 		t.Fatalf("a guest: %v", err)
 	}
 	code, err := h.svc.MakeChallenge(ctx, ann, v.ID)
@@ -330,6 +347,11 @@ func TestChallenge(t *testing.T) {
 		t.Fatalf("no timer: %v", err)
 	}
 
+	// A guest of the site is asked to sign in, even to look: the table
+	// names the players.
+	if _, err := h.svc.ChallengeOf(ctx, free.Who{Player: "6f1c6d2e-6b0e-4c3a-9a51-0e1d2c3b4a59"}, code); !is(err, free.ErrSignIn) {
+		t.Fatalf("a guest looks: %v", err)
+	}
 	cv, err := h.svc.ChallengeOf(ctx, bob, code)
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +360,7 @@ func TestChallenge(t *testing.T) {
 		t.Fatalf("bob sees the challenge: %+v", cv)
 	}
 	noPlace(t, "a challenge", cv)
-	if _, err := h.svc.TakeChallenge(ctx, free.Who{Player: "6f1c6d2e-6b0e-4c3a-9a51-0e1d2c3b4a59"}, "", code, "en"); !is(err, free.ErrTelegram) {
+	if _, err := h.svc.TakeChallenge(ctx, free.Who{Player: "6f1c6d2e-6b0e-4c3a-9a51-0e1d2c3b4a59"}, "", code, "en"); !is(err, free.ErrSignIn) {
 		t.Fatalf("a guest takes it: %v", err)
 	}
 	// Bob had place 2 before: he plays it all the same, marked.
@@ -413,6 +435,15 @@ func TestChallenge(t *testing.T) {
 	if err != nil || len(home.Challenges) != 1 || home.Challenges[0].Code != code || home.Challenges[0].Players != 2 ||
 		home.Challenges[0].By != "Ann" || home.Challenges[0].Maker || home.Challenges[0].Status != free.StatusDone {
 		t.Fatalf("bob's screen: %+v %v", home.Challenges, err)
+	}
+	// Bob beat Ann's sum, and it is no record of his: the places were
+	// drawn for her, and she may have told him where they are. Hers stays
+	// her own game's.
+	if _, ok := home.Best[set.Key()]; ok || bv.Final == nil || bv.Final.Best != nil || bv.Final.Record {
+		t.Fatalf("an attempt keeps a record: %+v %+v", home.Best, bv.Final)
+	}
+	if annHome, err := h.svc.SoloHome(ctx, ann); err != nil || annHome.Best[set.Key()] != annV.Final.Points {
+		t.Fatalf("ann's record: %+v %v", annHome.Best, err)
 	}
 	// Cleo starts and walks away: a day later her attempt is abandoned and
 	// stays unranked.

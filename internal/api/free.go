@@ -10,9 +10,10 @@ package api
 // TouchPerson, never Touch, which would make the free game a DM with the bot
 // and move the day's answer window. A browser signed in with an account that
 // has Telegram is that person too, alone and with friends; it writes nothing
-// to core, which the sign-in has done. A site guest, and an account with
-// Google alone, plays alone as the site's player of the day's game, with no
-// records.
+// to core, which the sign-in has done. An account with Google alone plays as
+// its own site player, account.player, from any browser: it keeps records
+// and plays with friends too, and never touches core. A site guest plays
+// alone as the browser's player, with no records.
 
 import (
 	"context"
@@ -85,12 +86,20 @@ func (s *Server) freeRoutes(mux *http.ServeMux) {
 
 // freeViewer is who is asking, as the free game knows them.
 type freeViewer struct {
-	who  free.Who
+	who free.Who
+	// user is the Telegram person; for an account's site player only its
+	// first name is set, the name its games show.
 	user auth.User
 	lang string
-	// site is a Telegram person on the site, signed in with their account.
+	// site is a browser rather than the Mini App: its invitations are the
+	// site's own links.
 	site bool
 }
+
+// keeps is whether the viewer keeps records and may play with friends. An
+// account that has not played yet has no site player, and keeps all the
+// same: the player is made on its first game.
+func (v freeViewer) keeps() bool { return v.who.UserID != 0 || v.who.Account }
 
 // namer reads a Telegram person's first name from core.
 type namer interface {
@@ -98,8 +107,9 @@ type namer interface {
 }
 
 // viewer reads the asker: initData when the request has it, else the site's
-// cookie player. A write makes the cookie player on its first request, and
-// takes only JSON from maply's own pages; a read without a cookie is nobody.
+// account, else the browser's cookie player. A write makes the cookie player
+// on its first request, and takes only JSON from maply's own pages; a read
+// without a cookie is nobody.
 func (s *Server) freeViewer(w http.ResponseWriter, r *http.Request, lim *limiter, write bool) (freeViewer, error) {
 	if s.Free == nil {
 		return freeViewer{}, errFreeOff
@@ -125,25 +135,47 @@ func (s *Server) freeViewer(w http.ResponseWriter, r *http.Request, lim *limiter
 	if sv.TelegramUserID != 0 {
 		return s.freeAccount(r, lim, sv)
 	}
+	if sv.SignedIn() {
+		return s.freeSitePlayer(r, lim, sv, write)
+	}
 	if !s.ipLimit.allowIP(clientIP(r)) || !s.freeSiteAll.allowKey("all") {
 		return freeViewer{}, errRateLimited
 	}
-	v := freeViewer{who: free.Who{Player: sv.Player}, lang: i18n.Resolve(r.URL.Query().Get("lang"))}
+	v := freeViewer{who: free.Who{Player: sv.Player}, lang: i18n.Resolve(r.URL.Query().Get("lang")), site: true}
 	if v.who.Player == "" && write {
-		if sv.SignedIn() {
-			// The account's own site player, made now if it has none yet,
-			// so its games follow it from browser to browser.
-			p, err := s.Store.AccountSitePlayer(r.Context(), sv.AccountID, newPlayerID(), nil)
-			if err != nil {
-				return freeViewer{}, err
-			}
-			v.who.Player = p
-		} else {
-			v.who.Player = newPlayerID()
-			setPlayer(w, v.who.Player)
-		}
+		v.who.Player = newPlayerID()
+		setPlayer(w, v.who.Player)
 	}
 	return v, nil
+}
+
+// freeSitePlayer is a browser signed in with an account without Telegram:
+// the account's own site player, never the browser's guest, made on its
+// first write, so its games and records follow it from browser to browser.
+// The session is a cookie, so a page of another site may not ask for it, as
+// in freeAccount. Nothing here writes to core.
+func (s *Server) freeSitePlayer(r *http.Request, lim *limiter, sv account.Viewer, write bool) (freeViewer, error) {
+	if site := r.Header.Get("Sec-Fetch-Site"); site == "cross-site" || site == "same-site" {
+		return freeViewer{}, errBadRequest
+	}
+	if !lim.allowKey("account:" + sv.AccountID) {
+		return freeViewer{}, errRateLimited
+	}
+	ctx := r.Context()
+	lang := i18n.Resolve(r.URL.Query().Get("lang"))
+	player, name, err := s.Store.FreeAccountPlayer(ctx, sv.AccountID)
+	if err != nil {
+		return freeViewer{}, err
+	}
+	if player == "" && write {
+		if player, err = s.Store.AccountSitePlayer(ctx, sv.AccountID, newPlayerID(), nil); err != nil {
+			return freeViewer{}, err
+		}
+	}
+	if name == "" {
+		name = i18n.T(lang, "app.guest")
+	}
+	return freeViewer{who: free.Who{Player: player, Account: true}, user: auth.User{FirstName: name}, lang: lang, site: true}, nil
 }
 
 // freeAccount is a browser signed in with an account that has Telegram: the
@@ -241,12 +273,15 @@ func (s *Server) freeHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The free screen may be the first the app opens, so it names the
-	// language the person speaks and the bot to share, as /api/today does.
+	// language the person speaks and the bot to share, as /api/today does,
+	// and whether the viewer keeps records and may play with friends: a
+	// guest is asked to sign in for them.
 	writeJSON(w, http.StatusOK, struct {
 		free.Home
-		Lang string `json:"lang"`
-		Bot  string `json:"bot,omitempty"`
-	}{h, v.lang, s.BotUsername})
+		Lang  string `json:"lang"`
+		Bot   string `json:"bot,omitempty"`
+		Keeps bool   `json:"keeps"`
+	}{h, v.lang, s.BotUsername, v.keeps()})
 }
 
 func (s *Server) freeNew(w http.ResponseWriter, r *http.Request) {
@@ -421,8 +456,8 @@ func (s *Server) partyJoin(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	if !v.who.Telegram() {
-		s.freeFail(w, r, free.ErrTelegram)
+	if !v.keeps() {
+		s.freeFail(w, r, free.ErrSignIn)
 		return
 	}
 	if err := s.met(r.Context(), v); err != nil {
@@ -530,7 +565,10 @@ func (s *Server) partyRematch(w http.ResponseWriter, r *http.Request) {
 
 // partyInvite prepares the invitation the player sends themselves: the
 // settings in its caption and a button that opens the lobby. Without
-// Invites the app shares the link through t.me/share.
+// Invites the app shares the link through t.me/share. The site shares its
+// own address, /party/<code>, where whoever opens it joins as who they are
+// there: a Telegram account as the person, a Google one as its player, and
+// a guest is asked to sign in.
 func (s *Server) partyInvite(w http.ResponseWriter, r *http.Request) {
 	v, err := s.freeViewer(w, r, s.inviteLimit, true)
 	if err != nil {
@@ -547,9 +585,13 @@ func (s *Server) partyInvite(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, free.ErrOver)
 		return
 	}
-	link := "https://t.me/" + s.BotUsername + "/play?startapp=" + free.InvitePrefix + code
 	// The site has no shareMessage: it shares the link.
-	if s.Invites == nil || v.site {
+	if v.site {
+		writeJSON(w, http.StatusOK, map[string]string{"link": s.siteLink("/party/" + code)})
+		return
+	}
+	link := "https://t.me/" + s.BotUsername + "/play?startapp=" + free.InvitePrefix + code
+	if s.Invites == nil {
 		writeJSON(w, http.StatusOK, map[string]string{"link": link})
 		return
 	}
@@ -569,6 +611,12 @@ func (s *Server) partyInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"id": msg.ID, "link": link})
+}
+
+// siteLink is an address of the site, absolute when the service knows its
+// own; relative otherwise, for the page to complete.
+func (s *Server) siteLink(path string) string {
+	return strings.TrimRight(s.AppURL, "/") + path
 }
 
 // InviteCaption is a party's settings in a line: "Blitz · 5 places · 30 s".

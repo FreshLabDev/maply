@@ -32,6 +32,10 @@ For the operator:
   replaces the checks on `free_game` and `free_result` with named ones that
   allow the new modes. It runs in one transaction on tables the service
   already writes; nothing to do before or after.
+- Migration 024 lets a free game's result and a challenge's attempt belong
+  to a site player as well as to a Telegram person (`free_result.player`,
+  `free_attempt.player`), and adds the index the free game's leaderboards
+  read. Nothing to do before or after.
 
 ### Added
 
@@ -158,9 +162,12 @@ For the operator:
   bonus, up to +200, counts the share of the time left, so it is the same on
   every timer. The bot writes nothing about free play in groups. A free
   place never becomes a day's place, and its picture goes out only once the
-  place has started, under the round's own address. On the site an account
-  with Telegram plays as the person, records and friends included; a guest
-  or an account with Google alone plays alone without records.
+  place has started, under the round's own address. It looks as the day's
+  game does: the same header, panorama and globe, with the place, its clock
+  and the points where the day has its number and countdown. On the site any
+  account keeps records and plays with friends, one with Telegram as the
+  person and one with Google alone as its own player; a guest plays alone
+  without records and is asked to sign in for them.
 - The app has a computer's layout. From 1024 px wide and 600 px high the
   panorama fills the screen and the map opens beside it as a panel, on hover, a
   click or M, in three sizes; after answering the map fills the screen and the
@@ -179,8 +186,8 @@ For the operator:
   where the answer would have stood in that day's table. A challenge: after
   a classic game on a timer, friends play its places in the same order in
   their own time, once each, and the challenge's table shows the sums and
-  marks the places someone had seen before. Challenges are Telegram's, as
-  parties are; a site guest plays the archive.
+  marks the places someone had seen before. Challenges need an account, as
+  parties do; a site guest plays the archive.
 
 ### Changed
 

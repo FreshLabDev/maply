@@ -191,7 +191,7 @@ func TestFreeSiteGuest(t *testing.T) {
 	if rr := post(fmt.Sprintf("/api/free/solo/%d/guess", g.ID), "application/json", jar, `{"n":1,"skip":true}`); rr.Code != 200 {
 		t.Fatalf("guest gives up: %d %s", rr.Code, rr.Body)
 	}
-	if rr := post("/api/party", "application/json", jar, `{"mode":"classic","seconds":60,"rounds":5}`); rr.Code != 403 || !strings.Contains(rr.Body.String(), "telegram_only") {
+	if rr := post("/api/party", "application/json", jar, `{"mode":"classic","seconds":60,"rounds":5}`); rr.Code != 403 || !strings.Contains(rr.Body.String(), "sign_in") {
 		t.Fatalf("guest party: %d %s", rr.Code, rr.Body)
 	}
 }
@@ -302,12 +302,13 @@ func (hs *harness) googleSignIn(sub, token string) {
 
 // A browser signed in with an account that has Telegram plays free as the
 // person, alone and with friends, the same as the Mini App, and writes
-// nothing to core. An account with Google alone plays alone as its site
-// player, from any browser it signs in on.
+// nothing to core. An account with Google alone plays as its site player,
+// from any browser it signs in on.
 func TestFreeOnTheSiteWithAnAccount(t *testing.T) {
 	hs := freeSetup(t)
 	ctx := context.Background()
 	hs.srv.Invites = &fakeInvites{}
+	hs.srv.AppURL = "https://maply.test/"
 	oksana := hs.signIn(1, "Oksana")
 	oksanaApp := initData(1, "Oksana", "uk", "")
 	presence := func() int {
@@ -338,13 +339,13 @@ func TestFreeOnTheSiteWithAnAccount(t *testing.T) {
 	}
 
 	// With friends: her lobby from the site, under her name from core; the
-	// invitation is the link, since the site has no shareMessage.
+	// invitation is the site's link, since the site has no shareMessage.
 	lobby := decode[free.PartyView](t, hs.siteExpect("POST", "/api/party", oksana, `{"mode":"classic","seconds":60,"rounds":3}`, 200))
 	if lobby.Members[0].Name != "Oksana" {
 		t.Fatalf("her name in the lobby: %+v", lobby.Members)
 	}
 	inv := decode[map[string]string](t, hs.siteExpect("POST", "/api/party/"+lobby.Code+"/invite", oksana, "", 200))
-	if inv["id"] != "" || !strings.HasSuffix(inv["link"], "startapp=p"+lobby.Code) {
+	if inv["id"] != "" || inv["link"] != "https://maply.test/party/"+lobby.Code {
 		t.Fatalf("the site's invitation: %+v", inv)
 	}
 	ivan := initData(2, "Ivan", "ru", "p"+lobby.Code)
@@ -361,13 +362,10 @@ func TestFreeOnTheSiteWithAnAccount(t *testing.T) {
 		t.Fatal("free play on the site wrote her presence")
 	}
 
-	// Google alone: alone, as the account's site player, in any browser.
+	// Google alone: as the account's site player, in any browser.
 	hs.googleSignIn("google-sub-1", strings.Repeat("g", 43))
 	hs.googleSignIn("google-sub-1", strings.Repeat("h", 43))
 	first, second := strings.Repeat("g", 43), strings.Repeat("h", 43)
-	if body := hs.siteExpect("POST", "/api/party", first, `{"mode":"classic","seconds":60,"rounds":3}`, http.StatusForbidden); !strings.Contains(body, "telegram_only") {
-		t.Fatalf("google party: %s", body)
-	}
 	gg := decode[free.SoloView](t, hs.siteExpect("POST", "/api/free/solo", first, `{"mode":"classic","seconds":0,"rounds":3}`, 200))
 	if home := decode[free.Home](t, hs.siteExpect("GET", "/api/free", second, "", 200)); home.Open == nil || *home.Open != gg.ID || len(home.Best) != 0 {
 		t.Fatalf("the account's game in another browser: %+v", home)

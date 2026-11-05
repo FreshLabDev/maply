@@ -1,39 +1,20 @@
-/* The free game: a layer over the day in a field colour of its own, so a free answer never passes for the day's.
-   The same rules as the day: one field colour, white marks, no shadows, rounded corners or transparency. */
-body.is-free {
-  --field: #26496E; --field-deep: #1A3452; --field-tint: #5D7C9E;
-  --ink-soft: #D6DFE9; --ink-muted: #AFC0D3; --on-panel: #26496E;
-}
-.free { position: fixed; z-index: 39; inset: 0; display: none; flex-direction: column; background: var(--field); color: var(--ink); }
-.free.on { display: flex; }
+/* The free game, in the day's colours. Its pages are drawn as the days' list is (.sh-top, .sh-body); its game is the
+   day's game. The game screen's rules below are the day's (app.css, desktop.css) under the free game's own names:
+   the day's are keyed to the day's state on <body>, which stays as the day left it under this layer. The layer's own
+   state is on .free: fr-g the game is up, fr-m the map is open, fr-dp the computer's map panel, fr-ds the computer's
+   side panel after the answer. */
+.free { position: fixed; z-index: 38; inset: 0; display: none; background: var(--field); color: var(--ink); }
+.free.on { display: block; }
+.desk .free, .free.fr-g { top: calc(var(--top) + var(--safe-top)); }
+.free.fr-g { background: var(--field-deep); }
 
-/* Header: Back, the place or the screen, the line under it, the seconds left. */
-.fr-top { flex: none; display: flex; align-items: center; gap: 12px; height: calc(var(--top) + var(--safe-top));
-          padding: var(--safe-top) calc(16px + var(--safe-right)) 0 calc(16px + var(--safe-left)); }
-.fr-back { flex: none; width: 32px; height: 32px; font: 400 22px/1 var(--text); color: var(--ink-soft); }
-.fr-head { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.fr-head b { font: 700 24px/1 var(--display); letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fr-head span { font-size: 11px; color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fr-clock { flex: none; min-width: 2ch; font: 700 30px/1 var(--display); letter-spacing: .02em; text-align: end; font-variant-numeric: tabular-nums; }
-.fr-clock.low { color: var(--speed); }
-.fr-time { flex: none; height: 4px; background: var(--field-deep); }
-.fr-time.off { visibility: hidden; }
-.fr-time i { display: block; height: 100%; background: var(--ink); transform-origin: 0 50%; }
-[dir="rtl"] .fr-time i { transform-origin: 100% 50%; }
-.fr-time i.low { background: var(--speed); }
-
-/* Who is in the place and who has answered: white is an answer, a dashed square a player the party no longer waits for. */
-.fr-ribbon { flex: none; display: none; gap: 6px; padding: 6px calc(16px + var(--safe-right)) 6px calc(16px + var(--safe-left)); background: var(--field-deep); overflow-x: auto; }
-.fr-ribbon.on { display: flex; }
-.fr-ribbon .av { flex: none; width: 26px; height: 26px; font-size: 12px; outline: 0; background: var(--field-tint); color: var(--ink); }
-.fr-ribbon .av.done { background: var(--ink); color: var(--field-deep); }
-.fr-ribbon .av.away { background: var(--field-deep); color: var(--ink-muted); outline: 2px dashed var(--field-tint); outline-offset: -2px; }
-.fr-ribbon .av.me { border-bottom: 3px solid var(--speed); }
-
-/* A page: the settings, the lobby, the end. One column, centred on a wide screen. */
-.fr-page { flex: 1; min-height: 0; width: 100%; max-width: 560px; margin: 0 auto; overflow-y: auto; -webkit-overflow-scrolling: touch;
-           padding: 4px calc(16px + var(--safe-right)) calc(28px + var(--safe-bottom)) calc(16px + var(--safe-left)); }
-.fr-page.fr-mid { display: flex; flex-direction: column; justify-content: center; }
+/* ---------- Pages ---------- */
+.fr-pg { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.fr-g .fr-pg, .fr-game { display: none; }
+.fr-g .fr-game { display: block; }
+/* Under the computer's header the page needs no room for the notch. */
+.desk .fr-pg .sh-top { height: var(--top); padding-top: 0; }
+.fr-sub { margin: 4px 0 0; color: var(--ink-muted); }
 .fr-l { margin: 20px 0 8px; color: var(--ink-muted); }
 .fr-seg { display: flex; flex-wrap: wrap; gap: 4px; }
 .fr-seg button { flex: 1 1 auto; min-width: 56px; height: 46px; padding: 0 10px; background: var(--field-deep); color: var(--ink);
@@ -57,16 +38,23 @@ body.is-free {
 .fr-wide em { font-style: normal; }
 .fr-wide.alt { background: var(--field-deep); color: var(--ink); }
 .fr-wait { margin: 40px 0 16px; text-align: center; color: var(--ink-soft); }
+/* A guest's way to sign in: what an account gives, and the button. */
+.fr-in { display: grid; gap: 10px; margin-top: 22px; padding: 14px; background: var(--field-deep); }
+.fr-in p { margin: 0; color: var(--ink-soft); }
+.fr-in .fr-pri { height: 50px; }
 
 /* The end, and the countdown before a place: one big number. */
 .fr-big { display: grid; justify-items: center; gap: 10px; margin: 28px 0 6px; text-align: center; }
 .fr-big b { font: 700 76px/.9 var(--display); letter-spacing: .01em; }
 .fr-big span { color: var(--ink-muted); }
 .fr-count b { font-size: 132px; }
+.fr-mid { display: flex; flex-direction: column; justify-content: center; }
+/* The countdown and the wait say the place themselves: no line over them in the middle of the page. */
+.fr-mid > .fr-sub { display: none; }
 .fr-rec { margin: 6px 0 0; text-align: center; color: var(--speed); font: 700 16px/1.3 var(--label); letter-spacing: .04em; }
 .fr-final .fr-best { text-align: center; }
 
-/* Lists: the places of a game, the answers to a place, the standing. Yours is the white row. */
+/* Lists: the places of a game and a challenge's standing. Yours is the white row. */
 .fr-list { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 2px; }
 .fr-list li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 58px; gap: 8px; align-items: center; min-height: 40px; padding: 6px 10px; background: var(--field-deep); }
 .fr-list .n { color: var(--ink-muted); font: 700 13px/1 var(--label); }
@@ -76,9 +64,9 @@ body.is-free {
 .fr-list em { font-style: normal; font-size: 10px; color: var(--ink-muted); }
 .fr-list li.me { background: var(--panel); color: var(--on-panel); }
 .fr-list li.me .n, .fr-list li.me .k, .fr-list li.me em { color: var(--on-panel); }
-.fr-rows li { grid-template-columns: minmax(0, 1fr) auto 58px; }
 .fr-table li { grid-template-columns: 22px minmax(0, 1fr) 64px; }
-.fr-l + .fr-list { margin-top: 0; }
+.fr-l + .fr-list, .fr-l + .rk { margin-top: 0; }
+.fr-list .fr-under { display: block; margin-top: 3px; }
 
 /* The archive: a row a day, the ones still open with the way in. */
 .fr-days { display: grid; gap: 2px; margin-top: 16px; }
@@ -91,13 +79,8 @@ body.is-free {
 .fr-day.done em i { font: 700 21px/1 var(--display); font-style: normal; color: var(--ink); }
 .fr-day.off, .fr-day.off span { color: var(--ink-muted); }
 .fr-day.off em { font-family: inherit; font-weight: 400; font-size: 13px; line-height: 1.2; letter-spacing: 0; text-transform: none; white-space: normal; text-align: end; }
-.fr-rank { margin: 8px 0 0; color: var(--ink); font: 700 15px/1.3 var(--label); letter-spacing: .04em; }
-/* After a day the way on stays in reach under a long fact: two buttons side by side when there is a next day. */
-.fr-res > .fr-way { position: sticky; bottom: 0; margin-top: 14px; padding-top: 6px; background: var(--field); box-shadow: 0 -14px 12px -4px var(--field); }
-.fr-way.two { grid-template-columns: 1fr 1fr; }
-.fr-way.two .fr-link { grid-column: 1 / -1; }
 
-/* Challenges: the ones on the free screen, and who played one. */
+/* Challenges: the ones on the free screen, and who made one. */
 .fr-chs { display: grid; gap: 2px; }
 .fr-ch { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "who go" "set go"; gap: 3px 12px; align-items: center; width: 100%;
          padding: 10px 12px; background: var(--field-deep); color: var(--ink); text-align: start; }
@@ -105,7 +88,6 @@ body.is-free {
 .fr-ch span { grid-area: set; color: var(--ink-muted); font-size: 13px; }
 .fr-ch em { grid-area: go; font-style: normal; }
 .fr-chby { margin: 14px 0 0; font: 700 19px/1.2 var(--label); letter-spacing: .03em; }
-.fr-list .fr-under { display: block; margin-top: 3px; }
 
 /* The lobby's players. */
 .fr-mem { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 2px; }
@@ -115,74 +97,170 @@ body.is-free {
 .fr-mem b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fr-mem span { font-size: 11px; color: var(--ink-muted); }
 
-/* The game: the picture above and the map below on a phone, side by side on a computer. */
-.fr-play { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) auto; grid-template-areas: "pano" "map" "act";
-           transition: grid-template-rows .3s var(--ease), grid-template-columns .3s var(--ease); }
-.fr-play.grown { grid-template-rows: minmax(0, .4fr) minmax(0, 1.6fr) auto; }
-.fr-pano { grid-area: pano; position: relative; min-height: 0; background: var(--field-deep); }
-.fr-map { grid-area: map; position: relative; min-height: 0; background: var(--field-deep); }
-.fr-grow { position: absolute; z-index: 3; top: 8px; inset-inline-end: calc(8px + var(--safe-end)); width: 36px; height: 36px; display: grid; place-items: center;
-           background: var(--field-deep); color: var(--ink); }
-.fr-grow svg { width: 16px; height: 16px; }
-.fr-play.grown .fr-grow svg { transform: rotate(180deg); }
-.fr-act { grid-area: act; display: flex; gap: 6px; padding: 10px calc(16px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(16px + var(--safe-left)); background: var(--field); }
-.fr-act > * { flex: 1; }
-.fr-act .fr-sec { flex: 0 1 38%; }
-.fr-sent { height: 58px; margin: 0; display: grid; place-items: center; padding: 0 8px; background: var(--field-deep); color: var(--ink-soft); text-align: center; line-height: 1.2; }
-.fr-act:empty { display: none; }
-
-/* After an answer the picture folds away on a phone: the map with every pin above, the place and the points below. */
-.fr-play.rev { grid-template-rows: 0 minmax(0, 1fr) auto; }
-.fr-play.rev .fr-pano { visibility: hidden; }
-.fr-play.rev .fr-act, .fr-play.rev .fr-grow { display: none; }
-.fr-res { grid-area: act; max-height: min(58vh, 560px); overflow-y: auto; -webkit-overflow-scrolling: touch; background: var(--field);
-          padding: 14px calc(16px + var(--safe-right)) calc(16px + var(--safe-bottom)) calc(16px + var(--safe-left)); user-select: text; -webkit-user-select: text; }
-/* The way on stays in reach under a long fact. */
-.fr-res > .fr-pri { position: sticky; bottom: 0; width: 100%; margin-top: 14px; box-shadow: 0 -14px 12px -4px var(--field); }
-.fr-where { display: block; font: 700 28px/1.05 var(--display); letter-spacing: .02em; }
-.fr-note { margin: 6px 0 0; color: var(--speed); font: 700 14px/1.3 var(--label); letter-spacing: .03em; }
-.fr-score { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 10px 0 0; }
-.fr-score span { color: var(--ink-soft); font: 700 18px/1 var(--label); }
-.fr-score b { font: 700 44px/1 var(--display); }
-.fr-parts { margin: 4px 0 0; color: var(--ink-muted); font-size: 14px; }
-.fr-fact { margin: 12px 0 0; color: var(--ink-soft); font-size: 15px; line-height: 1.4; }
-.fr-cred { margin: 10px 0 0; color: var(--ink-muted); font-size: 11px; }
-.fr-cred a { color: var(--ink-soft); }
-.fr-next { margin: 14px 0 0; text-align: center; color: var(--ink-muted); }
-
-/* The day hides its target while its globe is small; the free game's map shows it whenever it is there. */
-.free .fr-map .target { visibility: visible; }
-
-/* Friends' pins after a place: a square with the letter, the name beside it. */
-.fr-f { width: 0; height: 0; }
-.fr-f i { position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; outline: 2px solid var(--ink); }
-.fr-f b { position: absolute; left: 14px; top: -9px; max-width: 120px; padding: 0 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-          background: var(--field-deep); color: var(--ink); font: 700 11px/18px var(--label); letter-spacing: .04em; }
-[dir="rtl"] .fr-f b { left: auto; right: 14px; }
-.fr-f.tight b { display: none; }
-
 /* The way in from the day's list. */
-.dd.fr-entry { background: #1A3452; color: var(--ink); text-decoration: none; }
+.dd.fr-entry { text-decoration: none; color: var(--ink); }
 
-@media (min-width: 1024px) {
-  .fr-play { grid-template-columns: minmax(0, 1.55fr) minmax(380px, 1fr); grid-template-rows: minmax(0, 1fr) auto; grid-template-areas: "pano map" "pano act"; }
-  .fr-play.grown { grid-template-columns: minmax(0, .8fr) minmax(380px, 1.6fr); grid-template-rows: minmax(0, 1fr) auto; }
-  /* After an answer the map with every pin takes the picture's place; the picture stays above the place and the points. */
-  .fr-play.rev, .fr-play.grown.rev { grid-template-columns: minmax(0, 1.55fr) minmax(380px, 1fr); grid-template-rows: minmax(0, .6fr) minmax(0, 1fr);
-                grid-template-areas: "map pano" "map act"; }
-  .fr-play.rev .fr-pano { visibility: visible; }
-  .fr-play.rev.nopic { grid-template-rows: minmax(0, 1fr); grid-template-areas: "map act"; }
-  .fr-play.nopic .fr-pano { display: none; }
-  .fr-res { max-height: none; min-height: 0; }
-  .fr-page { max-width: 640px; }
+/* ---------- The header in the game: Back, the place where the day's number stands, its clock ---------- */
+.fr-hb, .fr-no, .fr-clock { display: none; }
+.fr-play .fr-hb { display: grid; place-items: center; flex: none; margin-inline: -8px 2px; }
+.fr-play .fr-no { display: inline; }
+.fr-play #day { display: none; }
+.is-free #timer { display: none; }
+/* The clock stands where the day's countdown does; on a page it is empty and keeps the header's right side in place. */
+.is-free .fr-clock { display: flex; }
+.is-free:not(.fr-play) .fr-clock > * { display: none; }
+.fr-clock b { font-variant-numeric: tabular-nums; }
+.fr-clock b:empty { display: none; }
+.fr-clock.low b { color: var(--speed); }
+/* Under the header, the time left as a line. */
+.fr-bar { position: fixed; z-index: 16; left: 0; right: 0; top: calc(var(--top) + var(--safe-top)); height: 3px; pointer-events: none; }
+.fr-bar.off { display: none; }
+.fr-bar i { display: block; height: 100%; background: var(--ink); transform-origin: 0 50%; }
+[dir="rtl"] .fr-bar i { transform-origin: 100% 50%; }
+.fr-bar.low i { background: var(--speed); }
+
+/* ---------- The game: the day's screen ---------- */
+.fr-stage { position: fixed; top: calc(var(--top) + var(--safe-top)); left: 0; right: 0; bottom: var(--foot); background: var(--field-deep); }
+#frPano { position: absolute; inset: 0; }
+.fr-compass { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: var(--tape); background: var(--field-deep); overflow: hidden; cursor: ew-resize; touch-action: none;
+              transition: transform .42s var(--ease) .12s, visibility 0s; }
+.fr-compass svg { position: absolute; left: 0; top: 0; height: var(--tape); will-change: transform; }
+.fr-compass::before { content: ""; position: absolute; z-index: 1; left: 50%; top: 0; width: 10px; height: 10px; margin-left: -5px;
+                      background: var(--ink); transform: translateY(-5px) rotate(45deg); }
+.fr-compass::after { content: ""; position: absolute; z-index: 1; left: 50%; bottom: 0; width: 2px; height: 9px; margin-left: -1px; background: var(--ink); }
+.fr-m .fr-compass { transform: translateY(100%); visibility: hidden; transition: transform .34s var(--ease), visibility 0s .34s; }
+.fr-cred { position: fixed; z-index: 35; left: 0; right: 0; bottom: 0; height: var(--foot);
+           padding: 0 calc(8px + var(--safe-right)) var(--safe-bottom) calc(8px + var(--safe-left));
+           display: flex; align-items: center; justify-content: safe center; gap: 5px; background: var(--field-deep); color: var(--ink-muted);
+           font: 500 9.5px/1 var(--text); letter-spacing: 0; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+.fr-cred::-webkit-scrollbar { display: none; }
+.fr-cred a { color: inherit; text-decoration: none; }
+
+/* The globe's box over the panorama; small in the corner, big when the map is open. */
+#frMap { position: fixed; z-index: 10; left: 0; right: 0; bottom: var(--foot); top: calc(var(--top) + var(--safe-top)); background: transparent; pointer-events: none; }
+.fr-m #frMap { pointer-events: auto; }
+.fr-hit { position: fixed; z-index: 12; right: calc(12px + var(--safe-right)); bottom: calc(var(--foot) + var(--tape) + 16px); width: var(--mini); height: var(--mini); }
+.fr-call { position: fixed; z-index: 12; right: calc(var(--mini) + 22px + var(--safe-right)); bottom: calc(var(--foot) + var(--tape) + 16px + var(--mini) / 2 - 31px);
+           display: grid; justify-items: right; gap: 4px; pointer-events: none; transition: opacity .3s, transform .3s var(--ease); }
+.fr-call b { padding: 10px 12px; background: var(--panel); color: var(--on-panel); font: 700 22px/1 var(--display); letter-spacing: .03em; text-transform: uppercase; }
+.fr-call span { padding: 6px 8px; background: var(--field); color: var(--ink); }
+.fr-call span:empty { display: none; }
+.fr-call em { display: inline-block; font-style: normal; animation: nudge 1.4s var(--ease) infinite; }
+.fr-m .fr-hit, .fr-m .fr-call { visibility: hidden; }
+.fr-m .fr-call { opacity: 0; transform: translateX(-10px); }
+
+/* Over the panorama: Skip or Give up, and in a party who has answered. */
+.fr-skip, .fr-ribbon { position: fixed; z-index: 16; top: calc(var(--top) + var(--safe-top) + 12px); inset-inline-start: calc(8px + var(--safe-start)); }
+.fr-skip { padding: 9px 11px; background: var(--field-deep); color: var(--ink); }
+.fr-skip:disabled { color: var(--ink-muted); }
+.fr-ribbon { display: none; flex-wrap: wrap; gap: 4px; max-width: calc(100% - 16px); pointer-events: none; }
+.fr-ribbon.on { display: flex; }
+.fr-ribbon .av { width: 26px; height: 26px; font-size: 12px; outline: 0; background: var(--field-tint); color: var(--ink); }
+.fr-ribbon .av.done { background: var(--ink); color: var(--field-deep); }
+.fr-ribbon .av.away { background: var(--field-deep); color: var(--ink-muted); outline: 2px dashed var(--field-tint); outline-offset: -2px; }
+.fr-ribbon .av.me { box-shadow: inset 0 -3px 0 var(--speed); }
+.fr-m .fr-skip { top: auto; bottom: calc(var(--foot) + 94px); }
+
+/* The plates over the open map, as the day's: they exist only there and fade in. */
+.fr-ovt, .fr-ovb { position: fixed; z-index: 15; inset-inline-start: calc(8px + var(--safe-start)); display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+                   opacity: 0; visibility: hidden; transform: translateY(6px); transition: opacity .3s, transform .3s var(--ease), visibility .3s; }
+.fr-ovt { top: calc(var(--top) + var(--safe-top) + 12px); pointer-events: none; }
+.fr-ovb { inset-inline-end: calc(8px + var(--safe-end)); bottom: calc(var(--foot) + 82px); }
+.fr-m .fr-ovt.on, .fr-m .fr-ovb.on { opacity: 1; visibility: visible; transform: none; }
+/* Your points: the number large, the distance and what happened beside it. */
+.fr-sc { max-width: min(360px, calc(100vw - 16px)); }
+.fr-sc .nums span { color: var(--ink-soft); }
+.fr-parts { margin: 8px 0 0; color: var(--ink-muted); font: 500 12px/1.35 var(--text); }
+.fr-rank { margin: 8px 0 0; color: var(--ink); font: 700 14px/1.3 var(--label); letter-spacing: .04em; }
+/* The ways on besides the strip's: small plates over the place's. */
+.fr-pbs { display: flex; flex-wrap: wrap; gap: 4px; }
+.fr-pb { color: var(--ink); }
+/* A table over the map: the answers to this place, without faces. */
+.fr-ovt .rk { min-width: min(320px, calc(100vw - 16px)); margin-top: 4px; padding: 0 8px; background: var(--field-deep); }
+.fr-rk.min li { grid-template-columns: 22px minmax(0, 1fr) auto 50px; gap: 8px; padding: 5px 0; font-size: 14px; }
+.fr-rk.min li:last-child { border-bottom: 0; }
+.fr-rk.min li.me { margin: 0 -8px; padding: 5px 8px; }
+.fr-rk .w em { font-style: normal; font-size: 11px; color: var(--ink-muted); }
+.fr-rk li.me .w em { color: var(--field-tint); }
+/* Your face in your white row: the letter stays readable on the row's green square. */
+.fr-rk li.me .av { color: var(--ink); }
+.fr-next { color: var(--ink-soft); }
+
+/* The bottom strip, as the day's: up with the map; one button, two halves once there is a pin. */
+.fr-act { position: fixed; z-index: 25; left: 0; right: 0; bottom: var(--foot); padding: 12px calc(16px + var(--safe-right)) 12px calc(16px + var(--safe-left)); background: var(--field);
+          display: grid; grid-template-columns: 1fr 0fr; gap: 0; transform: translateY(110%); visibility: hidden;
+          transition: transform .38s var(--ease), grid-template-columns .42s var(--ease), gap .42s var(--ease), visibility 0s .38s; }
+.fr-m .fr-act { transform: none; visibility: visible; transition: transform .38s var(--ease), grid-template-columns .42s var(--ease), gap .42s var(--ease), visibility 0s; }
+.fr-act.on { grid-template-columns: 1fr 1fr; gap: 6px; }
+.fr-act button { min-width: 0; overflow: hidden; height: 58px; padding: 0 4px; font: 700 clamp(13px, 4.2vw, 17px)/1.1 var(--label); letter-spacing: .05em;
+                 text-transform: uppercase; text-wrap: balance; overflow-wrap: break-word; }
+.fr-act button:active { transform: scale(.985); }
+#frLook { background: var(--field-deep); color: var(--ink); }
+#frGo { background: var(--panel); color: var(--on-panel); }
+.fr-act:not(.on) #frGo { padding: 0; color: transparent; }
+.fr-act.on #frGo { transition: color .15s .3s; }
+#frGo:disabled { opacity: .6; cursor: default; }
+/* A game opened on its answer has no picture to go back to: the way on alone. */
+.fr-act.one { grid-template-columns: 0fr 1fr; gap: 0; }
+.fr-act.one #frLook { padding: 0; color: transparent; }
+
+/* ---------- The game on a computer ---------- */
+.desk .fr-stage { bottom: 0; }
+.desk .fr-compass { top: 12px; bottom: auto; left: 50%; right: auto; width: 480px; margin-left: -240px; }
+.desk .fr-compass, .desk .fr-m .fr-compass { transform: none; visibility: visible; transition: none; }
+.desk .fr-skip, .desk .fr-m .fr-skip { top: calc(var(--top) + var(--safe-top) + 12px); bottom: auto; inset-inline-start: calc(24px + var(--safe-start)); }
+.desk .fr-ribbon { inset-inline-start: calc(24px + var(--safe-start)); }
+.desk .fr-cred { left: calc(24px + var(--safe-left)); right: auto; bottom: 24px; height: auto; min-height: 28px; padding: 6px 10px; max-width: calc(100vw - var(--pw-now) - 96px);
+                 flex-wrap: wrap; row-gap: 3px; justify-content: flex-start; white-space: normal; line-height: 1.3; overflow: visible; }
+/* The map is a panel in the bottom right corner: folded, only the globe shows through the clip. */
+.desk .fr-dp #frMap { top: auto; left: auto; right: calc(24px + var(--safe-right)); bottom: 24px; width: var(--pw-now); height: var(--ph-now);
+                      background-color: var(--field) !important;
+                      clip-path: circle(calc(var(--mini) / 2 - 2px) at calc(100% - var(--mini) / 2) calc(100% - var(--mini) / 2)); transition: clip-path .38s var(--ease); }
+.desk .fr-dp.fr-m #frMap { clip-path: circle(150% at calc(100% - var(--mini) / 2) calc(100% - var(--mini) / 2)); }
+.desk .fr-dp .fr-hit { right: calc(24px + var(--safe-right)); bottom: 24px; }
+.desk .fr-dp .fr-call { right: calc(24px + var(--safe-right) + var(--mini) + 14px); bottom: calc(24px + var(--mini) / 2 - 31px); }
+.desk .fr-dp .maplibregl-canvas-container.maplibregl-interactive { cursor: crosshair; }
+/* The answer's bar over the panel's bottom: dimmed until there is a pin. */
+.desk .fr-dp .fr-act { left: auto; right: calc(24px + var(--safe-right)); bottom: 24px; width: var(--pw-now); height: var(--bar); padding: 0; background: none;
+                       grid-template-columns: 1fr; gap: 0; transform: none; opacity: 0; transition: opacity .2s, visibility 0s .2s; }
+.desk .fr-dp.fr-m .fr-act { opacity: 1; visibility: visible; transition: opacity .2s .12s, visibility 0s; }
+.desk .fr-dp #frLook { display: none; }
+.desk .fr-dp .fr-act #frGo { height: var(--bar); padding: 0 12px; color: var(--on-panel); font-size: 16px; transition: none; }
+.desk .fr-dp .fr-act #frGo:disabled { opacity: 1; background: var(--field-deep); color: var(--ink-muted); }
+/* After the answer: the map in the main area, the result in the side panel. */
+.fr-ds .fr-stage { right: var(--side); }
+.fr-ds #frMap { top: calc(var(--top) + var(--safe-top)); left: 0; right: var(--side); bottom: 0; }
+.fr-ds .fr-hit { right: calc(var(--side) + 24px); bottom: 24px; }
+.fr-ds .fr-call { right: calc(var(--side) + 24px + var(--mini) + 14px); bottom: calc(24px + var(--mini) / 2 - 31px); }
+.fr-ds .fr-cred { max-width: calc(100vw - var(--side) - var(--mini) - 96px); }
+.fr-ds.fr-m .fr-cred { max-width: calc(100vw - var(--side) - 48px); }
+.fr-ds.fr-m .fr-compass { visibility: hidden; }
+.fr-ds .fr-act, .desk .fr-ovt, .desk .fr-ovb { display: none; }
+/* The side panel is the day's (.side): its place, score and plates take the day's look, in the day's order: the place,
+   the score, what this game adds, the buttons at the bottom. Shown only here. */
+.free .fr-side { display: none; }
+.free .fr-side > * { order: 3; }
+.free .fr-side > .place { order: 1; }
+.free .fr-side > .score { order: 2; }
+.free .fr-side > .fr-sbtns { order: 9; }
+.free.fr-ds .fr-side { position: fixed; z-index: 20; top: calc(var(--top) + var(--safe-top)); right: 0; bottom: 0; width: var(--side);
+                       display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+                       background: var(--field-deep); user-select: text; -webkit-user-select: text; }
+.fr-side .fr-snote { margin: 10px 0 0; color: var(--ink); font: 700 14px/1.3 var(--label); letter-spacing: .04em; }
+.fr-side .score.on + .pl, .fr-side .fr-rank { margin: 0; padding: 14px 24px 0; }
+.fr-side .rk { margin: 20px 16px 0; }
+.fr-side .rk li { padding: 8px; }
+.fr-side .fr-l { margin: 24px 24px 8px; }
+.fr-side .fr-next { padding: 16px 24px 0; }
+.fr-sbtns { position: sticky; bottom: 0; z-index: 3; display: grid; gap: 8px; margin-top: auto; padding: 16px 24px; background: var(--field-deep); }
+.fr-sbtns:empty { display: none; }
+.fr-sbtns button { height: 52px; font-size: 15px; }
+.fr-sbtns .fr-sec { background: var(--field); }
+
+@media (hover: hover) {
+  .fr-seg button:not(:disabled):not([aria-checked="true"]):hover, .fr-sec:not(:disabled):hover, .fr-wide.alt:hover, .fr-day:not(.off):hover, .fr-ch:hover, .fr-skip:hover, .fr-pb:hover, #frLook:hover { background: var(--field-tint); }
+  .fr-pri:not(:disabled):hover, .fr-wide:not(.alt):hover, #frGo:not(:disabled):hover { background: var(--ink-soft); }
+  .fr-sbtns .fr-sec:hover { background: var(--field-tint); }
+  .fr-link:hover, .fr-hb:hover { color: var(--ink); }
 }
-/* A phone on its side: side by side as on a computer, in less room; after an answer the map and the panel. */
-@media (orientation: landscape) and (max-height: 520px) and (max-width: 1023px) {
-  .fr-play, .fr-play.grown { grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr); grid-template-rows: minmax(0, 1fr) auto;
-                             grid-template-areas: "pano map" "pano act"; }
-  .fr-play.rev, .fr-play.grown.rev { grid-template-columns: minmax(0, 1.2fr) minmax(280px, 1fr); grid-template-rows: minmax(0, 1fr); grid-template-areas: "map act"; }
-  .fr-play.rev .fr-pano { display: none; }
-  .fr-res { max-height: none; min-height: 0; }
-  .fr-grow { display: none; }
-}
-@media (prefers-reduced-motion: reduce) { .fr-play { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .fr-compass, .fr-ovt, .fr-ovb, .fr-call, .fr-call em, .fr-act, .desk #frMap { transition: none !important; animation: none !important; } }

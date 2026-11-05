@@ -12,7 +12,10 @@ import (
 // who takes it plays those places, in that order, on those settings, once and
 // in their own time. An attempt is a game of its own with its own clock,
 // played as a solo game is: nobody learns a place before starting it, and the
-// challenge shows the attempts' sums only, never a place.
+// challenge shows the attempts' sums only, never a place. A challenge is
+// for players who keep records: a Telegram person or an account on the
+// site. A guest of the site is asked to sign in, even to look: the table
+// names the players.
 //
 // A place the player has had before is played all the same and marked: the
 // places were drawn for the maker, and a friend who has played a lot will
@@ -64,8 +67,8 @@ var ErrNotDone = &Error{409, "not_done"}
 // finished, or gives the one made of it before.
 func (s *Service) MakeChallenge(ctx context.Context, w Who, id int64) (string, error) {
 	s.init()
-	if !w.Telegram() {
-		return "", ErrTelegram
+	if !w.Keeps() {
+		return "", ErrSignIn
 	}
 	unlock := s.lockSolo(id)
 	defer unlock()
@@ -85,7 +88,7 @@ func (s *Service) MakeChallenge(ctx context.Context, w Who, id int64) (string, e
 		return g.Challenge, nil
 	}
 	for i := 0; ; i++ {
-		code, err := s.Store.MakeFreeChallenge(ctx, id, w.UserID, newCode(), now)
+		code, err := s.Store.MakeFreeChallenge(ctx, id, w, newCode(), now)
 		if errors.Is(err, ErrCodeTaken) && i < 3 {
 			continue
 		}
@@ -97,6 +100,11 @@ func (s *Service) MakeChallenge(ctx context.Context, w Who, id int64) (string, e
 // brought up to the clock first, so a game whose time ran out reads as over.
 func (s *Service) ChallengeOf(ctx context.Context, w Who, code string) (ChallengeView, error) {
 	s.init()
+	// An account that has not played yet has no site player, and may look
+	// all the same.
+	if !w.Keeps() && !w.Account {
+		return ChallengeView{}, ErrSignIn
+	}
 	if !ValidCode(code) {
 		return ChallengeView{}, ErrNotFound
 	}
@@ -119,11 +127,11 @@ func (s *Service) ChallengeOf(ctx context.Context, w Who, code string) (Challeng
 }
 
 func (c ChallengeRow) attempt(w Who) (Attempt, bool) {
-	if !w.Telegram() {
+	if !w.Keeps() {
 		return Attempt{}, false
 	}
 	for _, a := range c.Attempts {
-		if a.UserID == w.UserID {
+		if a.who().Same(w) {
 			return a, true
 		}
 	}
@@ -149,7 +157,7 @@ func challengeView(c ChallengeRow, w Who, now time.Time) ChallengeView {
 	for _, l := range done {
 		a := c.Attempts[l.M-1]
 		l.M = 0
-		v.Lines = append(v.Lines, ChallengeLine{Line: l, Name: a.Name, Me: w.Telegram() && a.UserID == w.UserID,
+		v.Lines = append(v.Lines, ChallengeLine{Line: l, Name: a.Name, Me: w.Keeps() && a.who().Same(w),
 			Maker: a.Maker, Status: a.Status, Seen: a.Seen})
 	}
 	for _, a := range c.Attempts {
@@ -158,7 +166,7 @@ func challengeView(c ChallengeRow, w Who, now time.Time) ChallengeView {
 		}
 		l := a.Line
 		l.M, l.Rank, l.Beaten = 0, 0, 0
-		v.Lines = append(v.Lines, ChallengeLine{Line: l, Name: a.Name, Me: w.Telegram() && a.UserID == w.UserID,
+		v.Lines = append(v.Lines, ChallengeLine{Line: l, Name: a.Name, Me: w.Keeps() && a.who().Same(w),
 			Maker: a.Maker, Status: a.Status, Seen: a.Seen})
 	}
 	if a, ok := c.attempt(w); ok {
@@ -172,8 +180,8 @@ func challengeView(c ChallengeRow, w Who, now time.Time) ChallengeView {
 // one they have: a challenge is played once.
 func (s *Service) TakeChallenge(ctx context.Context, w Who, name, code, lang string) (SoloView, error) {
 	s.init()
-	if !w.Telegram() {
-		return SoloView{}, ErrTelegram
+	if !w.Keeps() {
+		return SoloView{}, ErrSignIn
 	}
 	if !ValidCode(code) {
 		return SoloView{}, ErrNotFound

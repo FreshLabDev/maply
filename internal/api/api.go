@@ -79,6 +79,7 @@ type Store interface {
 	SetAccountName(ctx context.Context, accountID, name string) error
 	AccountPlayers(ctx context.Context, accountID string) ([]string, error)
 	AccountSiteGuessOf(ctx context.Context, d round.Date, accountID string) (db.SiteGuess, bool, error)
+	FreeAccountPlayer(ctx context.Context, accountID string) (player, name string, err error)
 }
 
 type MemberChecker interface {

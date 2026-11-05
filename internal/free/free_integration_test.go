@@ -583,7 +583,7 @@ func TestOneSoloAtATime(t *testing.T) {
 	if g.Status != free.StatusDone || g.Final == nil || g.Final.Best != nil || g.Final.Record {
 		t.Fatalf("guest final: %+v", g.Final)
 	}
-	if _, err := h.svc.NewParty(ctx, guest, "", "en", free.Settings{Mode: free.Classic, Seconds: 60, Rounds: 5}); !is(err, free.ErrTelegram) {
+	if _, err := h.svc.NewParty(ctx, guest, "", "en", free.Settings{Mode: free.Classic, Seconds: 60, Rounds: 5}); !is(err, free.ErrSignIn) {
 		t.Fatalf("a guest makes a party: %v", err)
 	}
 	var n int
@@ -652,7 +652,7 @@ func TestPartyFromLobbyToRematch(t *testing.T) {
 	if _, err := h.svc.Poll(ctx, bob, code, 0, "en"); !is(err, free.ErrNotMember) {
 		t.Fatalf("poll before joining: %v", err)
 	}
-	if _, err := h.svc.Join(ctx, free.Who{Player: "6f1c1f43-3c39-4b8c-9a5c-2f6b1d0b7e11"}, "", code, "en"); !is(err, free.ErrTelegram) {
+	if _, err := h.svc.Join(ctx, free.Who{Player: "6f1c1f43-3c39-4b8c-9a5c-2f6b1d0b7e11"}, "", code, "en"); !is(err, free.ErrSignIn) {
 		t.Fatalf("a site guest joins: %v", err)
 	}
 	if _, err := h.svc.Join(ctx, bob, "Bob", "ZZZZZZZZ", "en"); !is(err, free.ErrNotFound) {

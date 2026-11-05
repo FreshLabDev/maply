@@ -1,17 +1,17 @@
 /* ---------- Free game: alone, and what the game with friends (party.js) shares ---------- */
-// A layer over the day's screen in a colour of its own, so a free answer is never taken for the day's. Opened on the
-// free game (/play, /party/<code>, or a party's invitation), the app does not load the day under it at all; leaving it
-// loads the day. Every word comes from internal/i18n through T(), and the server decides everything: the place comes only
-// with the answer, the time from the server's clock.
-// The game screen here is a plain split, the picture above and the map below (side by side on a computer), until the
-// shared panorama and globe module takes its place.
+// The free game's screens over the day's. Its pages (the settings, the archive, a challenge, the end) are drawn as
+// the days' list is; its game as the day's game is: the same header, the panorama of pano.js, the globe of globe.js
+// in the same corner, the caption, the bottom strip, and after an answer the plates on a phone or the side panel on
+// a computer. Only what is counted differs: the place of the game, its clock and its points.
+// Opened on the free game (/play, /party/<code>, or a party's or a challenge's invitation), the app does not load the
+// day under it at all; leaving it loads the day. Every word comes from internal/i18n through T(), and the server
+// decides everything: the place comes only with the answer, the time from the server's clock.
 (() => {
   "use strict";
-  const FIELD = { field: "#26496E", deep: "#1A3452", tint: "#5D7C9E" };
-  const DAY = { field: "#245A3C", deep: "#1A412B", tint: "#59826B" };
   const CODE = /^[0-9A-HJKMNP-TV-Z]{8}$/;
   // The app sends a pin set but not sent itself once the time is up; the server takes answers 2 s after that.
   const GRACE = 2000;
+  const MINI = 136, ACT = 82, TAPE_H = 38;
 
   // dayBoot is the day's start when the app opened on the free game; dayBooted says it has run since.
   let root = null, onBack = null, dayBooted = false, dayBoot = null, opened = false;
@@ -22,9 +22,11 @@
   /* ---------- Requests ---------- */
   // In Telegram the signed launch; on the site the cookie player, JSON only, as the server asks.
   const signed = () => typeof inTg !== "undefined" && inTg && !!tg.initData;
-  // A Telegram person: in the Mini App, or on the site signed in with an account that has Telegram (SITE is false
-  // then). They keep records and play with friends; a site guest and an account with Google alone play alone.
+  // A Telegram person: in the Mini App, or on the site signed in with an account that has Telegram (SITE is false then).
   const person = () => signed() || (typeof inTg !== "undefined" && !inTg && typeof SITE !== "undefined" && !SITE);
+  // Who keeps records and plays with friends: a Telegram person or anyone signed in on the site, an account with
+  // Google alone too. The server says so with the free screen; until it has, a Telegram person does.
+  const keeps = () => HOME && typeof HOME.keeps === "boolean" ? HOME.keeps : person();
   async function req(path, body) {
     const headers = {};
     if (signed()) headers.Authorization = "tma " + tg.initData;
@@ -43,33 +45,50 @@
   /* ---------- The layer ---------- */
   function layer() {
     if (root) return root;
-    root = el('<div class="free" id="free"><header class="fr-top"><button class="fr-back" id="frBack"></button>' +
-      '<div class="fr-head"><b id="frTitle"></b><span class="up" id="frSub"></span></div><div class="fr-clock" id="frClock"></div></header>' +
-      '<div class="fr-time" id="frTime"><i></i></div><div class="fr-ribbon" id="frRibbon"></div>' +
-      '<main class="fr-page" id="frPage"></main>' +
-      '<section class="fr-play hidden" id="frPlay"><div class="fr-pano" id="frPano"></div>' +
-      '<div class="fr-map" id="frMap"><button class="fr-grow" id="frGrow" data-act="grow"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2h4M10 14h4v-4M2 2l5 5M14 14l-5-5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></div>' +
-      '<div class="fr-act" id="frAct"></div><div class="fr-res hidden" id="frRes"></div></section></div>');
+    root = el('<div class="free" id="free">' +
+      '<section class="fr-pg"><div class="sh-top"><button class="sh-b" id="frBack"></button><b id="frTitle"></b></div>' +
+      '<div class="sh-body fr-body" id="frPage"></div></section>' +
+      '<div class="fr-game"><main class="fr-stage"><div id="frPano" role="region"></div><button class="fr-compass" id="frCompass"><svg id="frTape"></svg></button></main>' +
+      '<div class="fr-bar off" id="frBar"><i></i></div><div class="fr-ribbon" id="frRibbon"></div><button class="fr-skip up hidden" id="frSkip"></button>' +
+      '<div id="frMap"></div><button class="fr-hit" id="frHit"></button>' +
+      '<div class="fr-call" id="frCall"><b id="frCallB"></b><span class="up" id="frCallS"></span></div>' +
+      '<div class="fr-act" id="frAct"><button id="frLook"></button><button id="frGo"></button></div>' +
+      '<div class="fr-ovt" id="frOvT"></div><div class="fr-ovb" id="frOvB"></div>' +
+      '<aside class="side fr-side" id="frSide" tabindex="-1"></aside><footer class="fr-cred" id="frCred"></footer></div></div>');
     document.body.appendChild(root);
-    $("frBack").onclick = () => onBack && onBack();
-    root.addEventListener("click", (e) => {
+    // The header is the day's: in the game the place stands where the day's number does, its clock where the day's
+    // countdown does, and Back before the logo.
+    $("logo").insertAdjacentHTML("beforebegin", '<button class="sh-b fr-hb" id="frHB"></button>');
+    $("logo").insertAdjacentHTML("beforeend", '<span class="up fr-no" id="frDay"></span>');
+    $("timer").insertAdjacentHTML("afterend", '<div class="timer fr-clock" id="frClock"><span class="up" id="frClockL"></span><b id="frClockV"></b></div>');
+    $("frBack").onclick = $("frHB").onclick = () => onBack && onBack();
+    const acts = (e) => {
       const b = e.target.closest("[data-act]");
-      if (!b || b.disabled || !root.contains(b)) return;
+      if (!b || b.disabled) return;
       const f = ACTS[b.dataset.act];
       if (f) { e.preventDefault(); f(b); }
-    });
-    addEventListener("keydown", (e) => {
-      if (!opened) return;
-      if (e.key === "Escape") { e.preventDefault(); onBack && onBack(); }
-      // Enter answers, as in the day's game on a computer; the space bar is too easy to hit.
-      if (e.key === "Enter" && !e.target.closest("button,a,input,textarea") && !$("frPlay").classList.contains("hidden")) {
-        const go = $("frAct").querySelector("[data-act=send]:not([disabled]),[data-act=pSend]:not([disabled])") || $("frRes").querySelector(".fr-pri");
-        if (go) { e.preventDefault(); go.click(); }
-      }
-    });
+    };
+    root.addEventListener("click", acts);
+    addEventListener("keydown", onKey);
+    addEventListener("keyup", offKey);
+    addEventListener("blur", release);
+    // The day's page reacts to the window crossing into the computer's layout and back as if its days were open: what
+    // it put out of reach for them is this layer's to set.
+    Desk.change(() => { if (opened) behind(true); });
     return root;
   }
   const backButton = () => onBack && onBack();
+  // Everything but this layer and the toast is out of reach while it is open, and the header too where a page covers
+  // it (a phone outside the game). body.is-sheet tells the day's page and the computer's keys and map panel that a page
+  // is over the game, as the days' list does.
+  function behind(on) {
+    const head = Desk.on || root.classList.contains("fr-g");
+    for (const e of document.body.children) {
+      if (e === root || e.id === "toast" || e.tagName === "SCRIPT") continue;
+      e.inert = on && !(head && e.classList.contains("top"));
+    }
+    root.inert = false;
+  }
   // Where the focus was before the layer opened, to put it back when it closes.
   let before = null;
   function open() {
@@ -77,47 +96,42 @@
     if (opened) return;
     opened = true;
     before = document.activeElement;
-    root.classList.add("on"); document.body.classList.add("is-free");
-    for (const e of document.body.children) if (e !== root && e.id !== "toast" && e.tagName !== "SCRIPT") e.inert = true;
-    colours(FIELD);
+    root.classList.add("on"); document.body.classList.add("is-free", "is-sheet");
+    behind(true);
     if (signed() && tgAt("6.1")) { tg.BackButton.onClick(backButton); tg.BackButton.show(); }
     $("frBack").focus({ preventScroll: true });
   }
   function close() {
     opened = false;
-    stopClock(); Kit.stopped(); guard(false);
-    root.classList.remove("on"); document.body.classList.remove("is-free");
-    for (const e of document.body.children) if (e !== root && e.tagName !== "SCRIPT") e.inert = false;
-    colours(DAY);
+    stopClock(); Kit.stopped(); guard(false); hideGame(); release();
+    root.classList.remove("on"); document.body.classList.remove("is-free", "is-sheet");
+    behind(false);
     if (signed() && tgAt("6.1")) { tg.BackButton.offClick(backButton); syncBack(); }
     // Opened on the free game, the app has not loaded the day yet: it does now.
     if (dayBoot && !dayBooted) { dayBooted = true; $("loader").classList.remove("gone"); dayBoot(); }
     if (before && before.isConnected) before.focus({ preventScroll: true });
     before = null;
   }
-  function colours(c) {
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = c.field;
-    if (!signed()) return;
-    if (tgAt("6.9")) { tg.setHeaderColor(c.field); tg.setBackgroundColor(c.field); }
-    if (tgAt("7.10")) tg.setBottomBarColor(c.deep);
-  }
-  // The header: a title, a line under it, and what Back does here.
+  // The title of a page, or of the game in the header; the line under it; and what Back does here.
+  let SUB = "";
   function top(title, sub, back) {
     $("frTitle").textContent = title;
-    $("frSub").textContent = sub || T("free.unranked");
-    $("frBack").textContent = fwd() === "→" ? "←" : "→";
-    $("frBack").setAttribute("aria-label", T("free.back"));
+    $("frDay").textContent = title;
+    $("frClockL").textContent = sub || "";
+    SUB = sub || "";
+    const arrow = document.documentElement.dir === "rtl" ? "→" : "←";
+    for (const b of [$("frBack"), $("frHB")]) { b.textContent = arrow; b.setAttribute("aria-label", T("free.back")); }
     onBack = back || close;
   }
-  // A page: settings, the lobby, a result. The game screen hides while one is up. Drawn again with keep (a setting
+  // A page: settings, the lobby, a result. The game screen goes while one is up. Drawn again with keep (a setting
   // changed, someone joined), it stays where it was scrolled to, and the focus on the same button.
   const same = (a, b) => a.dataset.act === b.dataset.act && a.dataset.k === b.dataset.k && a.dataset.v === b.dataset.v;
   function page(html, cls, keep) {
-    stopClock(); ribbon(null);
-    $("frPlay").classList.add("hidden");
+    stopClock(); ribbon(null); hideGame();
     const p = $("frPage"), y = p.scrollTop, had = keep && p.contains(document.activeElement) ? document.activeElement : null;
-    p.className = "fr-page " + (cls || ""); p.innerHTML = html; p.classList.remove("hidden"); p.scrollTop = keep ? y : 0;
+    p.className = "sh-body fr-body " + (cls || "");
+    p.innerHTML = (SUB ? '<p class="fr-sub up">' + esc(SUB) + '</p>' : '') + html;
+    p.scrollTop = keep ? y : 0;
     const again = had && had.dataset && [...p.querySelectorAll("[data-act]")].find((b) => same(b, had));
     if (again) again.focus({ preventScroll: true });
     return p;
@@ -170,77 +184,170 @@
     else { if (!n.rounds) n.rounds = 5; if (n.seconds === 180) n.seconds = 60; }
     return n;
   }
+  // The menu's cards open the settings on a mode: /play?mode=classic|blitz|streak|clock. Blitz is the classic on 30 s;
+  // a mode chosen keeps what it can of the last game's settings.
+  function modeSet(mode, last) {
+    const l = last || {}, rounds = l.rounds || 5;
+    if (mode === "blitz") return { mode: "classic", seconds: 30, rounds };
+    if (mode === "classic") return { mode: "classic", seconds: l.mode === "classic" && l.seconds !== 30 ? l.seconds : 60, rounds };
+    if (mode === "streak") return { mode: "streak", seconds: l.mode === "streak" ? l.seconds : 60, rounds: 0 };
+    if (mode === "clock") return { mode: "timed", seconds: 180, rounds: 0 };
+    return null;
+  }
 
-  /* ---------- The game screen: the picture and the map ---------- */
-  let viewer = null, fmap = null, fmapReady = false, pin = null, marks = [], onPin = null, retryT = 0, pics = 0;
-  function showPlay() {
-    $("frPage").classList.add("hidden");
-    $("frPlay").classList.remove("hidden");
-    $("frRes").classList.add("hidden");
-    $("frPlay").classList.remove("grown", "rev", "nopic");
-    $("frGrow").setAttribute("aria-label", T("free.map_bigger"));
-    if (!fmap) makeMap(); else requestAnimationFrame(() => fmap.resize());
-  }
-  // The picture, under the round's own address; it is fetched only once the round has begun.
-  function picture(img, kind) {
-    clearTimeout(retryT);
-    const my = ++pics;
-    // A panorama shows 95° from top to bottom; a plain photo covers 80° by 50°, so it shows a little less than its
-    // height and never the empty sphere around it.
-    const w = $("frPano").clientWidth || innerWidth, h = $("frPano").clientHeight || innerHeight / 2, pano = kind === "panorama";
-    const fov = (v) => 2 * Math.atan(Math.tan(v * Math.PI / 360) * w / h) * 180 / Math.PI;
-    const hfov = pano ? Math.max(50, Math.min(105, fov(95))) : Math.max(20, Math.min(78, fov(46)));
-    let tries = 0;
-    const start = () => {
-      if (viewer) { try { viewer.destroy(); } catch {} viewer = null; }
-      $("frPano").innerHTML = "";
-      viewer = pannellum.viewer("frPano", Object.assign({
-        type: "equirectangular", panorama: img, autoLoad: true, showControls: false, compass: false, hfov, minHfov: 20, maxHfov: 110,
-        friction: 0.1, keyboardZoom: false, disableKeyboardCtrl: true, backgroundColor: [0.10, 0.20, 0.32], pitch: 0,
-      }, pano ? {} : { haov: 80, vaov: 50, maxHfov: hfov, avoidShowingBackground: true }));
-      // A failed picture is tried again, unless another place's picture has come since.
-      viewer.on("error", () => {
-        if (my !== pics) return;
-        if (tries++ < 3) retryT = setTimeout(start, 1500 * tries); else toast(T("no_image"));
-      });
-    };
-    start();
-  }
-  // The day's marks and map style in the free game's colours.
-  const ours = (svg) => svg.split(DAY.deep).join(FIELD.deep);
-  function freeStyle() {
-    let s = JSON.stringify(mapStyle(LANG));
-    for (const k of ["field", "deep", "tint"]) s = s.split(DAY[k]).join(FIELD[k]);
-    return JSON.parse(s);
-  }
-  function makeMap() {
-    fmap = new maplibregl.Map({ container: "frMap", style: freeStyle(), center: [15, 25], zoom: earth(), minZoom: -1, maxPitch: 0,
-      attributionControl: false, dragRotate: false, pitchWithRotate: false, fadeDuration: 150 });
-    fmap.touchZoomRotate.disableRotation();
-    fmap.on("load", () => {
-      fmapReady = true;
-      fmap.addSource("fr-lines", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-      // As the day's line: a white case keeps the dashes seen on light land and on the sea alike.
-      fmap.addLayer({ id: "fr-lines-case", type: "line", source: "fr-lines", paint: { "line-color": "#FFFFFF", "line-width": 5 } });
-      fmap.addLayer({ id: "fr-lines", type: "line", source: "fr-lines", paint: { "line-color": FIELD.deep, "line-width": 2, "line-dasharray": [2, 1.5] } });
+  /* ---------- The game screen: the day's, with a panorama and a globe of its own ---------- */
+  // phase: "guess" while a pin may go down, "sent" once a party's answer is in, "reveal" with the place on the map.
+  let pano = null, globe = null, view = "photo", phase = "guess", pinned = false, onPin = null, nopic = false;
+  // The bottom strip's main button: what it does and, after the guess, what it says.
+  let GO = { act: "", label: "", off: false };
+  function stage() {
+    if (pano) return;
+    pano = createPano({ el: $("frPano"), compass: $("frCompass"), tape: $("frTape"), label: (k) => TX["compass_" + k] || "", haptic });
+    pano.on("error", () => toast(T("no_image")));
+    globe = createGlobe({ el: $("frMap"), lang: LANG, mini: miniAt, insets: reserve, haptic,
+      spin: () => opened && root.classList.contains("fr-g") && $("loader").classList.contains("gone") });
+    // A tap beside the globe returns to the photo; in the computer's panel the void is the panel's water, a miss.
+    globe.on("beside", () => { if (!Desk.on) toPhoto(); });
+    globe.on("pick", ({ lngLat, point }) => { if (phase === "guess" && onPin) putPin(lngLat, point); });
+    globe.on("pinmoved", () => { haptic("select"); toast(pick(lines("moved"))); if (onPin) onPin(here()); });
+    $("frMap").inert = true;
+    $("frHit").addEventListener("click", (e) => {
+      toMap();
+      if (panel()) { held = true; if (e.detail === 0) requestAnimationFrame(() => globe.map.getCanvas().focus()); }
     });
-    fmap.on("click", (e) => onPin && onPin(e.lngLat));
-    fmap.on("moveend", () => friends.length && declutter());
-    fmap.on("movestart", (e) => { if (e.originalEvent) untouched = false; });
-    // The play screen and the reveal give the map another height, and a phone turns: once the size settles the canvas
-    // follows it, and the camera fits again: the reveal's frame, or the whole Earth while nobody has moved the map.
-    let settle = 0;
-    new ResizeObserver(() => {
-      clearTimeout(settle);
-      settle = setTimeout(() => {
-        fmap.resize();
-        if (fitTo) fit(500);
-        else if (untouched) fmap.jumpTo({ center: [15, 25], zoom: earth() });
-      }, 120);
-    }).observe($("frMap"));
-    // Pannellum follows the window's size only; its box changes with the layout too.
-    new ResizeObserver(() => { if (viewer && $("frPano").clientHeight) viewer.resize(); }).observe($("frPano"));
+    $("frLook").addEventListener("click", look);
+    // The layout switched: the same state, laid out again, the camera starting over in the map's new box.
+    Desk.change(() => {
+      if (!root.classList.contains("fr-g")) return;
+      place(); split(); globe.resize();
+      if (view !== "map") globe.toMini(0);
+      else if (phase === "reveal" && globe.answered) globe.frame(0);
+      else globe.toBig(0);
+    });
+    panelEvents();
   }
+  const here = () => { const at = globe.guess.wrap(); return { lat: at.lat, lon: at.lng }; };
+  function showGame() {
+    stage();
+    if (root.classList.contains("fr-g")) return;
+    root.classList.add("fr-g"); document.body.classList.add("fr-play");
+    if (opened) behind(true);
+    place(); globe.resize();
+  }
+  function hideGame() {
+    if (!root || !root.classList.contains("fr-g")) return;
+    root.classList.remove("fr-g", "fr-m"); document.body.classList.remove("fr-play");
+    if (opened) behind(true);
+    view = "photo"; guard(false); hideSkip();
+    if (pano) { pano.still(true); $("frMap").inert = true; }
+  }
+  // The small globe sits under its button; before layout, where it would be.
+  function miniAt() {
+    const g = $("frHit").getBoundingClientRect(), m = $("frMap").getBoundingClientRect(), W = $("frMap").clientWidth, H = $("frMap").clientHeight;
+    return { x: g.width ? g.left - m.left + g.width / 2 : W - 12 - MINI / 2, y: g.height ? g.top - m.top + g.height / 2 : H - TAPE_H - 16 - MINI / 2, d: (g.width || MINI) - 4 };
+  }
+  // What the plates cover of the open map: the camera keeps the globe and the marks in the rest. On a computer the
+  // plates are in the side panel, and only the answer's bar lies over the panel's bottom.
+  function reserve() {
+    if (Desk.on) return { top: 0, bottom: phase !== "reveal" ? $("frAct").offsetHeight : 0 };
+    const top = $("frMap").getBoundingClientRect().top, on = (id) => $(id).classList.contains("on");
+    const t = on("frOvT") ? $("frOvT").getBoundingClientRect().bottom - top + 8 : 0;
+    return { top: t, bottom: (on("frOvB") ? $("frOvB").offsetHeight + 20 : 0) + ACT };
+  }
+  function overlay(t, b) {
+    $("frOvT").innerHTML = t; $("frOvB").innerHTML = b;
+    $("frOvT").classList.toggle("on", !!t); $("frOvB").classList.toggle("on", !!b);
+  }
+  // On a computer the map is a panel by the panorama until the answer, then the main area with the result beside it.
+  function place() {
+    root.classList.toggle("fr-dp", Desk.on && phase !== "reveal");
+    root.classList.toggle("fr-ds", Desk.on && phase === "reveal");
+    if (Desk.on && phase === "reveal" && root.contains(document.activeElement) && !shown(document.activeElement)) $("frSide").focus({ preventScroll: true });
+    seePano();
+  }
+  const shown = (e) => e && e.isConnected && e.getClientRects().length > 0;
+  // The panorama keeps still and out of the Tab order while the map covers it.
+  const panoSeen = () => view === "photo" || (Desk.on && phase !== "reveal");
+  function seePano() { if (!pano) return; const s = panoSeen() && !nopic; pano.still(!s); $("frPano").inert = !s; }
+  function toMap() {
+    if (view === "map") return;
+    view = "map"; root.classList.add("fr-m"); haptic("light"); seePano();
+    $("frMap").inert = false; lookLabel();
+    globe.toBig();
+  }
+  function toPhoto() {
+    if (view === "photo" || nopic) return;
+    const inMap = $("frMap").contains(document.activeElement);
+    view = "photo"; root.classList.remove("fr-m"); haptic("soft"); seePano();
+    $("frMap").inert = true; lookLabel();
+    if (inMap) $("frHit").focus({ preventScroll: true });
+    globe.toMini(650);
+  }
+  const look = () => view === "map" ? toPhoto() : toMap();
+  // The bottom strip, as the day's: one button until there is a pin, then two halves; in the computer's panel the
+  // answer's bar, dimmed until the pin. After the answer its second half is the way on.
+  function split() {
+    const bar = Desk.on && phase !== "reveal", go = $("frGo");
+    // Once a party's answer is in, the second half says who the party still waits for.
+    const on = phase === "guess" ? pinned : phase === "reveal" ? !!GO.act : !!GO.label;
+    $("frAct").classList.toggle("on", on);
+    $("frAct").classList.toggle("one", nopic);
+    if (phase === "guess") go.textContent = T(bar ? (pinned ? (Desk.keyboard ? "desk.answer_key" : "final") : "desk.pin_first") : "final");
+    else go.textContent = GO.label;
+    go.dataset.act = GO.act;
+    go.disabled = phase === "guess" ? bar && !pinned : !GO.act || GO.off;
+    go.tabIndex = on || bar ? 0 : -1; go.toggleAttribute("aria-hidden", !on && !bar);
+    lookLabel();
+  }
+  function lookLabel() {
+    const k = phase === "reveal" ? "walk" : phase === "sent" ? "admire" : pinned ? "look" : "look_more";
+    const t = Desk.on && phase === "reveal" && view === "photo" ? T("desk.to_map") : T(k);
+    $("frLook").textContent = t;
+    const s = $("frSLook");
+    if (s) s.textContent = view === "photo" ? T("desk.to_map") : T("walk");
+  }
+  // The caption by the small globe; its arrow points at the globe, which stays in the right corner.
+  function setCall(b, sub) {
+    $("frCallB").textContent = b;
+    $("frCallS").innerHTML = document.documentElement.dir === "rtl" ? "<em>→</em> " + esc(sub) : esc(sub) + " <em>→</em>";
+  }
+  function putPin(lngLat, point) {
+    const first = !globe.guess;
+    globe.pin(lngLat, { draggable: true, drop: true });
+    toast(pick(lines(globe.water(point) ? "on_water" : first ? "on_land" : "moved")));
+    haptic("medium");
+    if (first) { pinned = true; setCall(T("pin_set"), T("answer")); guard(true); split(); }
+    onPin(here());
+  }
+  // A place, or a game that opens on an answer without one: the picture, the small globe without a pin, the caption
+  // that asks where it is.
+  function newRound(r) {
+    showGame();
+    phase = "guess"; pinned = false; onPin = null; nopic = !r || !r.image; inside = held = false;
+    GO = { act: "", label: "", off: false };
+    globe.ready(() => { if (globe.answered || globe.guess) globe.clear(); });
+    overlay("", ""); $("frSide").innerHTML = ""; credits(null); hideSkip();
+    view = "photo"; root.classList.remove("fr-m"); $("frMap").inert = true;
+    place();
+    globe.toMini(0);
+    if (!nopic) pano.show({ image: r.image, kind: r.kind, heading: r.heading || 0 });
+    setCall(T("where"), T("drop_pin"));
+    split();
+  }
+  // The button of the strip for this place: send, or nothing yet.
+  function goTo(act) { GO = { act, label: "", off: false }; split(); }
+  // A party's answer is in: the pin stays, the strip and the caption say who is still guessing.
+  function sent(left) {
+    phase = "sent"; onPin = null; guard(false); hideSkip();
+    if (globe.guess) globe.lock();
+    GO = { act: "", label: left ? T("party.waiting", { n: fmt(left) }) : T("sent"), off: true };
+    setCall(T("sent"), left ? T("party.waiting_n", { n: fmt(left) }) : "");
+    split(); place();
+  }
+  function lock() { onPin = null; guard(false); if (globe && globe.guess) globe.lock(); }
+  // Over the panorama: Skip against the clock, Give up without a timer.
+  function skip(act, label) { $("frSkip").dataset.act = act; $("frSkip").textContent = label; $("frSkip").classList.remove("hidden"); }
+  function hideSkip() { if (root) $("frSkip").classList.add("hidden"); }
   // As in the day's game, a pin set and not yet sent asks before the app closes. Only what the free game turned on
   // is turned off: the day keeps its own.
   let guarding = false;
@@ -249,127 +356,129 @@
     guarding = on;
     if (on) tg.enableClosingConfirmation(); else tg.disableClosingConfirmation();
   }
-  function clearMarks() {
-    guard(false);
-    marks.forEach((m) => m.remove()); marks = []; friends = [];
-    if (pin) { pin.remove(); pin = null; }
-    if (fmapReady) fmap.getSource("fr-lines").setData({ type: "FeatureCollection", features: [] });
-  }
-  // A new place: the map back to the whole Earth, empty, and a tap that sets the pin.
-  // The whole Earth fills most of the map: MapLibre's globe is about 195 px across at zoom 0.4 over latitude 25 (a
-  // little more in a low map), and at one zoom it grows as 1 / cos of the latitude at the centre.
-  const rad = Math.PI / 180;
-  const earth = (lat = 25) => 0.4 + Math.log2(Math.max(120, 0.8 * Math.min($("frMap").clientWidth, $("frMap").clientHeight)) / 195) +
-    Math.log2(Math.cos(Math.min(80, Math.abs(lat)) * rad) / Math.cos(25 * rad));
-  let untouched = true;
-  function freshMap(set) {
-    clearMarks(); fitTo = null; untouched = true;
-    if (fmap) { fmap.resize(); fmap.jumpTo({ center: [15, 25], zoom: earth() }); }
-    onPin = (ll) => {
-      const p = { lat: ll.lat, lon: ((ll.lng + 540) % 360) - 180 };
-      if (!pin) pin = new maplibregl.Marker({ element: el(ours(PIN)), anchor: "bottom" }).setLngLat(ll).addTo(fmap);
-      else pin.setLngLat(ll);
-      guard(true);
-      haptic("light");
-      set(p);
-    };
-  }
-  // The camera on the place and the pins, once the map has its size after the layout changed. MapLibre frames bounds
-  // as on a flat map, so on the globe a wide frame comes out too close and puts the points at its edges. The frame is
-  // tried on the globe and widened before the camera moves; jumps within one task draw nothing in between.
-  let fitTo = null;
-  function fit(duration) {
-    if (!fitTo || !fmap) return;
-    // The margin holds a whole mark, not only its point; a pin stands 46 px above its point.
-    const w = $("frMap").clientWidth, h = $("frMap").clientHeight, pad = Math.min(60, w / 6, h / 6), top = pad + Math.min(46, h / 4);
-    // The place alone (no answer) is shown with its country around it, not its streets.
-    const cam = fmap.cameraForBounds(fitTo.b, { padding: { top, bottom: pad, left: pad, right: pad }, maxZoom: fitTo.pts.length > 1 ? 9 : 4 }) ||
-      { center: fitTo.b.getCenter(), zoom: earth(fitTo.b.getCenter().lat) };
-    const was = { center: fmap.getCenter(), zoom: fmap.getZoom() };
-    let zoom = cam.zoom;
-    for (let i = 0; i < 3; i++) {
-      fmap.jumpTo({ center: cam.center, zoom });
-      let k = 0;
-      for (const p of fitTo.pts) {
-        const s = fmap.project(p), dx = s.x - w / 2, dy = s.y - h / 2;
-        k = Math.max(k, Math.abs(dx) / Math.max(20, w / 2 - pad), dy < 0 ? -dy / Math.max(20, h / 2 - top) : dy / Math.max(20, h / 2 - pad));
-      }
-      if (k <= 1.02) break;
-      zoom -= Math.log2(k);
+  // The photo's author is named only with the place; the map's always.
+  function credits(p) {
+    let photo = "";
+    if (p && SOURCES[p.source]) {
+      const [name, url] = SOURCES[p.source], lic = (p.license || "").replace(/^CC-/, "CC ").replace(/-(\d)/, " $1");
+      photo = '<span>© ' + (p.author ? esc(p.author) + ", " : "") + '<a href="' + url + '" target="_blank" rel="noopener">' + name + '</a> ' + esc(lic) + ' ·</span>';
     }
-    fmap.jumpTo(was);
-    fmap.easeTo({ center: cam.center, zoom: Math.max(zoom, earth(maplibregl.LngLat.convert(cam.center).lat)), duration });
-  }
-  // An answer sent: the pin stays where it is.
-  function lock() { onPin = null; guard(false); }
-  // After the answer: the true point, every pin with a line to it, and the camera on all of them.
-  function revealMap(place, pins) {
-    onPin = null;
-    const show = () => {
-      clearMarks();
-      const at = [place.lon, place.lat], lines = [], pts = [at];
-      // The place stays above the friends' marks that crowd round it.
-      const target = el(ours(TARGET));
-      target.style.zIndex = 2;
-      marks.push(new maplibregl.Marker({ element: target }).setLngLat(at).addTo(fmap));
-      for (const p of pins) {
-        if (p.lat == null) continue;
-        const ll = [p.lon, p.lat];
-        const m = p.me ? el(ours(PIN)) : el('<div class="fr-f"><i class="av">' + esc(initial(p.name || "?")) + '</i><b lang="' + nameLang() + '">' + esc(p.name || "") + '</b></div>');
-        marks.push(new maplibregl.Marker({ element: m, anchor: p.me ? "bottom" : "center" }).setLngLat(ll).addTo(fmap));
-        lines.push({ type: "Feature", geometry: { type: "LineString", coordinates: [ll, [lngNear(at[0], ll[0]), at[1]]] } });
-        pts.push(ll);
-      }
-      fmap.getSource("fr-lines").setData({ type: "FeatureCollection", features: lines });
-      friends = marks.filter((m) => m.getElement().classList.contains("fr-f"));
-      const near = pts.map((p) => [lngNear(p[0], at[0]), p[1]]), b = new maplibregl.LngLatBounds(at, at);
-      near.forEach((p) => b.extend(p));
-      fitTo = { b, pts: near };
-      fit(900);
-    };
-    fmapReady ? show() : fmap.once("load", show);
-  }
-  // A friend's name that would lie on another's is left out; the letter stays. Read again when the camera stops.
-  let friends = [];
-  function declutter() {
-    const kept = [];
-    for (const m of friends) {
-      const p = fmap.project(m.getLngLat()), tight = kept.some((q) => Math.abs(q.x - p.x) < 110 && Math.abs(q.y - p.y) < 22);
-      m.getElement().classList.toggle("tight", tight);
-      if (!tight) kept.push(p);
-    }
-  }
-  // The buttons under the map.
-  function act(html) { $("frAct").innerHTML = html; }
-  function result(html) {
-    guard(false);
-    const r = $("frRes"); r.innerHTML = html; r.classList.remove("hidden"); r.scrollTop = 0;
-    $("frPlay").classList.add("rev");
+    $("frCred").innerHTML = photo + MAP_CREDITS;
   }
 
-  /* ---------- The clock ---------- */
+  /* The computer's map panel: opens when the mouse rests on the globe, on a click or on M; folds 600 ms after the
+     mouse leaves, unless a click holds it, a drag goes on or the keyboard is in it. As desk.js does for the day. */
+  let inside = false, held = false, down = false, openT = 0, closeT = 0;
+  const panel = () => Desk.on && opened && root.classList.contains("fr-g") && phase !== "reveal";
+  const inPanel = (e) => !!e && ["frMap", "frAct"].some((id) => $(id).contains(e));
+  function later() {
+    clearTimeout(closeT);
+    closeT = setTimeout(() => {
+      if (!panel() || view !== "map" || inside || held) return;
+      if (down || inPanel(document.activeElement) || globe.map.isMoving()) { later(); return; }
+      toPhoto();
+    }, 600);
+  }
+  function track(e) {
+    if (e.pointerType !== "mouse") return;
+    // Out of the panel's time (an answer on screen, a page) the mouse is nowhere: the next place starts outside.
+    if (!panel()) { inside = false; return; }
+    const r = (view === "map" ? $("frMap") : $("frHit")).getBoundingClientRect();
+    const now = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    if (now === inside) return;
+    inside = now;
+    clearTimeout(openT);
+    if (inside && view !== "map") openT = setTimeout(() => { if (inside && panel()) toMap(); }, 150);
+    if (inside) clearTimeout(closeT);
+    else if (view === "map") { held = false; later(); }
+  }
+  function panelEvents() {
+    document.addEventListener("pointermove", track);
+    document.addEventListener("pointerdown", (e) => {
+      down = panel() && inPanel(e.target);
+      // A finger has no hover to leave by: a touch beside the open panel folds it.
+      if (panel() && view === "map" && !down && e.pointerType !== "mouse" && !$("frHit").contains(e.target)) toPhoto();
+    });
+    const up = () => { if (down) { down = false; if (panel() && view === "map" && !inside) later(); } };
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", up);
+  }
+
+  /* Keys: the panorama turns with the arrows, M opens the map, Enter answers or goes on, Esc folds the map or goes back. */
+  const STEER = { ArrowLeft: ["yaw", -1], KeyA: ["yaw", -1], ArrowRight: ["yaw", 1], KeyD: ["yaw", 1],
+    ArrowUp: ["pitch", 1], KeyW: ["pitch", 1], ArrowDown: ["pitch", -1], KeyS: ["pitch", -1] };
+  const ZOOM = { "+": 1, "=": 1, "-": -1, "_": -1, "−": -1 };
+  const keysHeld = new Map();
+  function steerNow(axis) {
+    let dir = 0;
+    keysHeld.forEach(([a, d]) => { if (a === axis) dir = d; });
+    pano.steer(axis, dir);
+  }
+  function release() { keysHeld.clear(); if (pano) ["yaw", "pitch", "zoom"].forEach((a) => pano.steer(a, 0)); }
+  function onKey(e) {
+    if (pano && e.metaKey) release();
+    if (!opened || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (document.querySelector(".acct-dlg, .acct-pop")) return;
+    const t = e.target, k = e.key, code = e.code;
+    if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
+    const game = root.classList.contains("fr-g"), onButton = !!(t.closest && t.closest("button, a"));
+    if (k === "Escape") {
+      e.preventDefault();
+      if (game && view === "map" && (phase !== "reveal" || !Desk.on) && !nopic) toPhoto(); else onBack && onBack();
+      return;
+    }
+    if (!game) return;
+    if (e.repeat && !STEER[code] && !ZOOM[k]) { if (code === "KeyM" || (k === "Enter" && !onButton)) e.preventDefault(); return; }
+    if (code === "KeyM") {
+      e.preventDefault();
+      if (view === "map") toPhoto();
+      else { toMap(); if (phase === "guess") globe.map.getCanvas().focus(); }
+      return;
+    }
+    if (k === "Enter") {
+      // Not the next day of the archive: a day is taken once, and Enter has just sent the answer to this one.
+      const go = $("frGo");
+      if (!onButton && go.dataset.act && go.dataset.act !== "nextDay" && !go.disabled) { e.preventDefault(); go.click(); }
+      return;
+    }
+    const inMap = !!(t.closest && t.closest("#frMap"));
+    if (inMap || !panoSeen() || nopic) return;
+    if (STEER[code]) { e.preventDefault(); keysHeld.set(code, STEER[code]); steerNow(STEER[code][0]); return; }
+    if (ZOOM[k]) { e.preventDefault(); keysHeld.set(code || k, ["zoom", ZOOM[k]]); steerNow("zoom"); return; }
+    if (k === "0") { e.preventDefault(); pano.resetZoom(); return; }
+    if (code === "KeyN") { e.preventDefault(); pano.faceNorth(); }
+  }
+  function offKey(e) {
+    const c = keysHeld.has(e.code) ? e.code : keysHeld.has(e.key) ? e.key : "";
+    if (!c) return;
+    const [axis] = keysHeld.get(c); keysHeld.delete(c); steerNow(axis);
+  }
+
+  /* ---------- The clock in the header ---------- */
   let tickT = 0;
   // limit is the place's time in seconds; done runs once when it is up.
-  function clock(startsAt, endsAt, limit, done) {
+  function clock(endsAt, limit, done) {
     stopClock();
-    const bar = $("frTime").firstChild;
-    $("frTime").classList.toggle("off", !endsAt);
-    if (!endsAt) { $("frClock").textContent = ""; return; }
+    const bar = $("frBar"), v = $("frClockV");
+    bar.classList.toggle("off", !endsAt);
+    if (!endsAt) return;
     let fired = false;
     const step = () => {
-      const ms = msTo(endsAt), s = Math.max(0, Math.ceil(ms / 1000));
-      $("frClock").textContent = s >= 60 ? Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") : String(s);
-      $("frClock").classList.toggle("low", s <= 10);
-      bar.style.transform = "scaleX(" + Math.max(0, Math.min(1, ms / (limit * 1000))).toFixed(4) + ")";
-      bar.classList.toggle("low", s <= 10);
+      const ms = msTo(endsAt), s = Math.max(0, Math.ceil(ms / 1000)), low = s <= 10;
+      v.textContent = s >= 60 ? Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") : String(s);
+      $("frClock").classList.toggle("low", low); bar.classList.toggle("low", low);
+      bar.firstChild.style.transform = "scaleX(" + Math.max(0, Math.min(1, ms / (limit * 1000))).toFixed(4) + ")";
       if (ms <= 0 && !fired) { fired = true; done(); }
     };
     step();
     tickT = setInterval(step, 200);
   }
-  function stopClock() { clearInterval(tickT); tickT = 0; if (root) { $("frTime").classList.add("off"); $("frClock").textContent = ""; } }
+  function stopClock() {
+    clearInterval(tickT); tickT = 0;
+    if (root) { $("frBar").classList.add("off"); $("frClockV").textContent = ""; $("frClock").classList.remove("low"); }
+  }
 
-  /* ---------- What an answer was worth ---------- */
+  /* ---------- The answer ---------- */
   const WHAT = { 300: "what_continent", 800: "what_country", 1500: "what_city" };
   // Only when there is more than the distance: otherwise the line repeats the points and the kilometres above it.
   function parts(g) {
@@ -380,40 +489,85 @@
     return out.join(" · ");
   }
   const whereOf = (p) => [p.city, p.country && regionName(p.country)].filter(Boolean).join(", ");
-  function credit(p) {
-    if (!p || !SOURCES[p.source]) return "";
-    const [name, url] = SOURCES[p.source], lic = (p.license || "").replace(/^CC-/, "CC ").replace(/-(\d)/, " $1");
-    return '<p class="fr-cred">© ' + (p.author ? esc(p.author) + ", " : "") + '<a href="' + url + '" target="_blank" rel="noopener">' + name + '</a> ' + esc(lic) + '</p>';
+  // The phone's plate over the map: the points large, the distance and what happened beside them.
+  function scorePlate(g, note, extra) {
+    const hit = g && g.lat != null;
+    return '<div class="pl fr-sc"><div class="nums"><b>' + fmt(hit ? g.points : 0) + '</b><span class="up">' +
+      [hit ? esc(kmT(g.km)) : "", note ? esc(note) : ""].filter(Boolean).join("<br>") + '</span></div>' +
+      (hit && parts(g) ? '<p class="fr-parts">' + esc(parts(g)) + '</p>' : '') + (extra || "") + '</div>';
   }
-  // The place after an answer: where it was, how far, the points in parts, the fact.
-  // after goes under the points, above the fact.
-  function placeBlock(p, g, note, after) {
-    let html = '<b class="fr-where">' + esc(whereOf(p)) + '</b>';
-    if (note) html += '<p class="fr-note">' + esc(note) + '</p>';
-    if (g && g.lat != null) html += '<p class="fr-score"><span>' + kmT(g.km) + '</span><b>' + fmt(g.points) + '</b></p>' +
-      (parts(g) ? '<p class="fr-parts">' + esc(parts(g)) + '</p>' : '');
-    else html += '<p class="fr-score"><b>0</b></p>';
-    if (after) html += after;
-    if (p.fact) html += '<p class="fr-fact">' + esc(p.fact) + '</p>';
-    return html + credit(p);
+  // The side panel's score, as the day's: the points, what was found, the bar in parts.
+  function sideScore(g, note) {
+    if (!g || g.lat == null) return '<div class="score on"><b class="pts">0</b><p class="got">' + esc(note || "") + '</p></div>';
+    const r = { pts: g.points, lvl: levelOf(g.bonus), sp: g.speed || 0, d: g.km, me: true };
+    const got = ["desk.got_continent", "desk.got_country", "desk.got_city"].map((k, i) => '<span class="' + (i < r.lvl ? "y" : "n") + '">' + esc(T(k)) + " " + (i < r.lvl ? "✓" : "✗") + '</span>');
+    return '<div class="score on"><b class="pts">' + fmt(g.points) + '</b><p class="got">' + esc(kmT(g.km)) + ' · ' + got.join(" · ") + '</p>' +
+      '<span class="bar">' + barOf(r) + '</span><p class="parts">' + esc(T("desk.parts", { a: fmt(g.distance), b: fmt(g.bonus || 0), c: fmt(g.speed || 0) })) + '</p>' +
+      (note ? '<p class="fr-snote">' + esc(note) + '</p>' : '') + '</div>';
+  }
+  // The place: its name and its fact. On a phone a plate that folds into a tab; in the side panel the head of it.
+  const placeText = (p) => esc(whereOf(p)) + (p.fact ? '<p>' + esc(p.fact) + '</p>' : '');
+  const placePlate = (p) => '<div class="place up' + (innerHeight < 640 ? " min" : "") + '"><div class="t">' + placeText(p) + '</div>' +
+    '<button class="x" data-act="fold" aria-label="' + esc(T("aria_collapse")) + '">' + FOLD + '</button>' +
+    '<button class="tab" data-act="unfold">' + esc(T("about_place")) + ' ↑</button></div>';
+  const btn = (b) => '<button class="' + (b.cls || "fr-sec") + '" data-act="' + b.act + '"' + (b.attrs || "") + '>' + esc(b.label) + '</button>';
+  // The answer on screen. a: { place, me (your answer or null), note, others ([{ key, lat, lon, km, name }]), call (the
+  // caption's word), top and side (more for the phone's plate and the side panel), bot (plates over the place's),
+  // go ({ act, label }: the way on), more (further buttons: [{ act, label }]) }.
+  function answer(a) {
+    phase = "reveal"; onPin = null; guard(false); hideSkip();
+    const P = a.place, g = a.me && a.me.lat != null ? a.me : null, more = a.more || [];
+    credits(P);
+    overlay(scorePlate(a.me, a.note, a.top), (a.bot || "") +
+      (more.length ? '<div class="fr-pbs">' + more.map((b) => '<button class="pl fr-pb up" data-act="' + b.act + '"' + (b.attrs || "") + '>' + esc(b.label) + ' ' + fwd() + '</button>').join("") + '</div>' : '') + placePlate(P));
+    $("frSide").innerHTML = '<div class="place"><div class="t">' + placeText(P) + '</div></div>' + sideScore(a.me, a.note) + (a.side || "") +
+      '<div class="fr-sbtns">' + (a.go ? btn({ act: a.go.act, label: a.go.label, cls: "fr-pri" }) : "") + more.map((b) => btn(b)).join("") +
+      (nopic ? "" : '<button class="fr-sec" data-act="look" id="frSLook"></button>') + '</div>';
+    GO = a.go ? { act: a.go.act, label: a.go.label, off: false } : { act: "", label: "", off: false };
+    setCall(a.call, T("see"));
+    place(); split();
+    globe.ready(() => {
+      if (globe.answered) globe.clear();
+      globe.pin(g ? [g.lon, g.lat] : null, { draggable: false });
+      globe.answer({ truth: [P.lon, P.lat], km: g ? g.km : null,
+        others: (a.others || []).filter((o) => o.lat != null).map((o) => ({ key: o.key, at: [o.lon, o.lat], d: o.km, label: o.name, face: av(o.name) })) });
+      view = "map"; root.classList.add("fr-m"); seePano();
+      $("frMap").inert = false; lookLabel();
+      globe.frame(1200);
+    });
+  }
+  // A list of answers or of a standing, as the days' rankings: place, face, name, distance, points; yours is white.
+  function table(rows, faces) {
+    return '<ol class="rk fr-rk' + (faces ? "" : " min") + '">' + rows.map((r) => '<li' + (r.me ? ' class="me"' : '') + '><span class="n">' + (r.rank ? fmt(r.rank) : "") + '</span>' +
+      (faces ? '<span class="a">' + av(r.name, r.me) + '</span>' : '') + '<span class="w" lang="' + nameLang() + '">' + esc(r.name) + (r.mark ? ' <em>' + esc(r.mark) + '</em>' : '') + '</span>' +
+      '<span class="k">' + (r.km != null ? esc(kmT(r.km)) : "") + '</span><b>' + (r.points != null ? fmt(r.points) : "") + '</b></li>').join("") + '</ol>';
   }
 
   /* ---------- Alone ---------- */
   let HOME = null, SET = null, GAME = null, ROUND = null, mine = null, sending = false;
   // gen moves on with every screen of the solo game, so an answer that comes back after Back draws nothing.
   let gen = 0, missT = 0;
-  async function home(h) {
-    gen++; ROUND = null; clearTimeout(missT);
+  async function home(h, mode) {
+    const my = ++gen; ROUND = null; clearTimeout(missT);
     top(T("free.title"), "", leave);
     if (!h) {
       wait();
-      try { h = await req("/api/free"); } catch (e) { failed(e, () => home()); return; }
+      try { h = await req("/api/free"); } catch (e) { if (my === gen) failed(e, () => home(null, mode)); return; }
+      if (my !== gen) return;
     }
     HOME = h;
-    if (h.lang && h.lang !== LANG) { await loadTexts(h.lang).catch(() => {}); top(T("free.title"), "", leave); }
+    if (h.lang && h.lang !== LANG) {
+      await loadTexts(h.lang).catch(() => {});
+      if (my !== gen) return;
+      top(T("free.title"), "", leave);
+    }
     if (!SET) SET = Object.assign({}, h.last);
+    if (mode) SET = modeSet(mode, SET) || SET;
     drawHome();
   }
+  // The way to sign in on the site, for a guest: records and friends come with any account.
+  const signIn = (note) => keeps() || signed() ? "" : '<div class="fr-in"><p>' + esc(T(note || "free.sign_in_note")) + '</p>' +
+    (typeof acctDialog === "function" && typeof ME !== "undefined" && ME ? '<button class="fr-pri" data-act="signIn">' + esc(T("acct.sign_in")) + '</button>' : '') + '</div>';
   function drawHome(keep) {
     const h = HOME, s = SET;
     let html = "";
@@ -423,11 +577,10 @@
     html += settings(s, false, false);
     const best = h.best && h.best[key(s)];
     // A record of nothing is not shown; the line keeps its height so the buttons do not jump between settings.
-    if (person()) html += '<p class="fr-best">' + (best ? esc(T(bestKey(s), { set: setLabel(s), n: fmt(best) })) : "") + '</p>';
-    else html += '<p class="fr-hint">' + esc(T("free.guest_note")) + '</p>';
+    if (keeps()) html += '<p class="fr-best">' + (best ? esc(T(bestKey(s), { set: setLabel(s), n: fmt(best) })) : "") + '</p>';
     html += '<div class="fr-go"><button class="fr-pri" data-act="go">' + esc(T("free.go")) + '</button>';
-    if (person()) html += '<button class="fr-sec" data-act="friends">' + esc(T("free.friends")) + '</button>';
-    html += '</div>';
+    if (keeps()) html += '<button class="fr-sec" data-act="friends">' + esc(T("free.friends")) + '</button>';
+    html += '</div>' + signIn();
     if (h.challenges && h.challenges.length) {
       html += '<p class="fr-l up">' + esc(T("free.challenges")) + '</p><div class="fr-chs">' + h.challenges.map((c) =>
         '<button class="fr-ch" data-act="toChallenge" data-code="' + esc(c.code) + '"><b lang="' + nameLang() + '">' +
@@ -436,31 +589,33 @@
     }
     page(html, "fr-home", keep);
   }
+  // The settings of a party made from the solo ones: a classic on a timer.
+  const partySet = (s) => s.mode === "timed" ? { mode: "classic", seconds: 60, rounds: 5 } : s.mode === "streak" ? { mode: "classic", seconds: s.seconds, rounds: 5 } :
+    { mode: "classic", seconds: s.seconds || 60, rounds: s.rounds };
   const ACTS = {
     set(b) {
       if (Kit.lobby && Kit.lobby(b)) return;
       SET = choose(SET, b.dataset.k, b.dataset.v); haptic("select"); drawHome(true);
     },
     async go(b) {
-      b.disabled = true;
-      try { GAME = await req("/api/free/solo", SET); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
-      haptic("medium"); next();
+      const g = await fetchGame(b, "/api/free/solo", SET);
+      if (g) { haptic("medium"); next(); }
     },
-    async resume(b) {
-      b.disabled = true;
-      try { GAME = await req("/api/free/solo/" + HOME.open); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
-      continueGame();
+    async resume(b) { if (await fetchGame(b, "/api/free/solo/" + HOME.open)) continueGame(); },
+    friends() { Kit.party.create(partySet(SET)); },
+    signIn() {
+      acctDialog();
+      // The dialog gives the page back to everything when it closes: this layer takes it again.
+      const d = $("acctDlg");
+      if (!d) return;
+      const o = new MutationObserver(() => { if (!d.isConnected) { o.disconnect(); if (opened) behind(true); } });
+      o.observe(document.body, { childList: true });
     },
-    friends() {
-      Kit.party.create(SET.mode === "timed" ? { mode: "classic", seconds: 60, rounds: 5 } : SET.mode === "streak" ? { mode: "classic", seconds: SET.seconds, rounds: 5 } :
-        { mode: "classic", seconds: SET.seconds || 60, rounds: SET.rounds });
-    },
+    home() { home(); },
     toParty(b) { Router.go("/party/" + b.dataset.code); },
-    grow() {
-      const on = $("frPlay").classList.toggle("grown");
-      $("frGrow").setAttribute("aria-label", T(on ? "free.map_smaller" : "free.map_bigger"));
-      setTimeout(() => fmap && fmap.resize(), 320);
-    },
+    look() { look(); },
+    fold(b) { const p = b.closest(".place"); p.classList.add("min"); p.querySelector(".tab").focus({ preventScroll: true }); globe.keepInView(); },
+    unfold(b) { const p = b.closest(".place"); p.classList.remove("min"); p.querySelector(".x").focus({ preventScroll: true }); globe.keepInView(); },
     send() { sendSolo(false); },
     giveUp() { sendSolo(false, true); },
     next(b) { b.disabled = true; haptic("light"); GAME.next ? next() : final(); },
@@ -468,30 +623,21 @@
     settings() { home(HOME); },
     archive() { archive(); },
     day(b) { takeDay(b, +b.dataset.n); },
-    async played(b) {
-      b.disabled = true;
-      try { GAME = await req("/api/free/solo/" + b.dataset.game); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
-      continueGame();
-    },
+    async played(b) { if (await fetchGame(b, "/api/free/solo/" + b.dataset.game)) continueGame(); },
     nextDay(b) { const d = nextOpen(); d ? takeDay(b, d.n) : archive(); },
     toDay() { Router.go("/days/" + GAME.day.date); },
     toChallenge(b) { challenge(b.dataset.code); },
     async dare(b) {
+      const my = gen, g = GAME;
       b.disabled = true;
       let d;
-      try { d = await req("/api/free/solo/" + GAME.id + "/challenge", {}); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
-      GAME.challenge = d.code; haptic("success"); challenge(d.code);
+      try { d = await req("/api/free/solo/" + g.id + "/challenge", {}); } catch (e) { b.disabled = false; if (my === gen) toast(ferr(e)); return; }
+      g.challenge = d.code;
+      if (my !== gen) return;
+      haptic("success"); challenge(d.code);
     },
-    async take(b) {
-      b.disabled = true;
-      try { GAME = await req("/api/free/challenge/" + CH.code + "/play", {}); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
-      haptic("medium"); continueGame();
-    },
-    async mine(b) {
-      b.disabled = true;
-      try { GAME = await req("/api/free/solo/" + CH.mine); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
-      continueGame();
-    },
+    async take(b) { if (await fetchGame(b, "/api/free/challenge/" + CH.code + "/play", {})) { haptic("medium"); continueGame(); } },
+    async mine(b) { if (await fetchGame(b, "/api/free/solo/" + CH.mine)) continueGame(); },
     async invite(b) {
       b.disabled = true;
       let d = null;
@@ -500,26 +646,50 @@
       if (!d) return;
       // shareMessage throws while its sheet is still open; the link is the fallback.
       if (d.id && signed() && tgAt("8.0") && tg.shareMessage) { try { tg.shareMessage(d.id); return; } catch {} }
-      const url = "https://t.me/share/url?" + new URLSearchParams({ url: d.link, text: T("free.challenge_text", { set: setLabel(CH.settings) }) });
-      if (signed() && tgAt("6.1")) tg.openTelegramLink(url); else window.open(url, "_blank", "noopener");
-    },
-    inTelegram() {
-      const url = "https://t.me/" + (HOME && HOME.bot || "") + "/play?startapp=c" + CH.code;
-      window.open(url, "_blank", "noopener");
+      share(d.link, T("free.challenge_text", { set: setLabel(CH.settings) }));
     },
   };
+  // A game asked for from a button: it becomes the game on screen only if the screen is still the one asked from.
+  async function fetchGame(b, path, body) {
+    const my = gen;
+    b.disabled = true;
+    let g;
+    try { g = await req(path, body); } catch (e) { b.disabled = false; if (my === gen) toast(ferr(e)); return null; }
+    if (my !== gen) return null;
+    GAME = g;
+    return g;
+  }
+  // A link to pass on: Telegram's share sheet in Telegram, the system's or the clipboard on the site.
+  function share(url, text) {
+    if (signed() && tgAt("6.1")) { tg.openTelegramLink("https://t.me/share/url?" + new URLSearchParams({ url, text })); return; }
+    if (navigator.share) { navigator.share({ text, url }).catch(() => {}); return; }
+    navigator.clipboard.writeText(text + " " + url).then(() => toast(T("copied", { line: url })), () => toast(url));
+  }
   // A day taken is the player's from then on: the list here says so without asking the server again.
   async function takeDay(b, n) {
+    const my = gen;
     b.disabled = true;
-    try { GAME = await req("/api/free/archive", { n }); } catch (e) { b.disabled = false; toast(ferr(e)); return; }
+    let g;
+    try { g = await req("/api/free/archive", { n }); }
+    catch (e) {
+      b.disabled = false;
+      if (my !== gen) return;
+      toast(ferr(e));
+      // Answered or seen since the list was drawn: the list read again says so.
+      if (e.message === "day_seen" || e.message === "day_answered") archive();
+      return;
+    }
     const d = DAYS && DAYS.find((x) => x.n === n);
-    if (d) { d.state = "played"; d.game = GAME.id; }
+    if (d) { d.state = "played"; d.game = g.id; }
+    if (my !== gen) return;
+    GAME = g;
     haptic("medium"); continueGame();
   }
   const nextOpen = () => DAYS && DAYS.find((x) => x.state === "open" && (!GAME || !GAME.day || x.n !== GAME.day.n));
   // A day from the archive ends on its one place, so its place is its end; so is an over game's last.
   function continueGame() {
-    if (GAME.day && GAME.status !== "playing" && GAME.done.length) return revealSolo();
+    // A day left without its answer before days from the archive waited for one: back to the list.
+    if (GAME.day && GAME.status !== "playing") return GAME.done.length ? revealSolo() : archive();
     if (GAME.status !== "playing") return final();
     if (GAME.current) return play(GAME.current);
     if (GAME.next) return next();
@@ -547,7 +717,7 @@
   const gameBack = () => GAME.day ? archive() : GAME.challenge ? challenge(GAME.challenge) : home();
   const placeTitle = (g, n) => g.day ? no("#" + fmt(g.day.n)) : endless(g.settings) ? T("free.place", { n: fmt(n) }) : T("free.place_n", { n: fmt(n), total: fmt(g.settings.rounds) });
   function nowLine(g) {
-    if (g.day) return dayDate(g.day.date) + " · " + T("free.archive");
+    if (g.day) return dayDate(g.day.date);
     if (g.settings.mode === "streak") return T("free.streak_now", { n: fmt(g.streak) });
     if (g.settings.mode === "timed") return T("free.timed_now", { n: fmt(g.countries) });
     return T("free.points_now", { n: fmt(g.points) });
@@ -556,41 +726,37 @@
     gen++; clearTimeout(missT);
     ROUND = r; mine = null; sending = false;
     top(placeTitle(GAME, r.n), nowLine(GAME), gameBack);
-    showPlay();
-    picture(r.image, r.kind);
+    newRound(r);
+    onPin = (p) => { mine = p; };
     if (r.repeat) toast(T("free.repeat"));
-    freshMap((p) => { mine = p; act(buttons()); });
-    act(buttons());
-    const limit = GAME.settings.seconds;
-    clock(r.starts_at, r.ends_at, limit, () => {
+    goTo("send");
+    // Without a timer giving up is the way out; against the clock a place may be passed, which costs the time it took.
+    if (!r.ends_at) skip("giveUp", T("free.give_up"));
+    else if (GAME.settings.mode === "timed") skip("giveUp", T("free.pass"));
+    clock(r.ends_at, GAME.settings.seconds, () => {
       // At zero a pin set is sent by itself; without one the server counts the place as missed once the grace is over.
       if (mine) sendSolo(true);
       else missT = setTimeout(missed, GRACE + 600);
     });
   }
-  function buttons() {
-    // Without a timer giving up is the way out; against the clock a place may be passed, which costs the time it took.
-    const give = !ROUND.ends_at ? '<button class="fr-sec" data-act="giveUp">' + esc(T("free.give_up")) + '</button>' :
-      GAME.settings.mode === "timed" ? '<button class="fr-sec" data-act="giveUp"' + (sending ? " disabled" : "") + '>' + esc(T("free.pass")) + '</button>' : "";
-    return give + '<button class="fr-pri" data-act="send"' + (mine && !sending ? "" : " disabled") + '>' + esc(mine ? T("free.answer") : T("free.tap_map")) + '</button>';
-  }
-  async function sendSolo(auto, skip) {
+  async function sendSolo(auto, skipped) {
     if (sending || !ROUND) return;
     const my = gen;
-    sending = true; act(buttons());
-    const body = skip || !mine ? { n: ROUND.n, skip: true } : { n: ROUND.n, lat: mine.lat, lon: mine.lon, auto };
+    sending = true; $("frGo").disabled = true; $("frSkip").disabled = true;
+    const body = skipped || !mine ? { n: ROUND.n, skip: true } : { n: ROUND.n, lat: mine.lat, lon: mine.lon, auto };
     let g;
     try { g = await req("/api/free/solo/" + GAME.id + "/guess", body); }
     catch (e) {
       if (my !== gen) return;
-      sending = false; act(buttons());
+      sending = false; split(); $("frSkip").disabled = false;
       if (e.message === "already_answered") return missed();
       toast(ferr(e)); return;
     }
+    $("frSkip").disabled = false;
     if (my !== gen) return;
     GAME = g;
-    haptic(skip ? "light" : "success");
-    revealSolo();
+    haptic(skipped ? "light" : "success");
+    revealSolo(skipped ? "passed" : "");
   }
   // The time ran out without a pin: the server has written the miss, and the game read again shows the place.
   async function missed() {
@@ -600,49 +766,46 @@
     try { g = await req("/api/free/solo/" + GAME.id); } catch (e) { if (my === gen) toast(ferr(e)); return; }
     if (my !== gen) return;
     GAME = g;
-    if (GAME.done.some((d) => d.n === n)) revealSolo();
+    if (GAME.done.some((d) => d.n === n)) revealSolo("missed");
   }
-  function revealSolo() {
+  // how: "passed" for a place given up or passed, "missed" for one whose time ran out.
+  function revealSolo(how) {
     stopClock();
     const d = GAME.done[GAME.done.length - 1], g = d.guess, s = GAME.settings;
-    // A day played before opens on its reveal: the map is made here, and there is no picture to show beside it.
-    if (!ROUND && $("frPlay").classList.contains("hidden")) { showPlay(); freshMap(() => {}); $("frPlay").classList.add("nopic"); }
+    // A game opened on its answer (a day played before) has no picture: the map alone.
+    if (!ROUND) newRound(null);
     ROUND = null;
     top(placeTitle(GAME, d.n), nowLine(GAME), gameBack);
-    act("");
-    const note = d.late ? T("free.late") : g.lat == null ? (s.mode === "timed" ? T("free.passed") : s.seconds ? T("free.missed") : T("free.gave_up"))
+    const note = d.late ? T("free.late") : g.lat == null ? (how === "missed" ? T("free.missed") : s.mode === "timed" ? T("free.passed") : s.seconds ? T("free.missed") : T("free.gave_up"))
       : s.mode === "timed" ? T(g.country ? "free.timed_ok" : "free.timed_miss") : s.mode === "streak" ? T(g.country ? "free.country_ok" : "free.country_miss") : "";
-    let html;
+    const a = { place: d.place, me: g, note, call: fmt(g.lat != null ? g.points : 0) };
     if (GAME.day) {
       // A day from the archive ends here: where it would have stood among the day's answers, and the way on.
       const f = GAME.final || {}, e = DAYS && DAYS.find((x) => x.n === GAME.day.n);
       if (e) { e.state = "played"; e.game = GAME.id; e.points = f.points; }
       const rank = f.day_of > 1 ? T("free.day_rank", { rank: fmt(f.day_rank), of: fmt(f.day_of) }) : f.day_of === 1 ? T("free.day_nobody") : "";
-      html = placeBlock(d.place, g, note, rank ? '<p class="fr-rank">' + esc(rank) + '</p>' : "");
+      if (rank) { a.top = '<p class="fr-rank">' + esc(rank) + '</p>'; a.side = '<p class="pl fr-rank">' + esc(rank) + '</p>'; }
       const more = !!nextOpen();
-      html += '<div class="fr-go fr-way' + (more ? " two" : "") + '">' + (more ? '<button class="fr-pri" data-act="nextDay">' + esc(T("free.next_day")) + '</button>' : '') +
-        '<button class="' + (more ? "fr-sec" : "fr-pri") + '" data-act="archive">' + esc(T("free.to_archive")) + '</button>' +
-        '<button class="fr-link" data-act="toDay">' + esc(T("free.day_page")) + '</button></div>';
-    } else html = placeBlock(d.place, g, note) + '<button class="fr-pri" data-act="next">' + esc(T(GAME.next ? "free.next" : "free.to_final")) + '</button>';
-    // The panel first: the map takes its reveal size, and the camera frames that.
-    result(html);
-    revealMap(d.place, [{ me: true, lat: g.lat, lon: g.lon }]);
+      a.go = more ? { act: "nextDay", label: T("free.next_day") } : { act: "archive", label: T("free.to_archive") };
+      a.more = (more ? [{ act: "archive", label: T("free.to_archive") }] : []).concat([{ act: "toDay", label: T("free.day_page") }]);
+    } else a.go = { act: "next", label: T(GAME.next ? "free.next" : "free.to_final") };
+    answer(a);
     // Against the clock the time runs on through the reveal; at zero the game is over.
     if (s.mode === "timed" && GAME.next && GAME.ends_at) {
       const my = gen;
-      clock(null, GAME.ends_at, s.seconds, async () => {
+      clock(GAME.ends_at, s.seconds, async () => {
         let g;
         try { g = await req("/api/free/solo/" + GAME.id); } catch { return; }
         if (my !== gen) return;
         GAME = g;
-        const b = $("frRes").querySelector("[data-act=next]");
-        if (b && !GAME.next) b.textContent = T("free.to_final");
+        if (!GAME.next && GO.act === "next") { GO.label = T("free.to_final"); split(); root.querySelectorAll('.fr-sbtns [data-act="next"]').forEach((b) => { b.textContent = GO.label; }); }
       });
     }
   }
   function final() {
     gen++;
-    const f = GAME.final || {}, s = GAME.settings;
+    const f = GAME.final || {}, s = GAME.settings, countries = s.mode === "streak" || s.mode === "timed";
+    const score = s.mode === "streak" ? f.streak || 0 : s.mode === "timed" ? f.countries || 0 : f.points;
     top(T("free.final"), setLabel(s), () => home());
     let html = '<div class="fr-big">';
     if (s.mode === "streak") html += '<b>' + fmt(f.streak || 0) + '</b><span class="up">' + esc(T("free.streak_len")) + '</span>';
@@ -650,25 +813,27 @@
     else html += '<b>' + fmt(f.points || 0) + '</b>';
     html += '</div>';
     if (f.record) html += '<p class="fr-rec">' + esc(T("free.record", { n: fmt(f.best) })) + '</p>';
-    else if (f.best == null) html += person() ? '<p class="fr-best">' + esc(T("free.first_set")) + '</p>' : "";
+    else if (f.best == null) html += keeps() && score ? '<p class="fr-best">' + esc(T("free.first_set")) + '</p>' : "";
     else if (f.best) html += '<p class="fr-best">' + esc(T(bestKey(s), { set: setLabel(s), n: fmt(f.best) })) + '</p>';
     html += '<ol class="fr-list">';
+    // A streak and the clock's game count countries: a place is the country found or not, not its points.
     for (const d of GAME.done) {
       html += '<li><span class="n">' + fmt(d.n) + '</span><span class="w">' + esc(whereOf(d.place)) + '</span><span class="k">' +
-        (d.guess.lat != null ? kmT(d.guess.km) : "") + '</span><b>' + fmt(d.guess.points) + '</b></li>';
+        (d.guess.lat != null ? kmT(d.guess.km) : "") + '</span><b>' + (countries ? (d.guess.country ? "✓" : "✗") : fmt(d.guess.points)) + '</b></li>';
     }
     // A classic on a timer becomes a challenge: friends play its places in their own time. An attempt, and a game made
     // into one, lead to its standings.
-    const dare = person() && GAME.status === "done" && (GAME.challenge ? '<button class="fr-pri" data-act="toChallenge" data-code="' + esc(GAME.challenge) + '">' +
+    const dare = keeps() && GAME.status === "done" && (GAME.challenge ? '<button class="fr-pri" data-act="toChallenge" data-code="' + esc(GAME.challenge) + '">' +
       esc(T("free.to_challenge")) + '</button>' : s.mode === "classic" && s.seconds ? '<button class="fr-sec" data-act="dare">' + esc(T("free.dare")) + '</button>' : "");
     html += '</ol><div class="fr-go">' + (GAME.challenge && dare ? dare : '') + '<button class="' + (GAME.challenge && dare ? "fr-sec" : "fr-pri") + '" data-act="again">' + esc(T("free.again")) + '</button>' +
       (!GAME.challenge && dare ? dare : '') +
-      (person() ? '<button class="fr-sec" data-act="friends">' + esc(T("free.friends")) + '</button>' : '') +
-      '<button class="fr-link" data-act="settings">' + esc(T("free.settings")) + '</button></div>';
+      (keeps() ? '<button class="fr-sec" data-act="friends">' + esc(T("free.friends")) + '</button>' : '') +
+      '<button class="fr-link" data-act="settings">' + esc(T("free.settings")) + '</button></div>' + signIn();
     page(html, "fr-final");
-    HOME = Object.assign({}, HOME || {}, { open: null });
-    const score = s.mode === "streak" ? f.streak || 0 : s.mode === "timed" ? f.countries || 0 : f.points;
-    if (score != null && HOME.best) HOME.best[key(s)] = Math.max(HOME.best[key(s)] || 0, score);
+    // The game over is no longer the one to continue; another left open still is.
+    HOME = Object.assign({}, HOME || {});
+    if (HOME.open === GAME.id) HOME.open = null;
+    if (keeps() && score != null && HOME.best) HOME.best[key(s)] = Math.max(HOME.best[key(s)] || 0, score);
     // "Again" plays the settings of the game just played, and Settings shows them.
     if (s.mode !== "archive") SET = Object.assign({}, s);
   }
@@ -676,16 +841,21 @@
   /* ---------- The archive: days closed in every zone, one place each, without a timer ---------- */
   let DAYS = null;
   // "#41" reads left to right in a right-to-left line.
-  const no = (s) => "\u2066" + s + "\u2069";
+  const no = (s) => "⁦" + s + "⁩";
   function dayDate(iso) {
     try { return new Intl.DateTimeFormat(numLang(), { timeZone: "UTC", day: "numeric", month: "long", year: iso.slice(0, 4) === String(new Date().getUTCFullYear()) ? undefined : "numeric" }).format(new Date(iso + "T00:00:00Z")); }
     catch { return iso; }
   }
   async function archive() {
-    gen++; ROUND = null; clearTimeout(missT);
+    const my = ++gen; ROUND = null; clearTimeout(missT);
     top(T("free.archive"), "", () => home());
-    if (!DAYS) wait();
-    try { DAYS = (await req("/api/free/archive")).days; } catch (e) { if (!DAYS) { failed(e, () => archive()); return; } }
+    // The list drawn before shows at once and is drawn again when the server answers.
+    if (DAYS) drawArchive(); else wait();
+    try { const d = (await req("/api/free/archive")).days; if (my !== gen) return; DAYS = d; }
+    catch (e) { if (my === gen && !DAYS) failed(e, () => archive()); return; }
+    drawArchive(true);
+  }
+  function drawArchive(keep) {
     const open = DAYS.filter((d) => d.state === "open").length;
     if (HOME) HOME.archive = open;
     let html = '<p class="fr-hint">' + esc(T("free.archive_hint")) + '</p>';
@@ -697,16 +867,25 @@
         (d.points != null ? '<i>' + fmt(d.points) + '</i>' : esc(T("free.day_going"))) + ' ' + fwd() + '</em></button>';
       return '<div class="fr-day off">' + name + '<em>' + esc(T(d.state === "answered" ? "free.day_answered" : "free.day_seen")) + '</em></div>';
     }).join("") + '</div>';
-    page(html, "fr-arch");
+    page(html, "fr-arch", keep);
   }
 
   /* ---------- A challenge: the places of one game, for friends to play in their own time ---------- */
   let CH = null;
   async function challenge(code) {
-    gen++; ROUND = null; clearTimeout(missT);
+    const my = ++gen; ROUND = null; clearTimeout(missT);
     top(T("free.challenge"), "", () => home());
+    // A guest sees what a challenge is and how to take one: signed in.
+    if (!keeps()) {
+      page('<p class="fr-hint">' + esc(T("free.challenge_hint")) + '</p>' + signIn("free.challenge_sign_in") +
+        '<div class="fr-go"><button class="fr-link" data-act="home">' + esc(T("free.title")) + '</button></div>', "fr-ch-page");
+      return;
+    }
     if (!CH || CH.code !== code) wait();
-    try { CH = await req("/api/free/challenge/" + code); } catch (e) { failed(e, () => challenge(code)); return; }
+    let c;
+    try { c = await req("/api/free/challenge/" + code); } catch (e) { if (my === gen) failed(e, () => challenge(code)); return; }
+    if (my !== gen) return;
+    CH = c;
     top(T("free.challenge"), setLabel(CH.settings), () => home());
     const made = CH.lines.some((l) => l.me && l.maker);
     let html = '<p class="fr-chby" lang="' + nameLang() + '">' + esc(made ? T("free.challenge_mine") : T("free.challenge_by", { name: CH.by })) + '</p>' +
@@ -718,25 +897,26 @@
         esc(l.name) + '</span>' + how + '</span><b>' + (l.status === "done" ? fmt(l.points) : "") + '</b></li>';
     }
     html += '</ol><div class="fr-go">';
-    if (CH.mine == null) {
-      if (person()) html += '<button class="fr-pri" data-act="take">' + esc(T("free.take")) + '</button>';
-      else html += '<p class="fr-hint">' + esc(T("free.challenge_tg")) + '</p>' + (HOME && HOME.bot ? '<button class="fr-pri" data-act="inTelegram">' + esc(T("free.open_tg")) + '</button>' : '');
-    } else if (CH.status === "playing") html += '<button class="fr-pri" data-act="mine">' + esc(T("free.continue")) + '</button>';
+    if (CH.mine == null) html += '<button class="fr-pri" data-act="take">' + esc(T("free.take")) + '</button>';
+    else if (CH.status === "playing") html += '<button class="fr-pri" data-act="mine">' + esc(T("free.continue")) + '</button>';
     if (CH.mine != null) html += '<button class="' + (CH.status === "playing" ? "fr-sec" : "fr-pri") + '" data-act="invite">' + esc(T("free.invite_friends")) + '</button>';
-    page(html + '<button class="fr-link" data-act="settings">' + esc(T("free.title")) + '</button></div>', "fr-ch-page");
+    page(html + '<button class="fr-link" data-act="home">' + esc(T("free.title")) + '</button></div>', "fr-ch-page");
   }
 
   /* ---------- What party.js uses ---------- */
   const Kit = {
-    req, ferr, now, msTo, top, page, wait, failed, open, close, settings, choose, setLabel, secLabel, key, showPlay, picture, freshMap,
-    revealMap, lock, act, result, clock, stopClock, parts, whereOf, placeBlock, ACTS, ribbon, home: () => home(),
+    req, ferr, now, msTo, top, page, wait, failed, open, close, settings, choose, setLabel, secLabel, key, keeps, signIn,
+    round: newRound, pinned: (fn) => { onPin = fn; }, goTo, sent, lock, clock, stopClock, answer, table, whereOf, share, ACTS, ribbon,
+    sending: (on) => { $("frGo").disabled = on || $("frGo").disabled; if (!on) split(); },
+    home: () => home(),
     bot: () => HOME && HOME.bot,
     // party.js fills these in.
     party: null, lobby: null, stopped: () => {},
   };
-  // The ribbon under the header: who is in, and who has answered.
+  // Who is in the place, and who has answered: white is an answer, a dashed square a player the party no longer waits for.
   function ribbon(list) {
-    const r = $("frRibbon");
+    const r = root && $("frRibbon");
+    if (!r) return;
     if (!list) { r.innerHTML = ""; r.classList.remove("on"); return; }
     r.innerHTML = list.map((m) => '<i class="av' + (m.me ? " me" : "") + (m.done ? " done" : "") + (m.away ? " away" : "") + '" title="' + esc(m.name) + '">' + esc(initial(m.name)) + '</i>').join("");
     r.classList.add("on");
@@ -760,6 +940,15 @@
     const c = p[0] === "c" ? p.slice(1) : q;
     return CODE.test(c) ? c : "";
   }
+  // What the address asks of /play: a mode from the menu's cards, the archive, a game with friends. Read once and
+  // taken off the address, so Back and a reload do not ask again; in Telegram the router would carry it on.
+  function asked() {
+    const q = new URLSearchParams(location.search), a = { mode: q.get("mode") || "", friends: q.get("with") === "friends" };
+    if (!q.has("mode") && !q.has("with") && !q.has("c")) return a;
+    ["mode", "with", "c"].forEach((k) => q.delete(k));
+    history.replaceState(history.state, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash);
+    return a;
+  }
   // Telegram has no history, so Back goes to the parent: the list of days when the game was opened from it.
   let parent = "/";
   const came = (from) => { if (from !== "play" && from !== "party") parent = from === "days" ? "/days" : "/"; };
@@ -769,13 +958,24 @@
   Router.screen("play", /^\/play$/, {
     open(m, from) {
       came(from); open();
-      const h = first, c = dareCode(); first = null; dared = true;
+      const h = first, c = dareCode(), a = asked(); first = null; dared = true;
       if (h) { HOME = h; if (!SET) SET = Object.assign({}, h.last); }
-      c ? challenge(c) : home(h);
+      if (c) return challenge(c);
+      if (a.mode === "archive") return archive();
+      if (a.friends) return withFriends(h);
+      home(h, a.mode);
     },
     close(to) { if (to !== "party") close(); },
     nav: { href: "/play", t: "free.title", at: 3 },
   });
+  // /play?with=friends: the party already open, or a new one on the last settings; a guest is asked to sign in.
+  async function withFriends(h) {
+    if (!h) { try { h = HOME = await req("/api/free"); if (!SET) SET = Object.assign({}, h.last); } catch (e) { failed(e, () => withFriends()); return; } }
+    if (!keeps()) return home(h);
+    if (h.party) return Router.go("/party/" + h.party, { replace: true });
+    top(T("free.title"), "", leave);
+    Kit.party.create(partySet(SET), true);
+  }
   Router.screen("party", PARTY, {
     open(m, from) { came(from); open(); Kit.party.open(m[1]); },
     close(to) { Kit.stopped(); if (to !== "play") close(); },
@@ -797,9 +997,10 @@
       if (code && !PARTY.test(location.pathname)) Router.go("/party/" + code, { replace: true });
       else if (dareCode() && !/^\/play$/.test(location.pathname)) Router.go("/play", { replace: true });
       Router.start();
+      if (typeof accountReady === "function") accountReady();
     },
     // The way in from the day's list of days.
-    entry() { return '<a class="dd fr-entry" href="/play" data-route><span class="up">' + esc(T("free.unranked")) + '</span><b>' + esc(T("free.title")) + '</b><em>' + fwd() + '</em></a>'; },
+    entry() { return '<a class="dd fr-entry" href="/play" data-route><b>' + esc(T("free.title")) + '</b><em>' + fwd() + '</em></a>'; },
   };
   window.FreeKit = Kit;
 })();

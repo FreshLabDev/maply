@@ -9,18 +9,29 @@ import (
 	"github.com/FreshLabDev/maply/internal/geo"
 )
 
-// Who is a player: a Telegram person, or a site player in a browser, who may
-// only play alone. Exactly one is set.
+// Who is a player: a Telegram person, or a site player in a browser. Exactly
+// one is set. Account marks a site player that belongs to an account on the
+// site: an account with Google alone plays as its own site player.
 type Who struct {
-	UserID int64
-	Player string
+	UserID  int64
+	Player  string
+	Account bool
 }
 
 func (w Who) Valid() bool { return (w.UserID != 0) != (w.Player != "") }
 
-// Telegram is whether the player is a Telegram person, whose finished games go
-// into the statistics.
+// Telegram is whether the player is a Telegram person: the one kind recorded
+// in core and sent invitations by the bot.
 func (w Who) Telegram() bool { return w.UserID != 0 }
+
+// Keeps is whether the player keeps records and may play with friends: a
+// Telegram person, or an account's site player. A guest of the site plays
+// alone and keeps nothing.
+func (w Who) Keeps() bool { return w.UserID != 0 || (w.Player != "" && w.Account) }
+
+// Same is whether w and o are one player, whatever is known of their
+// accounts.
+func (w Who) Same(o Who) bool { return w.UserID == o.UserID && w.Player == o.Player }
 
 type Game struct {
 	ID       int64
@@ -106,7 +117,7 @@ type Snapshot struct {
 
 func (s *Snapshot) member(w Who) (Member, bool) {
 	for _, m := range s.Members {
-		if m.Who == w {
+		if m.Who.Same(w) {
 			return m, true
 		}
 	}
@@ -192,10 +203,12 @@ type NewRound struct {
 	EndsAt   *time.Time
 }
 
-// Result is a finished game's line for one player, as the profile reads it.
+// Result is a finished game's line for one player who keeps records, as the
+// profile reads it: a Telegram person's, or an account's site player's.
 type Result struct {
 	Line
 	UserID   int64
+	Player   string
 	Kind     string
 	Settings Settings
 	At       time.Time
@@ -218,9 +231,9 @@ type Store interface {
 	// its places so far are in.
 	FreeCandidates(ctx context.Context, id int64) ([]Candidate, map[string]bool, error)
 	FreePlace(ctx context.Context, placeID int64) (Place, error)
-	// FreeKnown is whether the person has had the place: answered its day,
+	// FreeKnown is whether the player has had the place: answered its day,
 	// or had it in a free game.
-	FreeKnown(ctx context.Context, userID, placeID int64) (bool, error)
+	FreeKnown(ctx context.Context, w Who, placeID int64) (bool, error)
 	InsertFreeRound(ctx context.Context, id int64, r NewRound) error
 	// InsertFreeGuess is false when the player has answered the place already.
 	InsertFreeGuess(ctx context.Context, id int64, g Guess) (bool, error)
@@ -248,7 +261,7 @@ type Store interface {
 	OpenFreeGames(ctx context.Context, w Who, kind string) ([]int64, error)
 	// FreeBest is the player's best finished game for every settings key:
 	// points for a classic, the length for a streak, leaving out one game.
-	FreeBest(ctx context.Context, userID int64, except int64) (map[string]int, error)
+	FreeBest(ctx context.Context, w Who, except int64) (map[string]int, error)
 	// StaleFreeGames is the games still open whose last move was before
 	// idle, or whose lobby was made before lobby, for the sweep.
 	StaleFreeGames(ctx context.Context, idle, lobby, now time.Time) ([]int64, error)
@@ -264,21 +277,21 @@ type Store interface {
 	// ErrNoRow is no such closed day; ErrDayAnswered and ErrDaySeen a day the
 	// player knows.
 	CreateFreeArchive(ctx context.Context, dayNo int, g NewGame) (int64, error)
-	// FreeDayRank is where an answer worth base points at km would have
-	// stood among a closed day's answers, counted without their speed bonus,
-	// and of how many, the answer included.
-	FreeDayRank(ctx context.Context, date time.Time, base int, km float64) (rank, of int, err error)
+	// FreeDayRank is where an answer worth base points would have stood
+	// among a closed day's answers, counted without their speed bonus, and
+	// of how many, the answer included. A tie counts as behind.
+	FreeDayRank(ctx context.Context, date time.Time, base int) (rank, of int, err error)
 
 	// MakeFreeChallenge makes the challenge of a finished game for its
 	// player, or gives the code of the one made before.
-	MakeFreeChallenge(ctx context.Context, game, userID int64, code string, at time.Time) (string, error)
+	MakeFreeChallenge(ctx context.Context, game int64, w Who, code string, at time.Time) (string, error)
 	// FreeChallenge is a challenge with every attempt at it.
 	FreeChallenge(ctx context.Context, code string) (ChallengeRow, error)
-	// TakeFreeChallenge makes the person's attempt at a challenge, or gives
+	// TakeFreeChallenge makes the player's attempt at a challenge, or gives
 	// the one they made before.
 	TakeFreeChallenge(ctx context.Context, challenge int64, g NewGame) (int64, error)
-	// FreeChallenges is the challenges the person is in that were made since.
-	FreeChallenges(ctx context.Context, userID int64, since time.Time) ([]ChallengeBrief, error)
+	// FreeChallenges is the challenges the player is in that were made since.
+	FreeChallenges(ctx context.Context, w Who, since time.Time) ([]ChallengeBrief, error)
 }
 
 // ChallengeRow is a challenge as the store has it.
@@ -291,10 +304,11 @@ type ChallengeRow struct {
 	Attempts  []Attempt
 }
 
-// Attempt is one person's game at a challenge, summed over the places they
-// have answered so far.
+// Attempt is one player's game at a challenge, summed over the places they
+// have answered so far. Exactly one of UserID and Player is set.
 type Attempt struct {
 	UserID int64
+	Player string
 	Name   string
 	Game   int64
 	Status string
@@ -304,3 +318,5 @@ type Attempt struct {
 	// Seen is how many of the places the player had had before.
 	Seen int
 }
+
+func (a Attempt) who() Who { return Who{UserID: a.UserID, Player: a.Player} }

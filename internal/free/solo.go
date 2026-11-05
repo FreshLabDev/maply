@@ -141,14 +141,14 @@ func (s *Service) SoloHome(ctx context.Context, w Who) (Home, error) {
 			h.Open = &id
 		}
 	}
-	if w.Telegram() {
-		if h.Best, err = s.Store.FreeBest(ctx, w.UserID, 0); err != nil {
+	if w.Keeps() {
+		if h.Best, err = s.Store.FreeBest(ctx, w, 0); err != nil {
 			return Home{}, err
 		}
 		if h.Party, err = s.openParty(ctx, w); err != nil {
 			return Home{}, err
 		}
-		if h.Challenges, err = s.Store.FreeChallenges(ctx, w.UserID, s.Now().Add(-ChallengeShown)); err != nil {
+		if h.Challenges, err = s.Store.FreeChallenges(ctx, w, s.Now().Add(-ChallengeShown)); err != nil {
 			return Home{}, err
 		}
 	}
@@ -249,8 +249,8 @@ func (s *Service) soloSnap(ctx context.Context, w Who, id int64, now time.Time) 
 
 // settle writes what the clock has decided: a place whose time and grace ran
 // out without an answer is a miss, a game whose last place is answered is
-// finished, and a game untouched for a day is abandoned. snap is read again
-// after a change.
+// finished, and a game untouched for a day is abandoned, but for a day from
+// the archive. snap is read again after a change.
 func (s *Service) settle(ctx context.Context, snap *Snapshot, now time.Time) (bool, error) {
 	if snap.Game.Status != StatusPlaying {
 		return false, nil
@@ -277,7 +277,9 @@ func (s *Service) settle(ctx context.Context, snap *Snapshot, now time.Time) (bo
 		}
 		return true, s.reread(ctx, snap)
 	}
-	if now.Sub(lastMove(snap)) > AbandonAfter {
+	// A day from the archive has no clock and is taken once: it waits for its
+	// answer however long it takes, or the day could never be played again.
+	if snap.Game.Settings.Mode != Archive && now.Sub(lastMove(snap)) > AbandonAfter {
 		if _, err := s.Store.FinishFree(ctx, snap.Game.ID, StatusAbandoned, now, nil); err != nil {
 			return false, err
 		}
@@ -417,7 +419,7 @@ func (s *Service) placeFor(ctx context.Context, snap *Snapshot, w Who, n int) (i
 	if err != nil {
 		return 0, false, err
 	}
-	known, err := s.Store.FreeKnown(ctx, w.UserID, place)
+	known, err := s.Store.FreeKnown(ctx, w, place)
 	return place, known, err
 }
 
@@ -543,8 +545,10 @@ func (s *Service) soloView(ctx context.Context, snap *Snapshot, w Who, now time.
 	}
 	if g.Status == StatusDone && len(lines) == 1 {
 		f := &Final{Line: lines[0], Key: g.Settings.Key()}
-		if w.Telegram() && g.Settings.Mode != Archive {
-			best, err := s.Store.FreeBest(ctx, w.UserID, g.ID)
+		// An attempt at a challenge is no record: its places were drawn for
+		// someone else, who may have told the player where they are.
+		if w.Keeps() && g.Settings.Mode != Archive && g.Kind != Challenge {
+			best, err := s.Store.FreeBest(ctx, w, g.ID)
 			if err != nil {
 				return SoloView{}, err
 			}
@@ -555,7 +559,7 @@ func (s *Service) soloView(ctx context.Context, snap *Snapshot, w Who, now time.
 		}
 		if g.Settings.Mode == Archive && f.Answered > 0 {
 			var err error
-			if f.DayRank, f.DayOf, err = s.Store.FreeDayRank(ctx, g.Day, f.Base, f.Km); err != nil {
+			if f.DayRank, f.DayOf, err = s.Store.FreeDayRank(ctx, g.Day, f.Base); err != nil {
 				return SoloView{}, err
 			}
 		}

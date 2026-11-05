@@ -43,10 +43,12 @@
     if (newer(d)) { P = d; render(); }
     return d;
   }
+  // A party that cannot be opened. A guest of the site may not join one: records and friends come with an account.
   function gone(e) {
     stop();
     K.top(T("party.title"), "", back);
-    K.page('<p class="fr-wait">' + esc(K.ferr(e)) + '</p><div class="fr-go"><button class="fr-pri" data-act="pHome">' + esc(T("free.solo")) + '</button></div>');
+    const sign = e.message === "sign_in" ? K.signIn() : "";
+    K.page((sign || '<p class="fr-wait">' + esc(K.ferr(e)) + '</p>') + '<div class="fr-go"><button class="' + (sign ? "fr-sec" : "fr-pri") + '" data-act="pHome">' + esc(T("free.solo")) + '</button></div>');
   }
 
   /* ---------- Who is who ---------- */
@@ -116,40 +118,41 @@
     later(ph) {
       K.top(placeTitle(ph.r.n), T("party.title"), back);
       K.page('<p class="fr-wait">' + esc(T("party.from", { n: fmt(meM().from) })) + '</p>', "fr-mid");
-      ribbonNow(ph.r);
     },
+    // A place: the day's game screen, with the party's clock in the header and who has answered over the picture.
     round(ph) {
       const r = ph.r;
       mine = null; sending = false;
       K.top(placeTitle(r.n), T("party.title"), back);
-      K.showPlay();
-      K.picture(r.image, r.kind);
+      K.round(r);
       if (r.repeat) toast(T("free.repeat"));
-      K.freshMap((p) => { mine = p; buttons(r); });
-      if (answered(r)) K.lock();
-      buttons(r);
-      K.clock(r.starts_at, r.ends_at, P.settings.seconds, () => {
+      K.goTo("pSend");
+      if (answered(r)) { sentN = r.n; K.sent(waiting(r)); }
+      else K.pinned((p) => { mine = p; });
+      ribbonNow(r);
+      K.clock(r.ends_at, P.settings.seconds, () => {
         // At zero a pin set but not sent goes by itself; without one the place counts as missed when it closes.
         if (mine && !answered(r)) answer(r, true);
       });
     },
+    // A place closed: the day's result, with the answers to it and the standing; the next place starts by itself.
     reveal(ph, fresh) {
       const r = ph.r;
-      K.stopClock(); K.lock(); K.ribbon(null);
+      K.stopClock(); K.ribbon(null);
       K.top(placeTitle(r.n), T("party.title"), back);
-      // Opened in the middle of a reveal, the screen has no picture yet.
-      if (drawnBefore !== "round:" + r.n) { K.showPlay(); K.picture(r.image, r.kind); }
-      K.act("");
-      const pins = r.guesses.filter((g) => g.lat != null).map((g) => ({ lat: g.lat, lon: g.lon, me: g.m === P.me, name: nameOf(g.m) }));
-      const mineG = r.guesses.find((g) => g.m === P.me);
-      let html = K.placeBlock(r.place, mineG, mineG ? "" : T("free.missed"));
-      const rows = r.guesses.slice().sort((a, b) => b.points - a.points || (a.km ?? 1e9) - (b.km ?? 1e9) || a.time_ms - b.time_ms);
-      html += '<ol class="fr-list fr-rows">' + rows.map((g) => '<li' + (g.m === P.me ? ' class="me"' : '') + '><span class="w" lang="' + nameLang() + '">' + esc(nameOf(g.m)) + '</span><span class="k">' +
-        (g.lat != null ? kmT(g.km) : "") + '</span><b>' + fmt(g.points) + '</b></li>').join("") + '</ol>';
-      html += standing(3) + '<p class="fr-next up" id="frNext"></p>';
-      // The panel first: the map takes its reveal size, and the camera frames that.
-      K.result(html);
-      K.revealMap(r.place, pins);
+      // Opened in the middle of a reveal, the screen has not shown the place's picture yet.
+      if (drawnBefore !== "round:" + r.n) K.round(r);
+      // Nobody's answer leaves the list out.
+      const guesses = r.guesses || [];
+      const me = guesses.find((g) => g.m === P.me) || null;
+      const others = guesses.filter((g) => g.m !== P.me).map((g) => ({ key: "m" + g.m, lat: g.lat, lon: g.lon, km: g.km, name: nameOf(g.m) }));
+      const rows = rowsOf(r);
+      K.answer({
+        place: r.place, me, note: me ? "" : T("free.missed"), others, call: fmt(me && me.lat != null ? me.points : 0),
+        top: K.table(rows, false),
+        side: K.table(rows, true) + standing(0) + '<p class="fr-next up"></p>',
+        bot: '<p class="pl fr-next up"></p>',
+      });
       if (fresh) haptic("medium");
     },
     final(ph, fresh) {
@@ -178,50 +181,48 @@
   // The parts that move between two drawings: the countdown, who has answered, the seconds to the next place.
   const TICK = {
     count(ph) { const c = $("frCount"); if (c) c.textContent = fmt(Math.max(1, Math.ceil(K.msTo(ph.r.starts_at) / 1000))); },
-    round(ph) { ribbonNow(ph.r); if (drawnV !== P.v) { drawnV = P.v; buttons(ph.r); } },
+    round(ph) { ribbonNow(ph.r); if (drawnV !== P.v) { drawnV = P.v; if (answered(ph.r)) { sentN = ph.r.n; K.sent(waiting(ph.r)); } } },
     reveal(ph) {
-      const n = $("frNext");
-      if (!n) return;
       const ms = ph.next ? K.msTo(ph.next.starts_at) : K.msTo(ph.r.closed_at) + P.reveal * 1000;
-      n.textContent = T(ph.next ? "party.next_in" : "party.final_in", { n: fmt(Math.max(0, Math.ceil(ms / 1000))) });
+      const t = T(ph.next ? "party.next_in" : "party.final_in", { n: fmt(Math.max(0, Math.ceil(ms / 1000))) });
+      document.querySelectorAll(".fr-next").forEach((e) => { if (e.textContent !== t) e.textContent = t; });
     },
   };
+  // The answers to a place, best first, as the day's table: place, name, distance, points.
+  function rowsOf(r) {
+    const rows = (r.guesses || []).slice().sort((a, b) => b.points - a.points || (a.km ?? 1e9) - (b.km ?? 1e9) || a.time_ms - b.time_ms);
+    return rows.map((g, i) => ({ rank: i + 1, name: nameOf(g.m), me: g.m === P.me, km: g.lat != null ? g.km : null, points: g.points }));
+  }
   // The standing after the closed places: the first n lines, or all of them.
   function standing(n) {
     const lines = n ? P.totals.slice(0, n) : P.totals;
     if (!lines.length) return "";
-    return '<p class="fr-l up">' + esc(T("party.standing")) + '</p><ol class="fr-list fr-table">' + lines.map((l) => {
-      const m = member(l.m), mark = m.left ? T("party.left") : m.away ? T("party.away") : "";
-      return '<li' + (l.m === P.me ? ' class="me"' : '') + '><span class="n">' + fmt(l.rank) + '</span><span class="w" lang="' + nameLang() + '">' + esc(m.name) +
-        (mark ? ' <em class="up">' + esc(mark) + '</em>' : '') + '</span><b>' + fmt(l.points) + '</b></li>';
-    }).join("") + '</ol>';
+    return '<p class="fr-l up">' + esc(T("party.standing")) + '</p>' + K.table(lines.map((l) => {
+      const m = member(l.m);
+      return { rank: l.rank, name: m.name, me: l.m === P.me, points: l.points, mark: m.left ? T("party.left") : m.away ? T("party.away") : "" };
+    }), true);
   }
   const answered = (r) => (r.answered || []).includes(P.me);
+  // Who the party still waits for in this place, besides you.
+  const waiting = (r) => present().filter((m) => m.m !== P.me && m.from <= r.n && !m.away && !(r.answered || []).includes(m.m)).length;
   function ribbonNow(r) {
     K.ribbon(present().filter((m) => m.from <= r.n).map((m) => ({ name: m.name, me: m.m === P.me, done: (r.answered || []).includes(m.m), away: m.away })));
   }
-  function buttons(r) {
-    if (answered(r)) {
-      const left = present().filter((m) => m.from <= r.n && !m.away && !(r.answered || []).includes(m.m)).length;
-      K.act('<p class="fr-sent up">' + esc(left ? T("party.waiting", { n: fmt(left) }) : T("sent")) + '</p>');
-      return;
-    }
-    K.act('<button class="fr-pri" data-act="pSend"' + (mine && !sending ? "" : " disabled") + '>' + esc(mine ? T("free.answer") : T("free.tap_map")) + '</button>');
-  }
   async function answer(r, auto) {
     if (sending || !mine || sentN === r.n) return;
-    sending = true; buttons(r);
+    sending = true; K.sending(true);
     try {
       await send("/guess", { n: r.n, lat: mine.lat, lon: mine.lon, auto });
-      sentN = r.n; K.lock(); haptic("success");
+      sentN = r.n; haptic("success");
     } catch (e) {
       if (e.message === "already_answered") sentN = r.n;
       else toast(K.ferr(e));
     }
     sending = false;
-    // The round from the answer just read: r is the one from before it and does not list this answer yet.
+    // The place from the answer just read: r is the one from before it and does not list this answer yet.
     const ph = P && phase();
-    if (ph && ph.k === "round") buttons(ph.r);
+    if (!ph || ph.k !== "round" || ph.r.n !== r.n) return;
+    if (sentN === r.n) K.sent(waiting(ph.r)); else K.sending(false);
   }
 
   /* ---------- The buttons ---------- */
@@ -245,8 +246,7 @@
       if (!d) return;
       // shareMessage throws while its sheet is still open; the link is the fallback.
       if (d.id && tgAt("8.0") && tg.shareMessage) { try { tg.shareMessage(d.id); return; } catch {} }
-      const url = "https://t.me/share/url?" + new URLSearchParams({ url: d.link, text: T("party.invite_text", { set: K.setLabel(P.settings) }) });
-      if (tgAt("6.1")) tg.openTelegramLink(url); else open(url, "_blank", "noopener");
+      K.share(d.link, T("party.invite_text", { set: K.setLabel(P.settings) }));
     },
     async pLeave(b) {
       b.disabled = true;
@@ -265,8 +265,7 @@
       const me = P.totals.find((l) => l.m === P.me);
       if (!me) return;
       const text = "maply · " + K.setLabel(P.settings) + "\n" + T("party.share_text", { rank: fmt(me.rank), of: fmt(P.totals.length), points: fmt(me.points) });
-      const url = "https://t.me/share/url?" + new URLSearchParams({ url: K.bot() ? "https://t.me/" + K.bot() + "/play" : location.origin, text });
-      if (tgAt("6.1")) tg.openTelegramLink(url); else open(url, "_blank", "noopener");
+      K.share(K.bot() && tgAt("6.1") ? "https://t.me/" + K.bot() + "/play" : location.origin + "/play", text);
     },
     pHome() { Router.go("/play"); },
   });
@@ -292,12 +291,13 @@
   }
   K.party = {
     // From the solo settings: a lobby on them, with this player as its host.
-    async create(set) {
+    // replace: opened from /play?with=friends, Back goes past it.
+    async create(set, replace) {
       K.wait();
       let v;
       try { v = await K.req("/api/party", set); } catch (e) { toast(K.ferr(e)); K.home(); return; }
       run(v);
-      Router.go("/party/" + v.code);
+      Router.go("/party/" + v.code, replace ? { replace: true } : undefined);
     },
     open: join,
   };
