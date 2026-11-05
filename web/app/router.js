@@ -7,6 +7,7 @@
 //     open(m, from) {},  // m is the path's match, m[1] the day; from is the screen before, "" on the first page.
 //                        // open runs again when the path changes within the screen: /days, then /days/14.
 //     close(to) {},      // optional: put away what open drew; to is the next screen's name.
+//     nav: { href: "/days", t: "days" }, // optional: a link in the computer's header, its words under app.<t>
 //   });
 //
 //   Router.go("/days/14")            a new page from code: a history entry on the site
@@ -14,6 +15,7 @@
 //   Router.back("/days")             the page's own Back: the previous entry if it is ours, else the parent named
 //   Router.on((name, from) => {})    after every change of screen, for the header's navigation
 //   Router.current                   the screen on show: "today", "days", …
+//   Router.nav()                     the header's links, in the order the screens came: [{ name, href, t }]
 //
 // A name registered again replaces the screen in its place: a file that takes over an address only registers it.
 // Paths are tried in the order the screens came. An address no screen claims shows today and says so in the
@@ -34,7 +36,7 @@ const Router = (() => {
   const safely = (fn) => { try { fn(); } catch (e) { setTimeout(() => { throw e; }); } };
 
   function screen(name, pattern, s) {
-    const it = { name, pattern, open: s.open, close: s.close };
+    const it = { name, pattern, open: s.open, close: s.close, nav: s.nav };
     const at = screens.findIndex((x) => x.name === name);
     if (at >= 0) screens[at] = it; else screens.push(it);
     if (current && current.name === name) current = it;
@@ -87,6 +89,7 @@ const Router = (() => {
   return {
     screen, go, back, start,
     on(fn) { listeners.push(fn); },
+    nav: () => screens.filter((x) => x.nav).map((x) => ({ name: x.name, href: x.nav.href, t: x.nav.t })),
     get current() { return current ? current.name : ""; },
   };
 })();

@@ -170,7 +170,8 @@ function retryLoading() {
 }
 $("loader").addEventListener("click", retryLoading);
 addEventListener("online", retryLoading);
-$("logo").addEventListener("click", () => Router.go("/days"));
+// On a phone the logo opens the days; on a computer the header has links, and the logo goes home.
+$("logo").addEventListener("click", () => Router.go(Desk.on ? "/" : "/days"));
 
 /* ---------- Countdown ---------- */
 // Before the answer the timer runs to the deadline: the earliest reveal among the person's chats. After it, to the reveal
@@ -218,6 +219,9 @@ pano.on("touch", () => $("hint").classList.add("gone"));
 
 /* ---------- Two views: photo with a mini globe, and the big map ---------- */
 let state = "guess", view = "photo";
+// The page's styles and the computer's layout follow the state: the side panel takes the plates once you answered.
+function setState(s) { state = s; document.body.dataset.state = s; Desk.place(); seePano(); }
+document.body.dataset.state = state;
 const MINI = 136, ACT = 82, TAPE_H = 38; // TAPE_H is the height of the compass tape at the bottom (--tape)
 // The small globe sits under its button, which keeps clear of a notch on the side; before layout, where it would be.
 // Its size is the button's, which the layout sets.
@@ -227,6 +231,8 @@ function miniAt() {
 }
 // How much space the plates take at top and bottom: the camera keeps the globe and markers in the free part.
 function reserve() {
+  // On a computer the plates are in the side panel: only the answer's bar lies over the bottom of the map's panel.
+  if (Desk.on) return { top: 0, bottom: state === "guess" ? $("act").offsetHeight : 0 };
   const top = $("map").getBoundingClientRect().top, on = (id) => $(id).classList.contains("on");
   // On the result there is also the day's table at the top. We measure by the header, not the table itself: at that moment it is still expanding.
   const board = document.body.classList.contains("is-reveal") ? $("prog").parentElement.getBoundingClientRect().bottom + $("prog").offsetHeight - top + 8 : 0;
@@ -238,27 +244,44 @@ function overlay(top, bot) {
   $("ovTop").innerHTML = top; $("ovBot").innerHTML = bot;
   $("ovTop").classList.toggle("on", !!top); $("ovBot").classList.toggle("on", !!bot);
 }
-// The map covers the photo: the tape stops following it.
+// The map covers the photo: the tape stops following it. On a computer the panel leaves the panorama in sight while
+// you guess. Folded, the map is out of the tab order: its canvas would take the focus and the arrows.
+const panoSeen = () => view === "photo" || (Desk.on && state === "guess");
+// The panorama keeps still and out of the Tab order while the map covers it.
+function seePano() { const s = panoSeen(); pano.still(!s); $("pano").inert = !s; }
 function toMap() {
   if (view === "map") return;
-  view = "map"; document.body.classList.add("is-map"); haptic("light"); syncBack(); pano.still(true);
+  view = "map"; document.body.classList.add("is-map"); haptic("light"); syncBack(); seePano();
+  $("map").inert = false; lookLabel();
   globe.toBig();
 }
 function toPhoto() {
   if (view === "photo") return;
-  view = "photo"; document.body.classList.remove("is-map"); haptic("soft"); syncBack(); pano.still(false);
+  view = "photo"; document.body.classList.remove("is-map"); haptic("soft"); syncBack(); seePano();
+  $("map").inert = true; lookLabel(); Desk.cross();
   globe.toMini(650);
 }
+$("map").inert = true;
 $("globeHit").addEventListener("click", toMap);
-$("look").addEventListener("click", toPhoto);
+// On a phone the button shows only over the map; in the computer's side panel it swaps the map and the panorama.
+$("look").addEventListener("click", () => view === "map" ? toPhoto() : toMap());
 if (tgAt("6.1")) tg.BackButton.onClick(() => document.body.classList.contains("is-sheet") ? $("shBack").click() : toPhoto());
 // Splits the bottom strip into two buttons or merges it back into one.
 // The left button label depends on the stage: before the answer it invites a closer look, after the answer simply to enjoy.
 const LOOK = { guess: ["look_more", "look"], wait: ["admire", "admire"], reveal: ["walk", "walk"] };
-// Folded, the main button is out of sight, so it is out of the tab order and the screen reader's reach too.
+// Folded, the main button is out of sight, so it is out of the tab order and the screen reader's reach too. In the
+// computer's panel the answer's bar is always there: dimmed until the pin, then the answer with its key.
 function split(on) {
-  $("act").classList.toggle("on", on); $("look").textContent = T(LOOK[state][on ? 1 : 0]);
-  $("go").tabIndex = on ? 0 : -1; $("go").toggleAttribute("aria-hidden", !on);
+  const bar = Desk.on && state === "guess";
+  $("act").classList.toggle("on", on); lookLabel();
+  if (state === "guess") $("go").textContent = T(bar ? (on ? "desk.answer_key" : "desk.pin_first") : "final");
+  $("go").disabled = bar && !on;
+  $("go").tabIndex = on || bar ? 0 : -1; $("go").toggleAttribute("aria-hidden", !on && !bar);
+}
+// In the side panel the map can give way to the panorama: then the same button brings the map back.
+function lookLabel() {
+  const on = $("act").classList.contains("on");
+  $("look").textContent = Desk.on && state !== "guess" && view === "photo" ? T("desk.to_map") : T(LOOK[state][on ? 1 : 0]);
 }
 // Arrows point the way the text reads: the other way round in Arabic.
 function fwd() { return document.documentElement.dir === "rtl" ? "←" : "→"; }
@@ -272,8 +295,9 @@ function setCall(b, sub) {
 // globe.js draws the globe, the pin and the answer; the layout above says where the small globe stands and what the
 // plates cover. The small globe turns only once the loading screen is gone.
 const globe = createGlobe({ el: $("map"), lang: LANG0, mini: miniAt, insets: reserve, haptic, spin: () => $("loader").classList.contains("gone") });
-// A tap beside the globe, in the void around it, returns to the photo.
-globe.on("beside", toPhoto);
+// A tap beside the globe, in the void around it, returns to the photo. In the computer's panel the void is the
+// panel's own water, and a click there is a miss, not a way out.
+globe.on("beside", () => { if (!Desk.on) toPhoto(); });
 globe.on("pick", ({ lngLat, point }) => { if (state === "guess") putPin(lngLat, point); });
 globe.on("pinmoved", () => { haptic("select"); toast(pick(lines("moved"))); });
 function putPin(lngLat, point) {
@@ -320,7 +344,7 @@ const todayPath = () => SITE ? "/api/today" : "/api/today?" + new URLSearchParam
 // "sent" right after the answer, "closed" when the window shut without one, "restore" when the app reopens after answering.
 let waitShown = false;
 function toWaiting(how) {
-  state = "wait"; waitShown = true; globe.lock();
+  setState("wait"); waitShown = true; globe.lock();
   if (how === "sent") haptic("success");
   // A pin that never reached the server is not an answer: it leaves the map, so nobody takes it for one.
   if (how === "closed" && !TODAY.answer) globe.pin(null);
@@ -337,10 +361,11 @@ function toWaiting(how) {
 function restore() {
   if (!TODAY.answer) return;
   globe.pin([TODAY.answer.lon, TODAY.answer.lat], { draggable: false });
-  if (view === "photo") globe.toMini(0);
   // Until the result comes, a tap on the map must not move the sent pin, and the caption already says the answer is in.
   if (SITE) toWaiting("restore");
-  else { state = "wait"; globe.lock(); setCall(T("sent"), T("result_at", { time: atZone() })); loadResult(); }
+  else { setState("wait"); globe.lock(); setCall(T("sent"), T("result_at", { time: atZone() })); loadResult(); }
+  // After the state: on a computer the globe's corner is now the main area's.
+  if (view === "photo") globe.toMini(0);
 }
 // mine is your own row of the chat's answers, once the result is in.
 let mine = null;
@@ -354,8 +379,9 @@ const pct = (x) => (x * 100 / (5000 + SPEED_MAX)).toFixed(2) + "%";
 // since the last paint; they slide in, the rest stay as they are.
 // One row: place, face, name, the bar and the points. Your own row has every part in full colour and the bonuses you
 // missed as dashed outlines; the others show only what they earned, in muted colours, so the eye finds yours first.
-function boardRow(r, i, cls, count) {
-  const IF = [T("what_continent"), T("what_country"), T("what_city")], v = (n) => count ? "0" : fmt(n);
+// The parts of a score as a bar: kilometres, the bonuses one by one, speed, and for your own row what you missed.
+function barOf(r) {
+  const IF = [T("what_continent"), T("what_country"), T("what_city")];
   const b0 = r.pts - bonusOf(r.lvl) - r.sp, segs = ['<i class="km" data-tip="' + esc(T("km_points", { points: fmt(b0), km: kmT(r.d) })) + '" style="width:' + pct(b0) + ';--d:' + T_KM + 's"></i>'];
   BONUS.forEach((x, k) => {
     if (k < r.lvl) segs.push('<i data-tip="' + esc(T("bonus", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + T_B(k) + 's"></i>');
@@ -364,6 +390,10 @@ function boardRow(r, i, cls, count) {
   if (r.me) BONUS.forEach((x, k) => {
     if (k >= r.lvl) segs.push('<i class="if" data-tip="' + esc(T("bonus_missed", { points: x, what: IF[k] })) + '" style="width:' + pct(x) + ';--d:' + (T_B(r.lvl) + .1) + 's"></i>');
   });
+  return segs.join("");
+}
+function boardRow(r, i, cls, count) {
+  const v = (n) => count ? "0" : fmt(n), b0 = r.pts - bonusOf(r.lvl) - r.sp;
   // Your own face shows your initial: the name beside it already says "you".
   const n = r.rank || i + 1, grp = r.grp ? '<b class="gi" title="' + esc(T("in_group")) + '">' + GROUP + '</b>' : "";
   const face = '<i class="fc">' + (r.anon ? '<i class="av anon">?</i>' : av(r.me ? r.name || "" : r.who, r.me, r.photo)) + grp + '</i>';
@@ -372,7 +402,7 @@ function boardRow(r, i, cls, count) {
   const label = r.anon ? ' aria-label="' + esc([wait, r.grp ? T("in_group") : "", kmT(r.d), fmt(r.pts)].filter(Boolean).join(", ")) + '"' : "";
   return '<div class="r' + (r.me ? " me" : "") + (r.anon ? " anon" : "") + cls + '" data-key="' + esc(r.key || "") + '"' + label + '><em' + (n <= 3 ? ' class="m' + n + '"' : "") + '>' + (typeof n === "number" ? fmt(n) : n) + '</em>' + face +
     '<span>' + (r.anon ? "•••" : esc(r.who)) + '</span>' +
-    '<span class="hit" data-rest="' + esc(r.anon ? wait : T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + segs.join("") + '</span></span>' +
+    '<span class="hit" data-rest="' + esc(r.anon ? wait : T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + barOf(r) + '</span></span>' +
     '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '" data-sp="' + r.sp + '">' + v(r.pts) + '</b><span class="k">' + kmT(r.d) + '</span></div>';
 }
 // Under the map the world's top five show, yours among them (the fifth gives way if you are lower), so the height does not
@@ -383,9 +413,12 @@ let boardRows = [], boardTotal = 0;
 const skips = (rows, k) => k > 0 && rows[k].rank > rows[k - 1].rank + 1 && rows[k].rank > k + 1;
 function paintBoard(rows, total, fresh) {
   boardRows = rows; boardTotal = Math.max(total || 0, rows.length);
-  const meAt = rows.findIndex((r) => r.me), top = meAt >= ROWS ? ROWS - 1 : ROWS, IF = [T("what_continent"), T("what_country"), T("what_city")];
-  // Only the rows that show are drawn: the best ones and yours. The rest are in the sheet.
+  const meAt = rows.findIndex((r) => r.me), IF = [T("what_continent"), T("what_country"), T("what_city")];
+  // Only the rows that show are drawn: the best ones and yours. The rest are in the sheet. The computer's side panel
+  // has room for all of them.
+  const top = Desk.on ? rows.length : meAt >= ROWS ? ROWS - 1 : ROWS;
   const shown = rows.map((r, i) => [r, i]).filter(([r, i]) => i < top || r.me), list = shown.map(([r]) => r);
+  $("lbH").textContent = boardTitle();
   // Segment tooltips sit in data-tip, not data-t: data-t marks the static lines loadTexts fills.
   $("lb").innerHTML = shown.map(([r, i], k) => boardRow(r, i, (r.me || (meAt < 0 && !i) ? " keep" : "") + (skips(list, k) ? " skip" : "") +
     (fresh && fresh.has(r.key) ? " new" : ""), true)).join("");
@@ -396,9 +429,10 @@ function paintBoard(rows, total, fresh) {
   $("none").classList.toggle("hidden", rows.length > 0);
   $("rulesBtn").classList.toggle("hidden", !rows.length);
   // "Only my place" needs a place of yours; without one the table stays open whatever was chosen before.
-  const canFold = meAt >= 0 && rows.length > 1;
+  const canFold = meAt >= 0 && rows.length > 1 && !Desk.on;
   $("foldBtn").classList.toggle("hidden", !canFold);
   foldBoard(canFold && foldNow, false);
+  paintScore(me);
   let h = line("km", esc(T("rules_km", { n: fmt(3500) }))) + line("", esc(T("rules_bonus", { a: BONUS[0], b: BONUS[1], c: BONUS[2] }))) +
     line("sp", esc(T("rules_speed", { n: SPEED_MAX })));
   // The two heads by a face are explained here: a title shows nowhere on a phone.
@@ -411,9 +445,19 @@ function paintBoard(rows, total, fresh) {
   $("rules").innerHTML = h;
   retip();
 }
+// Your score in the computer's side panel: the points, what you found, the bar and its parts.
+function paintScore(me) {
+  const sc = $("score"), at = $("scoreIn") || sc.insertBefore(el('<div id="scoreIn"></div>'), sc.firstChild);
+  sc.classList.toggle("on", !!me && Desk.on);
+  if (!me || !Desk.on) { at.innerHTML = ""; return; }
+  const b0 = me.pts - bonusOf(me.lvl) - me.sp, got = ["desk.got_continent", "desk.got_country", "desk.got_city"]
+    .map((k, i) => '<span class="' + (i < me.lvl ? "y" : "n") + '">' + esc(T(k)) + " " + (i < me.lvl ? "✓" : "✗") + '</span>');
+  at.innerHTML = '<b class="pts nums1">' + fmt(me.pts) + '</b><p class="got">' + esc(kmT(me.d)) + ' · ' + got.join(" · ") + '</p>' +
+    '<span class="bar">' + barOf(me) + '</span><p class="parts">' + esc(T("desk.parts", { a: fmt(b0), b: fmt(bonusOf(me.lvl)), c: fmt(me.sp) })) + '</p>';
+}
 // "N more" counts what does not show: everything but the rows drawn, or but your own when folded.
 function paintMore() {
-  const n = boardTotal - ($("lb").classList.contains("min") ? 1 : $("lb").children.length);
+  const n = Desk.on ? 0 : boardTotal - ($("lb").classList.contains("min") ? 1 : $("lb").children.length);
   $("more").classList.toggle("hidden", n <= 0);
   $("more").textContent = T("more", { n: fmt(n) }) + " " + fwd();
 }
@@ -463,10 +507,13 @@ function openBoard() {
   if (me) me.scrollIntoView({ block: "center" });
 }
 // The app gets the best 200 and your group's rows, out of everyone who answered: the header says which it is.
-function fillBoard() {
-  // "Top N" counts the unbroken run from first place: your group's rows further down come after the dashed line.
+// "Top N" counts the unbroken run from first place: your group's rows further down come after the dashed line.
+function boardTitle() {
   const gap = boardRows.findIndex((r, i) => skips(boardRows, i)), top = gap < 0 ? boardRows.length : gap;
-  $("boardH").textContent = boardRows.length < boardTotal ? T("top_of", { n: fmt(top), total: fmt(boardTotal) }) : T("all_answers", { n: fmt(boardTotal) });
+  return boardRows.length < boardTotal ? T("top_of", { n: fmt(top), total: fmt(boardTotal) }) : T("all_answers", { n: fmt(boardTotal) });
+}
+function fillBoard() {
+  $("boardH").textContent = boardTitle();
   $("lbAll").innerHTML = boardRows.map((r, i) => boardRow(r, i, skips(boardRows, i) ? " skip" : "", false)).join("");
 }
 $("more").addEventListener("click", openBoard);
@@ -655,7 +702,7 @@ function repaint(res) {
 }
 function toReveal(res) {
   if (state === "reveal") return;
-  state = "reveal";
+  setState("reveal");
   // The table below is drawn before setLive: its hidden rows say when their names come by the phase.
   PHASE = res.phase || "final";
   // The answer is in: closing the app loses nothing, so Telegram must not ask.
@@ -691,7 +738,8 @@ function toReveal(res) {
   // On a short screen the plate starts folded: open, it would leave the map a strip between the table and the buttons.
   if (innerHeight < 640) $("place").classList.add("min");
   setLive(res);
-  view = "map"; document.body.classList.add("is-map"); syncBack(); pano.still(true);
+  view = "map"; document.body.classList.add("is-map"); syncBack(); seePano();
+  $("map").inert = false; lookLabel();
   globe.frame(1200);
   haptic("success");
 }
@@ -785,8 +833,12 @@ function sheet(title, html, back, close) {
   return SHEET;
 }
 // While the sheet is open the page behind it is out of reach: Tab and a screen reader stay in the dialog.
+// On a computer the sheet is a page under the header, and the header's links stay in reach. The folded map stays out.
 function behindSheet(on) {
-  for (const e of document.body.children) if (e.id !== "sheet" && e.id !== "toast" && e.tagName !== "SCRIPT") e.inert = on;
+  for (const e of document.body.children) if (e.id !== "sheet" && e.id !== "toast" && e.tagName !== "SCRIPT") e.inert = on && !(Desk.on && e.classList.contains("top"));
+  // On a computer the header stays usable beside the sheet, so the sheet is not modal there.
+  $("sheet").setAttribute("aria-modal", String(!Desk.on));
+  if (!on) $("map").inert = view === "photo";
 }
 function closeDays() {
   SHEET++;
@@ -870,7 +922,7 @@ async function openDay(date) {
 }
 // The game is the page under every other: today has nothing of its own to open or close. Until days.js takes /days
 // over, the days are the sheet above; Back from a day comes back to the list as it was scrolled, without asking again.
-Router.screen("today", /^\/(?:index\.html)?$/, { open() {} });
+Router.screen("today", /^\/(?:index\.html)?$/, { open() {}, nav: { href: "/", t: "desk.today" } });
 let dayShown = false;
 Router.screen("days", /^\/days(?:\/(\d{4}-\d{2}-\d{2}))?$/, {
   open(m) {
@@ -880,6 +932,22 @@ Router.screen("days", /^\/days(?:\/(\d{4}-\d{2}-\d{2}))?$/, {
     dayShown = !!m[1];
   },
   close() { dayShown = false; closeDays(); },
+  nav: { href: "/days", t: "days" },
+});
+
+// The window crossed into the computer's layout or out of it: the same state, laid out again. The plates have moved
+// already; the map's box changed its place, so the camera starts over in it.
+Desk.change(() => {
+  hideTip(); showRules(false);
+  if (document.body.classList.contains("is-sheet")) behindSheet(true);
+  syncBack();
+  split($("act").classList.contains("on"));
+  if (state === "reveal") { paintBoard(boardRows, boardTotal); countUp(new Set()); ovUnderBoard(); }
+  seePano();
+  globe.resize();
+  if (view !== "map") globe.toMini(0);
+  else if (state === "reveal" && globe.answered) globe.frame(0);
+  else globe.toBig(0);
 });
 
 /* ---------- Start ---------- */
@@ -898,8 +966,11 @@ async function boot() {
   if (TODAY.now) SKEW = Date.parse(TODAY.now) - Date.now();
   // The texts are asked for again when they did not come with the first try, even in the same language.
   if (TODAY.lang && (TODAY.lang !== LANG || !textsLoaded)) { await loadTexts(TODAY.lang).catch(() => {}); setCall(T("where"), T("drop_pin")); }
-  // The words are final now: the page the address names can open.
+  // The words are final now: the computer's header and keys can be written, and the page the address names can open.
+  Desk.start({ view: () => view, state: () => state, open: toMap, close: toPhoto, pin: (lngLat, point) => { if (state === "guess") putPin(lngLat, point); }, globe, pano });
   Router.start();
+  // The answer's bar says what it waits for: on a phone it is folded, in the computer's panel it is dimmed.
+  if (state === "guess") split(false);
   loadShareTexts();
   $("day").textContent = "#" + TODAY.day;
   AT = new Intl.DateTimeFormat(numLang(), { timeZone: TODAY.zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(TODAY.reveal));

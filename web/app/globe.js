@@ -17,6 +17,8 @@
 //   globe.toBig(ms)                      the globe grows into the free part of the box, on your pin if there is one
 //   globe.toMini(ms)                     back to the small globe, turned to your pin; 0 jumps there
 //   globe.refit()                        the layout changed: the camera follows once no finger is down
+//   globe.resize()                       the box changed size: the canvas follows at once, then the camera
+//   globe.center()                       { lngLat, point } at the middle of the free part of the box
 //   globe.pin(lngLat, { draggable, drop }) your pin, placed or moved (drop plays its fall again); null takes it away
 //   globe.guess                          your pin's LngLat, or null
 //   globe.lock()                         your pin can no longer be dragged
@@ -165,8 +167,14 @@ const createGlobe = (() => {
     // to "the world is no narrower than the screen", log2(H/512), and the globe gets stuck large. A frame-by-frame jumpTo
     // does not know this: by the time zoom drops below 3.6 the projection is already a globe, and there is no constraint.
     let tween = 0;
+    // The box can take another place in the page between two camera moves (the computer's panel becomes the main
+    // area after the answer): the canvas has to match it before a camera is worked out for it.
+    function fitCanvas() {
+      const c = map.getCanvas();
+      if (c.clientWidth !== box.clientWidth || c.clientHeight !== box.clientHeight) map.resize();
+    }
     function toMini(ms) {
-      cancelAnimationFrame(tween); map.stop();
+      cancelAnimationFrame(tween); map.stop(); fitCanvas();
       setMode("mini");
       const z0 = map.getZoom(), c0 = map.getCenter(), p0 = map.getPadding(), t0 = performance.now();
       const c1 = { lng: (guess || c0).lng, lat: miniLat((guess || c0).lat) }, dl = ((c1.lng - c0.lng + 540) % 360) - 180;
@@ -185,7 +193,7 @@ const createGlobe = (() => {
       tween = requestAnimationFrame(step);
     }
     function toBig(ms) {
-      cancelAnimationFrame(tween);
+      cancelAnimationFrame(tween); fitCanvas();
       const was = mode;
       setMode("big");
       const c = bigCam();
@@ -211,11 +219,7 @@ const createGlobe = (() => {
     function refit() { refitDue = true; refitNow(); }
     // MapLibre 5.6 skips the first call of its own ResizeObserver: a window resized right after loading left the
     // canvas at its old size and the globe off its place.
-    const onResize = () => {
-      const c = map.getCanvas();
-      if (c.clientWidth !== box.clientWidth || c.clientHeight !== box.clientHeight) map.resize();
-      refit();
-    };
+    const onResize = () => { fitCanvas(); refit(); };
     addEventListener("resize", onResize);
     map.on("moveend", refitNow);
     // The box can change size with the window still: a screen moving the map into another part of the page.
@@ -433,7 +437,7 @@ const createGlobe = (() => {
     // zoom out to the whole globe and squeeze the two that matter into one dot, or turn them to its back.
     function frame(duration) {
       setMode("big");
-      cancelAnimationFrame(tween);
+      cancelAnimationFrame(tween); fitCanvas();
       const { W, H } = size(), i = insets(), c = marks.truth.lng, pts = [[c, marks.truth.lat]];
       if (guess) pts.push(near180([guess.lng, guess.lat], c));
       const ds = marks.friends.map((f) => f.d).sort((x, y) => x - y);
@@ -469,6 +473,11 @@ const createGlobe = (() => {
 
     return {
       ready: whenReady, toBig, toMini, refit, pin, answer, others, world, frame, keepInView, light, clear,
+      resize: onResize,
+      center() {
+        const p = map.getPadding(), { W, H } = size(), x = (W + p.left - p.right) / 2, y = (H + p.top - p.bottom) / 2;
+        return { lngLat: map.unproject([x, y]), point: new maplibregl.Point(x, y) };
+      },
       lock() { if (marker) marker.setDraggable(false); },
       water: (point) => map.queryRenderedFeatures(point, { layers: ["water"] }).length > 0,
       language(l) { whenReady(() => { ["streets", "oceans", "cities"].forEach((id) => map.setLayoutProperty(id, "text-field", nameIn(l))); map.setLayoutProperty("countries", "text-field", countryIn(l)); }); },

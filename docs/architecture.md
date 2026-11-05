@@ -77,7 +77,11 @@ maply/
 │   │                     mapstyle.js (the map's palette and style, shared with
 │   │                     the card), pano.js (the panorama and its compass),
 │   │                     globe.js (the globe, the pins, the answer's lines),
-│   │                     app.js (the day's game), vendor/
+│   │                     desk.js (the computer's layout: the map panel, the
+│   │                     sidebar, the keys, the header), desktop.css (the
+│   │                     tablet and computer layouts and the base other
+│   │                     screens build theirs on), app.js (the day's game),
+│   │                     vendor/
 │   └── prototype/        the single-file prototype, kept as the reference
 ├── scripts/
 │   ├── curation/         harvest.py, regions.py: candidates from Mapillary
