@@ -202,7 +202,7 @@ Everyone plays the same places at the same time. The host picks the time per pla
 
 The bot prepares an invitation, "maply · Blitz · 5 places · 30 s" with a button, and the player sends it to any chat. The button opens the Mini App in the lobby, also for someone who never started the bot. A place shows a ribbon of who has answered, without points; at zero a pin already set goes by itself. Then the place, everyone's pins with names and the points stay for 8 s on a blitz and 10 s on the longer timers, and a place everyone has answered closes early. A player who stops polling for 10 s is not waited for, and one who missed two places in a row is marked away until they answer again. A lobby whose host is silent for 30 s passes to the next player by joining time; a lobby lives 30 minutes.
 
-The final has the standings, "Ahead of 67% of the others" in place of an average place (2nd of 3 and 2nd of 8 do not compare), the closest pin of the game, "Rematch" into a new lobby on the same settings, and "Share". With friends is Telegram only: the site has no sign-in yet.
+The final has the standings, "Ahead of 67% of the others" in place of an average place (2nd of 3 and 2nd of 8 do not compare), the closest pin of the game, "Rematch" into a new lobby on the same settings, and "Share". With friends needs a Telegram person: the Mini App, or the site signed in with an account that has Telegram. The invitation from the site is the link, since the site has no `shareMessage`.
 
 ### Points and records
 
@@ -214,7 +214,7 @@ share = min(1, left / (T − 2 s))      -- the first 2 s load the picture
 speed = round10(200 × share × points_for_distance / 3500)
 ```
 
-No timer, an answer in the 2 s of grace and a pin the app sent at zero earn none. With friends, equal points rank by fewer kilometres in all, then by less time in all; a missed place counts as half the Earth's circumference and the whole time, or silence would look like a quick answer. Records are kept for each set of settings, "60 s · 5 places" or "Country streak · 30 s", from finished games, alone and with friends together, since the counting is the same. A site guest plays alone and keeps no records.
+No timer, an answer in the 2 s of grace and a pin the app sent at zero earn none. With friends, equal points rank by fewer kilometres in all, then by less time in all; a missed place counts as half the Earth's circumference and the whole time, or silence would look like a quick answer. Records are kept for each set of settings, "60 s · 5 places" or "Country streak · 30 s", from finished games, alone and with friends together, since the counting is the same. On the site an account with Telegram is the person, the same games and records as in the Mini App, and writes nothing to core: the sign-in has recorded them. A site guest plays alone and keeps no records, and so does an account with Google alone, as its own site player, so its games follow it from browser to browser.
 
 ### Places
 

@@ -88,7 +88,9 @@ player, and production-minded.
 - Free play (`internal/free`, `/play`, `/party/<code>`) is outside the day:
   its own `free_*` tables, no place in the world, no stats shared with the
   day, and no bot message in groups. Its rules are in `docs/design.md` →
-  "Free play". With friends is Telegram only until the site has sign-in.
+  "Free play". Records and friends need a Telegram person: the Mini App,
+  or the site signed in with an account that has Telegram, which plays as
+  the person and writes nothing to `core`.
 
 ## Anti-Cheat Invariants
 

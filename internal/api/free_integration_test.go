@@ -5,8 +5,11 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,9 +19,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FreshLabDev/maply/internal/account"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/free"
 	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/telegram"
 )
 
@@ -266,4 +271,105 @@ func TestPartyOverHTTP(t *testing.T) {
 	}
 	hs.expect("POST", "/api/party/"+code+"/leave", vera, "", 200)
 	hs.expect("POST", "/api/party/"+code+"/rematch", oksana, "", 409)
+}
+
+// googleSignIn opens a session for an account with Google alone, under
+// token. A second token for the same sub is a second browser.
+func (hs *harness) googleSignIn(sub, token string) {
+	hs.t.Helper()
+	if hs.srv.Accounts == nil {
+		store := hs.srv.Store.(*db.Store)
+		hs.srv.Accounts = account.New(account.Config{
+			Store: store, Key: []byte("flow"), InitData: hs.srv.InitData, Zones: hs.srv.Zones,
+			AppURL: "https://maply.test", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+			Now: func() time.Time { return hs.now },
+		})
+	}
+	ctx := context.Background()
+	store := hs.srv.Store.(*db.Store)
+	acc, _, err := store.SignIn(ctx, db.Identity{Kind: db.KindGoogle, GoogleSub: sub}, "", db.Rules{
+		Open:     func(round.Date) bool { return true },
+		Deadline: func(context.Context, int64, round.Date) (time.Time, error) { return hs.now, nil },
+	})
+	if err != nil {
+		hs.t.Fatal(err)
+	}
+	if err := store.CreateSession(ctx, db.Session{Hash: sha256.Sum256([]byte(token)), AccountID: acc.ID, Via: db.KindGoogle,
+		Created: hs.now, Expires: hs.now.Add(account.SessionLife)}); err != nil {
+		hs.t.Fatal(err)
+	}
+}
+
+// A browser signed in with an account that has Telegram plays free as the
+// person, alone and with friends, the same as the Mini App, and writes
+// nothing to core. An account with Google alone plays alone as its site
+// player, from any browser it signs in on.
+func TestFreeOnTheSiteWithAnAccount(t *testing.T) {
+	hs := freeSetup(t)
+	ctx := context.Background()
+	hs.srv.Invites = &fakeInvites{}
+	oksana := hs.signIn(1, "Oksana")
+	oksanaApp := initData(1, "Oksana", "uk", "")
+	presence := func() int {
+		var n int
+		if err := hs.pool.QueryRow(ctx, `SELECT count(*) FROM core.maply_presence WHERE telegram_user_id = 1`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := presence()
+
+	// A solo game begun on the site is hers in the Mini App.
+	g := decode[free.SoloView](t, hs.siteExpect("POST", "/api/free/solo", oksana, `{"mode":"classic","seconds":0,"rounds":3}`, 200))
+	home := decode[free.Home](t, hs.expect("GET", "/api/free", oksanaApp, "", 200))
+	if home.Open == nil || *home.Open != g.ID {
+		t.Fatalf("the site's game in the app: %+v", home)
+	}
+	for n := 1; n <= 3; n++ {
+		hs.siteExpect("POST", fmt.Sprintf("/api/free/solo/%d/start", g.ID), oksana, fmt.Sprintf(`{"n":%d}`, n), 200)
+		hs.siteExpect("POST", fmt.Sprintf("/api/free/solo/%d/guess", g.ID), oksana, fmt.Sprintf(`{"n":%d,"lat":48.85,"lon":2.35}`, n), 200)
+	}
+	var results int
+	if err := hs.pool.QueryRow(ctx, `SELECT count(*) FROM maply.free_result WHERE user_id = 1`).Scan(&results); err != nil || results != 1 {
+		t.Fatalf("her record from the site: %d %v", results, err)
+	}
+	if home := decode[free.Home](t, hs.siteExpect("GET", "/api/free", oksana, "", 200)); len(home.Best) != 1 {
+		t.Fatalf("her records on the site: %+v", home)
+	}
+
+	// With friends: her lobby from the site, under her name from core; the
+	// invitation is the link, since the site has no shareMessage.
+	lobby := decode[free.PartyView](t, hs.siteExpect("POST", "/api/party", oksana, `{"mode":"classic","seconds":60,"rounds":3}`, 200))
+	if lobby.Members[0].Name != "Oksana" {
+		t.Fatalf("her name in the lobby: %+v", lobby.Members)
+	}
+	inv := decode[map[string]string](t, hs.siteExpect("POST", "/api/party/"+lobby.Code+"/invite", oksana, "", 200))
+	if inv["id"] != "" || !strings.HasSuffix(inv["link"], "startapp=p"+lobby.Code) {
+		t.Fatalf("the site's invitation: %+v", inv)
+	}
+	ivan := initData(2, "Ivan", "ru", "p"+lobby.Code)
+	if v := decode[free.PartyView](t, hs.expect("POST", "/api/party/"+lobby.Code+"/join", ivan, "", 200)); len(v.Members) != 2 {
+		t.Fatalf("ivan joins her: %+v", v.Members)
+	}
+	if v := decode[free.PartyView](t, hs.expect("GET", "/api/party/"+lobby.Code, oksanaApp, "", 200)); v.Me != 1 {
+		t.Fatalf("the app sees her in the site's lobby: %+v", v)
+	}
+	// Only maply's own page asks with her cookie.
+	hs.siteExpect("POST", "/api/free/solo", oksana, `{"mode":"classic","seconds":0,"rounds":3}`, http.StatusUnsupportedMediaType, "Content-Type", "text/plain")
+	hs.siteExpect("GET", "/api/party/"+lobby.Code, oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", "cross-site")
+	if presence() != before {
+		t.Fatal("free play on the site wrote her presence")
+	}
+
+	// Google alone: alone, as the account's site player, in any browser.
+	hs.googleSignIn("google-sub-1", strings.Repeat("g", 43))
+	hs.googleSignIn("google-sub-1", strings.Repeat("h", 43))
+	first, second := strings.Repeat("g", 43), strings.Repeat("h", 43)
+	if body := hs.siteExpect("POST", "/api/party", first, `{"mode":"classic","seconds":60,"rounds":3}`, http.StatusForbidden); !strings.Contains(body, "telegram_only") {
+		t.Fatalf("google party: %s", body)
+	}
+	gg := decode[free.SoloView](t, hs.siteExpect("POST", "/api/free/solo", first, `{"mode":"classic","seconds":0,"rounds":3}`, 200))
+	if home := decode[free.Home](t, hs.siteExpect("GET", "/api/free", second, "", 200)); home.Open == nil || *home.Open != gg.ID || len(home.Best) != 0 {
+		t.Fatalf("the account's game in another browser: %+v", home)
+	}
 }
