@@ -124,8 +124,16 @@ For the operator:
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
   the screen the address names. `/days` opens the days and `/days/<n>` (or
   the day's date) a closed day, so a day can be linked and Back in the browser closes it. An
-  address without a screen yet shows today. In Telegram the address changes
+  address without a screen shows the menu. In Telegram the address changes
   without adding history, so Back stays Telegram's.
+- A menu at `/`. The day comes first and largest, with its picture: Play,
+  the answer sent and the clock to the result, or the player's own score and
+  world place. Beside it are the free game's modes, Classic, Blitz, Country
+  streak, Against the clock, the archive and With friends, in the day's
+  green with "no place in the world" over them, and under them the days,
+  the leaderboards and the profile. The day itself is at `/today`. A post's
+  button opens the day as before; the bot's menu button and `/start` open
+  the menu, and so does the logo. A phone gets the menu in one column.
 - Sign-in on the site with Telegram or Google, through our server by OpenID
   Connect with PKCE. Signed in with Telegram, the site is the bot's player:
   one answer a day across both, the DM's deadline with the speed bonus, the
@@ -162,8 +170,8 @@ For the operator:
 - The country flags come from `country-flag-icons` 1.6.20, served by the
   service.
 
-- Free play, outside the day's ranking, at `/play`: from the DM's `/start`
-  panel and from the top of the days. Alone it is a Classic of 3, 5 or 10
+- Free play, outside the day's ranking, at `/play`: from the menu and the
+  DM's `/start` panel. Alone it is a Classic of 3, 5 or 10
   places on Blitz 30, 60, 90 or 120 s or no timer, or a Country streak on 30
   or 60 s that goes on while the country is right; the screen starts on the
   last game's settings, shows each place after the answer and ends with the
@@ -184,8 +192,11 @@ For the operator:
   panorama fills the screen and the map opens beside it as a panel, on hover, a
   click or M, in three sizes; after answering the map fills the screen and the
   score, the world's table and the buttons are in a sidebar. A header links
-  Today, Days and Free play. On a tablet the phone's layout gets a bigger globe
-  and centred buttons. The phone's layout is unchanged.
+  Play (the menu), Days and Leaderboards, with the profile or Sign in at its
+  end. The menu, the days, the profile and the leaderboards are pages up to
+  1440 px wide, in columns where numbers and tables do not wrap. On a tablet
+  the phone's layout gets a bigger globe and centred buttons. The phone's
+  layout is unchanged apart from the menu.
 - Keys: the arrows or WASD turn the panorama, + and − zoom it, Space drops a pin
   on the focused map, Enter answers, Esc folds the map, ? lists the keys. Hints
   follow the pointer, so a mouse is no longer told to use a finger.
@@ -210,6 +221,11 @@ For the operator:
 - The days page reads a page of thirty days in one query instead of about
   sixty, and pages back by a cursor to the first day.
 - A day's row no longer shows the group's numbers beside the world's.
+- A DM post's button opens `/today`. A post sent before this version opens
+  the app at `/`, which is now the menu, one tap from the day. In Telegram,
+  Back on the page the app opened with goes to the menu, and the menu has
+  none, so Telegram closes the app from there.
+- The free play card at the top of the days is gone: the menu leads there.
 
 ### Fixed
 
@@ -222,6 +238,12 @@ For the operator:
   occupied Luhansk, which its rules let through, and a plan no longer dies
   or spins when every country is used up. `screen.py` checks a frame outside
   every outline by its plan's country instead of letting it pass.
+- The result's pin, target and the others' marks stood off their points, up
+  to 40 px from the dashed line on a computer, after the map opened straight
+  on a city. They are set again once the camera stops.
+- A click or a double click on the computer's map panel while it was opening
+  left the globe small in the panel's corner. Once the camera stops, the
+  globe comes back to the middle at its size, closer if the player zoomed in.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

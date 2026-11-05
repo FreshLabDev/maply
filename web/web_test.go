@@ -60,7 +60,7 @@ func TestVendorIsImmutable(t *testing.T) {
 // hashed scripts as "/".
 func TestPages(t *testing.T) {
 	index := serve(t, "/", nil)
-	for _, p := range []string{"/days", "/days/", "/days/2026-11-04", "/days/14", "/me", "/play", "/party/K7QF"} {
+	for _, p := range []string{"/today", "/days", "/days/", "/days/2026-11-04", "/days/14", "/top", "/me", "/play", "/party/K7QF"} {
 		rec := serve(t, p, nil)
 		if rec.Code != http.StatusOK || rec.Body.String() != index.Body.String() || rec.Header().Get("Content-Security-Policy") != CSP ||
 			rec.Header().Get("ETag") != index.Header().Get("ETag") {

@@ -172,8 +172,8 @@ function retryLoading() {
 }
 $("loader").addEventListener("click", retryLoading);
 addEventListener("online", retryLoading);
-// On a phone the logo opens the days; on a computer the header has links, and the logo goes home.
-$("logo").addEventListener("click", () => Router.go(Desk.on ? "/" : "/days"));
+// The logo opens the menu, on a phone as on a computer.
+$("logo").addEventListener("click", () => Router.go("/"));
 
 /* ---------- Countdown ---------- */
 // Before the answer the timer runs to the deadline: the earliest reveal among the person's chats. After it, to the reveal
@@ -271,8 +271,11 @@ $("map").inert = true;
 $("globeHit").addEventListener("click", toMap);
 // On a phone the button shows only over the map; in the computer's side panel it swaps the map and the panorama.
 $("look").addEventListener("click", () => view === "map" ? toPhoto() : toMap());
-// Over the free game the Back button is the free game's own.
-if (tgAt("6.1")) tg.BackButton.onClick(() => document.body.classList.contains("is-free") ? null : document.body.classList.contains("is-sheet") ? $("shBack").click() : toPhoto());
+// Over the free game the Back button is the free game's own. In the day it goes from the map to the photo, and from
+// the photo to the menu; on any other page to the page before.
+const mapBack = () => view === "map" && !(Desk.on && state === "guess");
+if (tgAt("6.1")) tg.BackButton.onClick(() => document.body.classList.contains("is-free") ? null : document.body.classList.contains("is-sheet") ? $("shBack").click()
+  : Router.current === "today" && mapBack() ? toPhoto() : Router.back("/"));
 // Splits the bottom strip into two buttons or merges it back into one.
 // The left button label depends on the stage: before the answer it invites a closer look, after the answer simply to enjoy.
 const LOOK = { guess: ["look_more", "look"], wait: ["admire", "admire"], reveal: ["walk", "walk"] };
@@ -300,8 +303,9 @@ function setCall(b, sub) {
 }
 
 // globe.js draws the globe, the pin and the answer; the layout above says where the small globe stands and what the
-// plates cover. The small globe turns only once the loading screen is gone.
-const globe = createGlobe({ el: $("map"), lang: LANG0, mini: miniAt, insets: reserve, haptic, spin: () => $("loader").classList.contains("gone") });
+// plates cover. The small globe turns only once the loading screen is gone, and not under the menu.
+const globe = createGlobe({ el: $("map"), lang: LANG0, mini: miniAt, insets: reserve, haptic,
+  spin: () => $("loader").classList.contains("gone") && !document.body.classList.contains("is-page") });
 // A tap beside the globe, in the void around it, returns to the photo. In the computer's panel the void is the
 // panel's own water, and a click there is a miss, not a way out.
 globe.on("beside", () => { if (!Desk.on) toPhoto(); });
@@ -832,11 +836,16 @@ function sheet(title, html, back, close) {
 }
 // While the sheet is open the page behind it is out of reach: Tab and a screen reader stay in the dialog.
 // On a computer the sheet is a page under the header, and the header's links stay in reach. The folded map stays out.
+// A sheet over one of menu.js's pages (a mini profile over the leaderboards) gives the page back, the game still out.
 function behindSheet(on) {
-  for (const e of document.body.children) if (e.id !== "sheet" && e.id !== "toast" && e.tagName !== "SCRIPT") e.inert = on && !(Desk.on && e.classList.contains("top"));
+  const page = document.querySelector(".pg.on");
+  for (const e of document.body.children) {
+    if (e.id === "sheet" || e.id === "toast" || e.tagName === "SCRIPT") continue;
+    e.inert = on ? !(Desk.on && e.classList.contains("top")) : !!page && e !== page && !e.classList.contains("top");
+  }
   // On a computer the header stays usable beside the sheet, so the sheet is not modal there.
   $("sheet").setAttribute("aria-modal", String(!Desk.on));
-  if (!on) $("map").inert = view === "photo";
+  if (!on && !page) $("map").inert = view === "photo";
 }
 function closeDays() {
   SHEET++;
@@ -846,8 +855,9 @@ function closeDays() {
 }
 // Escape is the sheet's own back button: from a day to the days, from the days out.
 addEventListener("keydown", (e) => { if (e.key === "Escape" && $("sheet").classList.contains("on")) { e.preventDefault(); $("shBack").click(); } });
-// The game is the page under every other: today has nothing of its own to open or close. The days are days.js's.
-Router.screen("today", /^\/(?:index\.html)?$/, { open() {}, nav: { href: "/", t: "desk.today", at: 1 } });
+// The day is /today, the page under every other: it has nothing of its own to open or close, only Telegram's Back,
+// which leads from it to the menu. The menu is menu.js's, the days days.js's.
+Router.screen("today", /^\/today$/, { open() { syncBack(); } });
 
 // The window crossed into the computer's layout or out of it: the same state, laid out again. The plates have moved
 // already; the map's box changed its place, so the camera starts over in it.
@@ -885,6 +895,9 @@ async function boot() {
   if (TODAY.lang && (TODAY.lang !== LANG || !textsLoaded)) { await loadTexts(TODAY.lang).catch(() => {}); setCall(T("where"), T("drop_pin")); }
   // The words are final now: the computer's header and keys can be written, and the page the address names can open.
   Desk.start({ view: () => view, state: () => state, open: toMap, close: toPhoto, pin: (lngLat, point) => { if (state === "guess") putPin(lngLat, point); }, globe, pano });
+  // A group's post opens the app with its signed payload and no address of its own: that is the day, not the menu.
+  // A DM's post names /today itself; the bot's menu button and /start open the menu.
+  if (!Router.current && inTg && tg.initDataUnsafe.start_param && /^\/(?:index\.html)?$/.test(location.pathname)) Router.go("/today", { replace: true });
   Router.start();
   // The answer's bar says what it waits for: on a phone it is folded, in the computer's panel it is dimmed.
   if (state === "guess") split(false);

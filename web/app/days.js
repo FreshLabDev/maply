@@ -83,7 +83,6 @@ function showDays() {
   let html = '<div class="days" id="days"><div class="dl" id="dList">';
   if (SITE) html += '<label class="sh-name"><span class="up">' + esc(T("your_name")) + '</span><input id="shName" lang="' + nameLang() + '" maxlength="24" autocomplete="nickname" placeholder="' + esc(T("guest")) + '" value="' + esc(siteName()) + '"></label>';
   if (typeof accountEntry === "function") html += accountEntry();
-  if (window.Free) html += Free.entry();
   if (!DAYS.days.length) html += '<p class="sh-wait">' + esc(T("no_days")) + '</p>';
   html += '<div id="dRows">' + rows(DAYS.days, null) + '</div>';
   if (DAYS.next) html += '<p class="dmore up" id="dMore">' + esc(lines("loading")[0]) + '</p>';
@@ -158,7 +157,7 @@ function openRow(d) {
 }
 
 function onRow(e) {
-  if (e.target.closest("[data-play]")) { haptic("light"); Router.go("/"); return; }
+  if (e.target.closest("[data-play]")) { haptic("light"); Router.go("/today"); return; }
   const b = e.target.closest(".dr[data-n]");
   // A wide screen keeps the list in view, so the days tapped there are one page: × leaves them, not the day before.
   if (b) Router.go("/days/" + b.dataset.n, { replace: wide() });
