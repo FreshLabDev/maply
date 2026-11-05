@@ -396,7 +396,7 @@ window.addEventListener("message", (e) => {
     case "web_app_exit_fullscreen": return setFull(false);
     case "web_app_open_link": return window.open(d.url, "_blank", "noopener");
     case "web_app_open_tg_link": return post("/dev/tg/link", { chat, user: frameUser, url: "https://t.me" + d.path_full, platform }).then((res) => { if (res.open || res.switch) closeApp(); act(res); });
-    case "web_app_share_message": return shareMessage(d.msg_id);
+    case "web_app_send_prepared_message": return shareMessage(d.id);
     case "web_app_trigger_haptic_feedback": return;
     case "web_app_ready": return;
   }
