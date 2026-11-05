@@ -160,10 +160,12 @@ the diff looks like.
   ticket links Google but never merges two accounts.
 - A name typed on the site is not checked: bot posts call that player "Guest".
   The site's write endpoints take only JSON from maply's own pages.
-- A profile shows its owner every scored day, today's too; anyone else, and
-  a site guest looking at their own, gets only days over in every zone
-  (`profile.LatestClosed`), with no pins, history or answer times. A world
-  place and the percentile count only days over everywhere. A mini profile
+- A profile shows its owner every scored day, today's too, signed in on
+  the site with Telegram as well; anyone else, and a site guest or an
+  account without Telegram looking at their own, gets only days over in
+  every zone (`profile.LatestClosed`), with no pins, history or answer
+  times. A world place and the percentile count only days over everywhere.
+  A mini profile
   opens by an opaque handle (`profile.Handles`) that the server puts only
   next to a name it already shows, never on an anonymous row, so a handle
   cannot name a row before its reveal. The photo goes out only inside a

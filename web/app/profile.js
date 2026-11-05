@@ -16,7 +16,8 @@ meLetter();
 // The profile is the page /me and a public profile /p/<slug>: the letter goes to /me, and × goes back to the page before.
 $("meBtn").addEventListener("click", () => Router.go("/me"));
 const leavePage = () => Router.back("/");
-Router.screen("me", /^\/me$/, { open() { openProfile(); }, close() { closeDays(); } });
+// Back from a day comes to the profile where it was; any other way in starts at the top.
+Router.screen("me", /^\/me$/, { open(m, from) { if (from !== "days") PROF_AT = null; openProfile(); }, close() { closeDays(); } });
 Router.screen("p", /^\/p\/([\w-]+)$/, { open(m) { openPublic(m[1]); }, close() { closeDays(); } });
 
 // A sheet put aside to come back to: its own nodes, so whatever it bound keeps working, and where it was scrolled.
@@ -44,7 +45,10 @@ const backTo = (saved) => saved ? () => restoreSheet(saved) : null;
 
 const wait = () => '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>';
 
+// From the router, or from a mini profile that is the viewer's own, over the sheet it came from. Anything else, the
+// avatar's menu say, goes through the address.
 async function openProfile(saved) {
+  if (!saved && Router.current !== "me") { Router.go("/me"); return; }
   haptic("light");
   saved = saved || null;
   const ticket = sheet(esc(T("prof.title")), wait(), backTo(saved), leavePage);
@@ -58,6 +62,7 @@ async function openProfile(saved) {
   PROF = Object.assign(d, { saved });
   if (d.name) meLetter(d.name);
   showProfile();
+  profileAt();
 }
 
 function showProfile() { drawProfile(PROF, backTo(PROF.saved), "profile"); }
@@ -68,17 +73,17 @@ function drawProfile(d, back, kind) {
   $("sheet").querySelectorAll(".ptabs button").forEach((b) => { b.onclick = () => { haptic("select"); setTab(b.dataset.tab); }; });
   $("sheet").querySelector(".ptabs").onkeydown = tabKey;
   const signIn = $("profSignIn");
-  if (signIn) signIn.onclick = () => openSignIn();
+  if (signIn) signIn.onclick = () => acctDialog();
   setTab(PROF_TAB, true);
 }
 
 function cardHTML(d) {
-  const name = d.name || (d.guest ? T("guest") : "");
+  const name = d.name || (d.guest ? T("guest") : d.site ? T("acct.google_account") : "");
   let h = '<div class="pcard">' + av(name || "?", true) + '<div><b lang="' + nameLang() + '" dir="auto">' + esc(name) + '</b>' +
-    '<span class="up">' + esc(T(d.guest ? "from_site" : "from_tg")) + '</span></div></div>';
+    '<span class="up">' + esc(T(d.guest || d.site ? "from_site" : "from_tg")) + '</span></div></div>';
   if (d.guest) {
-    // The account menu comes from the accounts screen; until it is there the note stands alone.
-    const btn = typeof openSignIn === "function" ? '<button class="pbtn" id="profSignIn">' + esc(T("prof.sign_in")) + '</button>' : "";
+    // The sign-in comes from the accounts' dialog; a site without accounts has the note alone.
+    const btn = typeof acctDialog === "function" && typeof ME !== "undefined" && ME ? '<button class="pbtn" id="profSignIn">' + esc(T("prof.sign_in")) + '</button>' : "";
     h += '<div class="pnote"><p>' + esc(T("prof.guest_note")) + '</p>' + btn + '</div>';
   }
   return h;
@@ -123,17 +128,17 @@ const tile = (label, value, sub, cls) => '<div class="pt' + (cls ? " " + cls : "
 const none = "–";
 // The same percent the translations write, "47%", "47 %" or "%47", and not Intl's, which differs from them in ru, uk, es.
 const profPct = (n) => T("prof.pct", { pct: fmt(n) });
-const dayLink = (day, date) => '#' + fmt(day) + ' · ' + esc(dayDate(date));
+const profDate = (iso) => { try { return new Intl.DateTimeFormat(numLang(), { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(iso + "T00:00:00Z")); } catch { return iso; } };
+const dayLink = (day, date) => '#' + fmt(day) + ' · ' + esc(profDate(date));
 const placeOf = (p) => esc(T("prof.place_of", { rank: fmt(p.rank), of: fmt(p.of) }));
-// A flag from the country code. Windows draws no flag emoji, so there the code stands in a box.
-const NO_FLAGS = /Windows/.test(navigator.userAgent);
-const profFlag = (iso) => !iso ? "" : NO_FLAGS || !/^[A-Z]{2}$/.test(iso)
-  ? '<i class="pflag code">' + esc(iso) + '</i>'
-  : '<i class="pflag" aria-hidden="true">' + String.fromCodePoint(...[...iso].map((c) => 0x1F1A5 + c.charCodeAt(0))) + '</i>';
+// A flag from the files the days page uses (days.js), the same on every system; a code without a file is its letters.
+const profFlag = (iso) => !iso ? "" : typeof FLAGS !== "undefined" && FLAGS.has(iso)
+  ? '<img class="pflag" src="' + FLAG_DIR + iso + '.svg" alt="">'
+  : '<i class="pflag code">' + esc(iso) + '</i>';
 
 function rankedHTML(d) {
   const r = d.ranked;
-  if (!r.days) return '<p class="sh-wait">' + esc(T(d.guest || d.pub ? "prof.no_days_guest" : "prof.no_days")) + '</p>' + settingsHTML(d);
+  if (!r.days) return '<p class="sh-wait">' + esc(T(d.guest || d.site || d.pub ? "prof.no_days_guest" : "prof.no_days")) + '</p>' + settingsHTML(d);
   let h = '';
   if (r.percentile != null) h += '<div class="pbig"><b>' + esc(T("prof.better", { pct: fmt(r.percentile) })) + '</b><span>' + esc(T("prof.better_note")) + '</span></div>';
   h += '<div class="ptiles">' +
@@ -167,7 +172,7 @@ const section = (title, body, cls) => '<section class="psec' + (cls ? " " + cls 
 
 function bindRanked(box) {
   box.querySelectorAll("[data-date]").forEach((e) => {
-    const go = () => openDayFrom(e.dataset.date);
+    const go = () => openDayFrom(e.dataset.date, e.tagName.toLowerCase());
     e.addEventListener("click", go);
     if (e.tagName !== "BUTTON") e.addEventListener("keydown", (k) => { if (k.key === "Enter" || k.key === " ") { k.preventDefault(); go(); } });
   });
@@ -182,9 +187,21 @@ function bindSettings() {
   if ($("pubCopy")) $("pubCopy").onclick = copyPublic;
 }
 
-// A closed day's page, by its address: on the site Back comes back to the profile. Only a day over everywhere has one.
-function openDayFrom(date) {
+// A closed day's page, by its address; its Back comes back to the profile, where it was, with the focus on what was
+// tapped: the row or the pin. Only a day over everywhere has one.
+let PROF_AT = null;
+function openDayFrom(date, tag) {
+  const body = $("sheet").querySelector(".sh-body");
+  PROF_AT = { date, tag, scroll: body ? body.scrollTop : 0 };
   Router.go("/days/" + date);
+}
+function profileAt() {
+  const at = PROF_AT, body = $("sheet").querySelector(".sh-body");
+  PROF_AT = null;
+  if (!at || !body || PROF_TAB !== "ranked") return;
+  body.scrollTop = at.scroll;
+  const el = body.querySelector(at.tag + '[data-date="' + at.date + '"]');
+  if (el) el.focus({ preventScroll: true });
 }
 
 /* ---------- Charts ---------- */
@@ -383,8 +400,11 @@ function redrawSettings(focus) {
   const to = focus && $(focus);
   if (to) to.focus({ preventScroll: true });
 }
+// The accounts page opens over the profile, and its Back brings the profile back as it was: the address stays /me.
 document.addEventListener("click", (e) => {
-  if (e.target.closest("#profAccounts") && typeof openAccounts === "function") openAccounts();
+  if (!e.target.closest("#profAccounts") || typeof openAccounts !== "function") return;
+  const saved = keepSheet();
+  openAccounts(() => restoreSheet(saved));
 });
 
 /* ---------- Public page ---------- */

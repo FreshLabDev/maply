@@ -76,15 +76,19 @@ func (s *Server) handles() *profile.Handles {
 }
 
 // profileViewer is who opens a profile: a Telegram player from the Mini App,
-// with the group it was opened from, or a site visitor by the cookie.
+// with the group it was opened from, or from the site signed in with
+// Telegram; a site account without Telegram; or a guest by the cookie.
 type profileViewer struct {
-	user   int64
-	name   string
-	person tg.User
-	player string
-	chatID int64
-	zone   *time.Location
-	lang   string
+	user int64
+	name string
+	// person is the Mini App's Telegram user, for core.touch_person; empty
+	// on the site, where the sign-in has already recorded the person.
+	person  tg.User
+	account string
+	player  string
+	chatID  int64
+	zone    *time.Location
+	lang    string
 }
 
 func (s *Server) profileViewer(r *http.Request) (profileViewer, error) {
@@ -97,14 +101,23 @@ func (s *Server) profileViewer(r *http.Request) (profileViewer, error) {
 			Username: p.user.Username, LanguageCode: p.user.LanguageCode}
 		return profileViewer{user: p.user.ID, name: p.user.FirstName, person: person, chatID: p.chatID, zone: p.zone, lang: p.lang}, nil
 	}
+	sv := s.siteViewer(r)
+	if sv.TelegramUserID != 0 {
+		// The site signed in with Telegram is that Telegram player, from
+		// their DM: its zone and language, and only maply's own page may
+		// ask, as the session is a cookie.
+		p, err := s.resolveSite(r, sv)
+		if err != nil {
+			return profileViewer{}, err
+		}
+		return profileViewer{user: sv.TelegramUserID, zone: p.zone, lang: p.lang}, nil
+	}
 	// Anyone may read a profile without signing in: by address, and all of
 	// them together.
 	if !s.ipLimit.allowIP(clientIP(r)) || !s.profAll.allowKey("") {
 		return profileViewer{}, errRateLimited
 	}
-	// When accounts land, a signed-in visitor's Telegram id comes from the
-	// request here; until then the site has only the cookie's player.
-	return profileViewer{player: playerID(r), lang: i18n.Resolve(r.URL.Query().Get("lang"))}, nil
+	return profileViewer{account: sv.AccountID, player: sv.Player, lang: i18n.Resolve(r.URL.Query().Get("lang"))}, nil
 }
 
 func (s *Server) closedAt(now time.Time) func(round.Date) bool {
@@ -115,7 +128,10 @@ type ownProfile struct {
 	Name string `json:"name"`
 	// Guest is a site player known only by the cookie: clearing it loses the
 	// history, so the page says to sign in.
-	Guest    bool            `json:"guest,omitempty"`
+	Guest bool `json:"guest,omitempty"`
+	// Site is a profile of the site's game, a guest's or an account's
+	// without Telegram: days over everywhere, no speed bonus, no settings.
+	Site     bool            `json:"site,omitempty"`
 	Ranked   profile.Ranked  `json:"ranked"`
 	Free     *profile.Free   `json:"free"`
 	Settings *profileSetting `json:"settings,omitempty"`
@@ -279,20 +295,28 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 		out.Free = s.free(ctx, ps, v.user)
 		out.Season = s.season(ctx, ps, v, now)
 	default:
-		// A site player sees what the site shows: days over everywhere.
-		out.Guest = true
+		// A site player sees what the site shows: days over everywhere. An
+		// account keeps its days across browsers; a guest has the cookie's.
+		out.Site, out.Guest = true, v.account == ""
 		upTo := profile.LatestClosed(s.Zones, now)
-		if v.player == "" {
+		who := db.Who{Account: v.account, Player: v.player}
+		if v.account != "" {
+			who.Player = ""
+		}
+		if who == (db.Who{}) {
 			out.Ranked = profile.Rank(profile.Input{Ref: upTo, Closed: s.closedAt(now)})
 			break
 		}
-		if out.Ranked, err = s.ranked(ctx, ps, rankedAsk{who: db.Who{Player: v.player}, upTo: upTo, history: true, percentile: true}, v.lang); err != nil {
+		if out.Ranked, err = s.ranked(ctx, ps, rankedAsk{who: who, upTo: upTo, history: true, percentile: true}, v.lang); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		if out.Name, err = s.Store.SiteName(ctx, v.player); err != nil {
-			s.fail(w, r, err)
-			return
+		// An account's site players share one name: the main one's.
+		if v.player != "" {
+			if out.Name, err = s.Store.SiteName(ctx, v.player); err != nil {
+				s.fail(w, r, err)
+				return
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -421,8 +445,7 @@ func (s *Server) profileSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	// The setting refers to the person in core, who may not be there yet.
-	if err := ps.TouchPerson(ctx, v.person); err != nil {
+	if err := s.touchProfile(ctx, ps, v); err != nil {
 		s.fail(w, r, err)
 		return
 	}
@@ -436,6 +459,16 @@ func (s *Server) profileSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, settingView(set))
+}
+
+// touchProfile records the person in core before a setting that refers to
+// them. From the site the Telegram sign-in already has, and the site writes
+// nothing to core.
+func (s *Server) touchProfile(ctx context.Context, ps ProfileStore, v profileViewer) error {
+	if v.person.ID == 0 {
+		return nil
+	}
+	return ps.TouchPerson(ctx, v.person)
 }
 
 // tgPlayer is what the site's tables call a player who hid themselves.
