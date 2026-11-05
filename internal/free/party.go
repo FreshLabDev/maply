@@ -130,7 +130,7 @@ func (s *Service) load(ctx context.Context, id int64) (*party, error) {
 	if err != nil {
 		return nil, err
 	}
-	if snap.Game.Kind == Solo {
+	if alone(snap.Game.Kind) {
 		return nil, ErrNotFound
 	}
 	s.mu.Lock()

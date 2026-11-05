@@ -148,7 +148,9 @@ func (s *Service) score(p Place, set Settings, r Round, g Guess) Guess {
 	}
 	sc := s.judge(p, *g.Pin)
 	g.Km, g.PtsKm, g.PtsBonus, g.CountryOK = sc.Km, sc.Distance, sc.Bonus, sc.Match.Country
-	if r.EndsAt != nil {
+	// Against the clock the whole game is the race: no place earns a bonus
+	// for its speed.
+	if r.EndsAt != nil && set.Mode != Timed {
 		g.PtsSpeed = Speed(set.Seconds, *r.EndsAt, g.AnsweredAt, g.PtsKm, g.Auto)
 	}
 	return g
@@ -174,7 +176,7 @@ func results(snap *Snapshot, at time.Time) []Result {
 			continue
 		}
 		r := Result{Line: l, UserID: m.Who.UserID, Kind: snap.Game.Kind, Settings: snap.Game.Settings, At: at}
-		if snap.Game.Kind != Solo {
+		if !alone(snap.Game.Kind) {
 			r.Place, r.Players, r.Beaten = l.Rank, len(lines), l.Beaten
 		}
 		out = append(out, r)
@@ -291,7 +293,7 @@ func ValidCode(s string) bool {
 // create makes a game, drawing a new party code if one is taken.
 func (s *Service) create(ctx context.Context, g NewGame) (int64, error) {
 	for i := 0; ; i++ {
-		if g.Kind != Solo {
+		if !alone(g.Kind) {
 			g.Code = newCode()
 		}
 		id, err := s.Store.CreateFreeGame(ctx, g)
@@ -332,7 +334,7 @@ func (s *Service) sweep(ctx context.Context, id int64, now time.Time) (err error
 	if err != nil {
 		return err
 	}
-	if snap.Game.Kind == Solo {
+	if alone(snap.Game.Kind) {
 		unlock := s.lockSolo(id)
 		defer unlock()
 		_, err = s.settle(ctx, &snap, now)

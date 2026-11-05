@@ -67,7 +67,8 @@ func (f *standFree) mount(e *Env, mux *http.ServeMux) {
 		e.back(w, r, f.addBots(code, max(1, min(n, 7))))
 	})
 	// /dev/free/invite?user=1002&code=K7QF2MXA opens the invitation as that
-	// person, as the button under the prepared message does.
+	// person, as the button under the prepared message does; with
+	// &challenge=1 the invitation is a challenge's.
 	mux.HandleFunc("GET /dev/free/invite", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		id, _ := strconv.ParseInt(q.Get("user"), 10, 64)
@@ -77,7 +78,11 @@ func (f *standFree) mount(e *Env, mux *http.ServeMux) {
 			http.Error(w, "no such player or code", http.StatusBadRequest)
 			return
 		}
-		http.Redirect(w, r, e.LaunchWith(p, 0, "sender", free.InvitePrefix+code, q.Get("platform"), "/"), http.StatusFound)
+		prefix := free.InvitePrefix
+		if q.Get("challenge") != "" {
+			prefix = free.ChallengePrefix
+		}
+		http.Redirect(w, r, e.LaunchWith(p, 0, "sender", prefix+code, q.Get("platform"), "/"), http.StatusFound)
 	})
 }
 
