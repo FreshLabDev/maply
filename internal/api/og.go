@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/draw"
 	"image/jpeg"
 	"net/http"
 	"os"
@@ -29,8 +30,12 @@ import (
 // page and /og/ answers 404, the same as for a day that never was.
 
 // ogKept is how many cards stay drawn in memory. A card is a day in one
-// language, about 120 KB; Cloudflare keeps the rest.
-const ogKept = 48
+// language, about 90 KB; Cloudflare keeps the rest.
+const ogKept = 96
+
+// ogWait is how long a request waits for its turn to draw: a link's crawler
+// gives up after a few seconds anyway.
+const ogWait = 5 * time.Second
 
 // ogName is a card's file: the day's number and the language of its words.
 var ogName = regexp.MustCompile(`^([1-9][0-9]{0,5})-([a-z]{2})\.jpg$`)
@@ -44,6 +49,10 @@ var dayPath = regexp.MustCompile(`^/days/([1-9][0-9]{0,5})$`)
 func (s *Server) PageMeta(r *http.Request, path string) (web.Meta, bool) {
 	m := dayPath.FindStringSubmatch(path)
 	if m == nil || s.AppURL == "" {
+		return web.Meta{}, false
+	}
+	// Past the limit the page is the plain app: the preview reads the day.
+	if !s.metaLimit.allowIP(clientIP(r)) {
 		return web.Meta{}, false
 	}
 	n, _ := strconv.Atoi(m[1])
@@ -176,31 +185,19 @@ func (s *Server) og(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	key := m[1] + "-" + lang
-	s.ogMu.Lock()
-	data, ok := s.ogs[key]
-	s.ogMu.Unlock()
-	if !ok {
-		// One card is drawn at a time: a panorama decoded takes 32 MB.
-		select {
-		case s.ogTurn <- struct{}{}:
-		case <-r.Context().Done():
-			return
-		}
-		data, err = s.drawCard(n, lang, c)
-		<-s.ogTurn
-		if err != nil {
+	data, err := s.card(r.Context(), m[1]+"-"+lang, n, lang, c)
+	if errors.Is(err, errBusy) {
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "busy", http.StatusServiceUnavailable)
+		return
+	}
+	if err != nil {
+		if r.Context().Err() == nil {
 			// The error names the image by its random key at most.
 			s.Log.Warn("day card not drawn", "day", n, "error", err)
 			http.NotFound(w, r)
-			return
 		}
-		s.ogMu.Lock()
-		if s.ogs == nil || len(s.ogs) >= ogKept {
-			s.ogs = map[string][]byte{}
-		}
-		s.ogs[key] = data
-		s.ogMu.Unlock()
+		return
 	}
 	h := w.Header()
 	h.Set("Content-Type", "image/jpeg")
@@ -208,6 +205,59 @@ func (s *Server) og(w http.ResponseWriter, r *http.Request) {
 	// A closed day's numbers stay; the drawing may change with a release.
 	h.Set("Cache-Control", "public, max-age=86400")
 	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
+}
+
+// errBusy is a card that would be drawn past the limit of all cards.
+var errBusy = errors.New("cards busy")
+
+// card is the day's card under key, kept or drawn. One card is drawn at a
+// time: a panorama decoded and projected takes about 150 MB and a second of
+// a core, so the cards drawn by everyone together are limited too, not only
+// per address, and one kept in the meantime is not drawn again.
+func (s *Server) card(ctx context.Context, key string, n int, lang string, c closedDay) ([]byte, error) {
+	kept := func() ([]byte, bool) {
+		s.ogMu.Lock()
+		defer s.ogMu.Unlock()
+		data, ok := s.ogs[key]
+		return data, ok
+	}
+	if data, ok := kept(); ok {
+		return data, nil
+	}
+	wait, cancel := context.WithTimeout(ctx, ogWait)
+	defer cancel()
+	select {
+	case s.ogTurn <- struct{}{}:
+	case <-wait.Done():
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, errBusy
+	}
+	defer func() { <-s.ogTurn }()
+	if data, ok := kept(); ok {
+		return data, nil
+	}
+	if !s.ogAll.allowKey("all") {
+		return nil, errBusy
+	}
+	data, err := s.drawCard(n, lang, c)
+	if err != nil {
+		return nil, err
+	}
+	s.ogMu.Lock()
+	defer s.ogMu.Unlock()
+	if s.ogs == nil {
+		s.ogs = map[string][]byte{}
+	}
+	if len(s.ogs) >= ogKept {
+		for k := range s.ogs {
+			delete(s.ogs, k)
+			break
+		}
+	}
+	s.ogs[key] = data
+	return data, nil
 }
 
 // drawCard draws day n's card in lang from the day's picture.
@@ -222,10 +272,14 @@ func (s *Server) drawCard(n int, lang string, c closedDay) ([]byte, error) {
 		return nil, fmt.Errorf("image %s: %w", name, err)
 	}
 	defer f.Close()
-	img, _, err := image.Decode(f)
+	decoded, _, err := image.Decode(f)
 	if err != nil {
 		return nil, fmt.Errorf("decode: %w", err)
 	}
+	// Turned into RGBA once: Pick and View take it as it is.
+	b := decoded.Bounds()
+	img := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	draw.Draw(img, img.Rect, decoded, b.Min, draw.Src)
 	yaw := 0.0
 	if c.more.Kind == "panorama" && thumb.Pano(img) {
 		if c.more.Yaw != nil {

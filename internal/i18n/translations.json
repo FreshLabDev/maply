@@ -634,7 +634,7 @@
     "be": "★ лепшы",
     "ca": "★ el millor",
     "cs": "★ nejlepší",
-    "de": "★ bester",
+    "de": "★ bester Tag",
     "en": "★ best",
     "es": "★ el mejor",
     "fr": "★ le meilleur",
@@ -743,7 +743,7 @@
     "ca": "Mapa de respostes",
     "cs": "Mapa odpovědí",
     "de": "Karte der Antworten",
-    "en": "Answers map",
+    "en": "Map of answers",
     "es": "Mapa de respuestas",
     "fr": "Carte des réponses",
     "it": "Mappa delle risposte",
@@ -818,7 +818,7 @@
     "en": "There was no such day in maply.",
     "es": "Ese día no existe en maply.",
     "fr": "Ce jour n’existe pas dans maply.",
-    "it": "Questo giorno non c’è in maply.",
+    "it": "Questo giorno non esiste in maply.",
     "ja": "maply にその日はありません。",
     "pl": "Takiego dnia w maply nie było.",
     "ru": "Такого дня в maply не было.",
@@ -830,7 +830,7 @@
   "app.days.nobody": {
     "ar": "لم يلعب أحد",
     "be": "ніхто не гуляў",
-    "ca": "no hi ha jugat ningú",
+    "ca": "no ha jugat ningú",
     "cs": "nikdo nehrál",
     "de": "niemand hat gespielt",
     "en": "nobody played",
@@ -846,7 +846,7 @@
     "zh": "没有人参与"
   },
   "app.days.photo": {
-    "ar": "الصورة: {who}",
+    "ar": "تصوير: {who}",
     "be": "Фота: {who}",
     "ca": "Foto: {who}",
     "cs": "Foto: {who}",
@@ -879,24 +879,24 @@
     "sv": "Spela",
     "tr": "Oyna",
     "uk": "Грати",
-    "zh": "去玩"
+    "zh": "开始游戏"
   },
   "app.days.played": {
-    "ar": "لعب {n}",
-    "be": "гулялі {n}",
-    "ca": "han jugat {n}",
-    "cs": "hrálo {n}",
-    "de": "{n} gespielt",
+    "ar": "اللاعبون: {n}",
+    "be": "гульцоў: {n}",
+    "ca": "jugadors: {n}",
+    "cs": "hráčů: {n}",
+    "de": "{n} Spieler",
     "en": "{n} played",
-    "es": "jugaron {n}",
+    "es": "jugadores: {n}",
     "fr": "{n} ont joué",
-    "it": "hanno giocato in {n}",
+    "it": "giocatori: {n}",
     "ja": "{n}人がプレイ",
-    "pl": "grało {n}",
-    "ru": "играли {n}",
+    "pl": "graczy: {n}",
+    "ru": "игроков: {n}",
     "sv": "{n} spelade",
     "tr": "{n} kişi oynadı",
-    "uk": "грали {n}",
+    "uk": "гравців: {n}",
     "zh": "{n} 人参与"
   },
   "app.days.prev": {
@@ -933,7 +933,7 @@
     "sv": "#{rank} av {n}",
     "tr": "{n} kişiden {rank}.",
     "uk": "#{rank} з {n}",
-    "zh": "{n} 人中第 {rank}"
+    "zh": "{n} 人中第 {rank} 名"
   },
   "app.days.result_in": {
     "ar": "النتيجة بعد {time}",
@@ -958,7 +958,7 @@
     "be": "км, лепшы",
     "ca": "km, el millor",
     "cs": "km, nejlepší",
-    "de": "km, beste",
+    "de": "km, Bestwert",
     "en": "km, best",
     "es": "km, el mejor",
     "fr": "km, le meilleur",
@@ -974,13 +974,13 @@
   "app.days.t_country": {
     "ar": "وجدوا البلد",
     "be": "знайшлі краіну",
-    "ca": "han trobat el país",
+    "ca": "han encertat el país",
     "cs": "našlo zemi",
     "de": "fanden das Land",
     "en": "found the country",
     "es": "acertaron el país",
     "fr": "ont trouvé le pays",
-    "it": "hanno trovato il paese",
+    "it": "hanno indovinato il paese",
     "ja": "国を当てた",
     "pl": "trafiło w kraj",
     "ru": "нашли страну",
@@ -1012,7 +1012,7 @@
     "be": "гулялі",
     "ca": "han jugat",
     "cs": "hrálo",
-    "de": "gespielt",
+    "de": "Spieler",
     "en": "played",
     "es": "jugaron",
     "fr": "ont joué",
@@ -1021,7 +1021,7 @@
     "pl": "grało",
     "ru": "играли",
     "sv": "spelade",
-    "tr": "oynadı",
+    "tr": "kişi oynadı",
     "uk": "грали",
     "zh": "参与人数"
   },
@@ -1113,7 +1113,7 @@
     "sv": "Du · #{rank} av {n}",
     "tr": "Sen · {n} kişiden {rank}.",
     "uk": "Ти · #{rank} з {n}",
-    "zh": "你 · {n} 人中第 {rank}"
+    "zh": "你 · {n} 人中第 {rank} 名"
   },
   "app.drop_pin": {
     "ar": "ضع دبوسًا",

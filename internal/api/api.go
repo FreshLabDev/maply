@@ -127,8 +127,12 @@ type Server struct {
 	// days' strips, of which a page of the list asks for thirty.
 	imgLimit   *limiter
 	thumbLimit *limiter
-	// ogLimit bounds the days' link pictures, which are drawn on demand.
-	ogLimit *limiter
+	// ogLimit bounds the days' link pictures per address and ogAll those
+	// drawn for everyone, which are drawn on demand; metaLimit the pages'
+	// previews, which read the day.
+	ogLimit   *limiter
+	ogAll     *limiter
+	metaLimit *limiter
 
 	// tied remembers who has been tied to which chat's reveal, so a result
 	// polled again does not write to core every time.
@@ -176,6 +180,8 @@ func (s *Server) Handler() http.Handler {
 	s.imgLimit = newLimiter(120, time.Minute)
 	s.thumbLimit = newLimiter(600, time.Minute)
 	s.ogLimit = newLimiter(30, time.Minute)
+	s.ogAll = newLimiter(20, time.Minute)
+	s.metaLimit = newLimiter(60, time.Minute)
 	s.ogTurn = make(chan struct{}, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/today", s.today)

@@ -33,6 +33,11 @@ const (
 	// closedFor is how long a closed day is kept before it is read again: a
 	// name changed or an answer removed by hand shows within it.
 	closedFor = 10 * time.Minute
+	// closedSoon is how long a day without its strip is kept: the service
+	// draws it within a minute of the day being kept.
+	closedSoon = 30 * time.Second
+	// dayMost is the highest day number asked for; past it, no day was.
+	dayMost = 999999
 )
 
 type groupDay struct {
@@ -228,7 +233,7 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 	dayNo := 0
 	if raw := q.Get("n"); raw != "" {
 		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
+		if err != nil || n < 1 || n > dayMost {
 			s.fail(w, r, errBadRequest)
 			return
 		}
@@ -325,7 +330,7 @@ func sample[T any](list []T, n int) []T {
 // closedDay is what a day over everywhere shows; world and more are nil
 // until the day's page was asked for.
 type closedDay struct {
-	at     time.Time
+	until  time.Time
 	round  db.Round
 	answer db.Answer
 	world  *db.World
@@ -333,13 +338,13 @@ type closedDay struct {
 }
 
 // closedPage is a closed day's round, place, ranking and the rest of its
-// page, read once per closedFor. The ranking is scored first: whatever was
+// page, read once per closedFor or sooner. The ranking is scored first: whatever was
 // not since the last reveal.
 func (s *Server) closedPage(ctx context.Context, d round.Date) (closedDay, error) {
 	s.closedMu.Lock()
 	c, ok := s.closed[d]
 	s.closedMu.Unlock()
-	if ok && s.Now().Sub(c.at) < closedFor {
+	if ok && s.Now().Before(c.until) {
 		return c, nil
 	}
 	rd, ok, err := s.Store.RoundOn(ctx, d)
@@ -365,18 +370,31 @@ func (s *Server) closedPage(ctx context.Context, d round.Date) (closedDay, error
 	if err != nil {
 		return closedDay{}, err
 	}
-	c = closedDay{at: s.Now(), round: rd, answer: answer, world: &world, more: &more}
-	// A day closed a minute ago has no strip yet: it is read again on the
-	// next visit instead of after closedFor.
-	if more.Thumb != "" {
-		s.closedMu.Lock()
-		// A few days' pages at a time; the map starts over rather than grow.
-		if s.closed == nil || len(s.closed) >= 2*daysShown {
-			s.closed = map[round.Date]closedDay{}
-		}
-		s.closed[d] = c
-		s.closedMu.Unlock()
+	now := s.Now()
+	until := now.Add(closedFor)
+	if more.Thumb == "" {
+		// A day closed a minute ago has no strip yet.
+		until = now.Add(closedSoon)
 	}
+	if next := s.latestReveal(d.AddDays(1)); more.Next == 0 && next.After(now) && next.Before(until) {
+		// The newest day over everywhere gets its arrow forward when the
+		// next one closes.
+		until = next
+	}
+	c = closedDay{until: until, round: rd, answer: answer, world: &world, more: &more}
+	s.closedMu.Lock()
+	if s.closed == nil {
+		s.closed = map[round.Date]closedDay{}
+	}
+	// A few days' pages at a time: one of the others makes room.
+	if _, ok := s.closed[d]; !ok && len(s.closed) >= 2*daysShown {
+		for k := range s.closed {
+			delete(s.closed, k)
+			break
+		}
+	}
+	s.closed[d] = c
+	s.closedMu.Unlock()
 	return c, nil
 }
 

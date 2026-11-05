@@ -36,12 +36,22 @@ let DAYS = null, DAY = null, dayTicket = 0;
 Router.screen("days", /^\/days(?:\/(\d{1,6}|\d{4}-\d{2}-\d{2}))?$/, {
   open(m) {
     const key = m[1] || "";
-    if (!$("dPage")) openDays(key);
+    closeView();
+    if (!daysShown()) openDays(key);
+    else if (key && DAY && (key === String(DAY.day) || key === DAY.date)) return;
     else if (key) openDay(key);
-    else if (DAY && !wide()) closeDay();
+    else { dropDay(); if (DAY && !wide()) closeDay(); }
   },
-  close() { DAY = null; closeDays(); },
+  close() { closeView(); dropDay(); DAY = null; DAYS = null; closeDays(); },
 });
+// The sheet is closed by hiding it, so the list's page stays in it until the next sheet.
+const daysShown = () => $("sheet").classList.contains("on") && !!$("dPage");
+// A day on its way is not shown once the address has moved on.
+function dropDay() {
+  dayTicket++;
+  const r = $("dRows");
+  if (r) r.querySelectorAll(".dr.busy").forEach((b) => { b.classList.remove("busy"); b.removeAttribute("aria-busy"); });
+}
 const leaveDays = () => Router.back("/");
 const toList = () => Router.back("/days");
 
@@ -146,7 +156,8 @@ function openRow(d) {
 function onRow(e) {
   if (e.target.closest("[data-play]")) { haptic("light"); Router.go("/"); return; }
   const b = e.target.closest(".dr[data-n]");
-  if (b) Router.go("/days/" + b.dataset.n);
+  // A wide screen keeps the list in view, so the days tapped there are one page: × leaves them, not the day before.
+  if (b) Router.go("/days/" + b.dataset.n, { replace: wide() });
 }
 
 // The next page is read when the end of the list comes into view.
@@ -159,13 +170,21 @@ function watchMore(body) {
   moreWatch.observe(end);
 }
 async function more() {
-  if (!DAYS || !DAYS.next || DAYS.more) return;
-  DAYS.more = true;
-  const ticket = SHEET, last = DAYS.days[DAYS.days.length - 1];
+  const list = DAYS;
+  if (!list || !list.next || list.more) return;
+  list.more = true;
+  const ticket = SHEET, last = list.days[list.days.length - 1], end = $("dMore");
+  if (end) { end.textContent = lines("loading")[0]; end.onclick = null; }
   let data;
-  try { data = await getJSON("/api/days?before=" + encodeURIComponent(DAYS.next)); }
-  catch (e) { DAYS.more = false; if (ticket === SHEET && $("dMore")) $("dMore").textContent = errorText(e); return; }
-  DAYS.more = false;
+  try { data = await getJSON("/api/days?before=" + encodeURIComponent(list.next)); }
+  catch (e) {
+    list.more = false;
+    // The end stays in view, so the observer would not ask again: a tap does.
+    if (ticket === SHEET && list === DAYS && end) { end.textContent = errorText(e); end.onclick = more; }
+    return;
+  }
+  list.more = false;
+  if (list !== DAYS) return;
   const add = data.days || [];
   DAYS.days = DAYS.days.concat(add);
   DAYS.next = data.next || "";
@@ -185,7 +204,7 @@ setInterval(() => {
 // number or its date. A day that cannot be shown leaves the list where it was, at its own address.
 async function openDay(key, quiet) {
   if (!quiet) haptic("select");
-  if (!$("dPage")) return openDays(key);
+  if (!daysShown()) return openDays(key);
   const ticket = ++dayTicket, at = SHEET, byDate = !/^\d+$/.test(key);
   const row = $("dRows").querySelector(byDate ? '.dr[data-date="' + esc(key) + '"]' : '.dr[data-n="' + key + '"]');
   $("dRows").querySelectorAll(".dr.busy").forEach((b) => { b.classList.remove("busy"); b.removeAttribute("aria-busy"); });
@@ -196,7 +215,11 @@ async function openDay(key, quiet) {
     if (ticket !== dayTicket || at !== SHEET) return;
     const opens = e.data && e.data.opens_at;
     toast(opens ? T("days.result_in", { time: hm(secondsTo(opens)) }) : e.message === "no_round" ? T("days.no_day") : errorText(e));
-    if (!DAY) Router.go("/days", { replace: true });
+    // The address goes back to what is on the screen; a wide one shows the newest closed day beside the list. That
+    // one is opened quietly, so its own failure ends here.
+    Router.go(DAY ? "/days/" + DAY.day : "/days", { replace: true });
+    const first = !DAY && !quiet && wide() && DAYS && DAYS.days.find((x) => x.final);
+    if (first) openDay(String(first.day), true);
     return;
   }
   if (row) { row.classList.remove("busy"); row.removeAttribute("aria-busy"); }
@@ -232,6 +255,8 @@ function showDay(d) {
 function closeDay() {
   const days = $("days");
   if (!days) return;
+  closeView();
+  dropDay();
   days.classList.remove("at-day");
   $("dPage").innerHTML = "";
   DAY = null;
@@ -300,7 +325,8 @@ function axis(misses, me) {
 }
 
 // One map serves every day's page: it moves from page to page with the answers of the day on it.
-let DMAP = null, DMAP_EL = null, DMAP_PLACE = null;
+// The map's style loads once; a day opened before that is drawn when it has, and only the last one.
+let DMAP = null, DMAP_EL = null, DMAP_PLACE = null, DMAP_READY = false, DMAP_DRAW = null;
 function dayMap(d) {
   const at = $("dMapAt");
   if (!at || typeof maplibregl === "undefined") return;
@@ -331,7 +357,8 @@ function dayMap(d) {
     DMAP_PLACE = new maplibregl.Marker({ element: el(PIN), anchor: "bottom" }).setLngLat([d.place.lon, d.place.lat]).addTo(DMAP);
     fit();
   };
-  if (DMAP) { DMAP.loaded() ? draw() : DMAP.once("load", draw); return; }
+  DMAP_DRAW = draw;
+  if (DMAP) { if (DMAP_READY) draw(); return; }
   DMAP = new maplibregl.Map({ container: DMAP_EL, style: mapStyle(LANG), center: [d.place.lon, d.place.lat], zoom: 1, attributionControl: false,
     dragRotate: false, pitchWithRotate: false, maxPitch: 0, fadeDuration: 0 });
   DMAP.touchZoomRotate.disableRotation();
@@ -341,7 +368,8 @@ function dayMap(d) {
       paint: { "circle-radius": 4, "circle-color": "#1A412B", "circle-stroke-color": "#FFFFFF", "circle-stroke-width": 1.5 } });
     DMAP.addLayer({ id: "me", type: "circle", source: "pins", filter: ["has", "me"],
       paint: { "circle-radius": 7, "circle-color": "#F2C14E", "circle-stroke-color": "#1A412B", "circle-stroke-width": 2 } });
-    draw();
+    DMAP_READY = true;
+    DMAP_DRAW();
   });
 }
 
@@ -349,16 +377,12 @@ function dayMap(d) {
 let DVIEW = null;
 function view360(d) {
   haptic("light");
+  closeView();
   const box = el('<div class="dview" id="dView"><div id="dPano"></div><button class="sh-b dview-x" aria-label="' + esc(T("aria_collapse")) + '">×</button></div>');
   $("sheet").appendChild(box);
-  const close = () => {
-    if (DVIEW) { try { DVIEW.destroy(); } catch {} DVIEW = null; }
-    box.remove();
-    // Back and Escape go to the page again, then out of it.
-    sheetHead(wide() ? esc(T("days")) : esc(TN("days.day_n", { n: fmt(d.day) })), wide() ? null : toList);
-  };
-  box.querySelector(".dview-x").onclick = close;
-  $("shBack").onclick = close;
+  box.querySelector(".dview-x").onclick = closeView;
+  // Back and Escape go to the page again, then out of it.
+  $("shBack").onclick = closeView;
   if (typeof pannellum === "undefined") return;
   DVIEW = pannellum.viewer("dPano", Object.assign({
     type: "equirectangular", panorama: d.image, autoLoad: true, showControls: false, compass: false,
@@ -368,11 +392,25 @@ function view360(d) {
   DVIEW.on("error", () => toast(T("no_image")));
 }
 
+// closeView puts the panorama away, and its WebGL with it, and gives the sheet's Back to the page under it.
+function closeView() {
+  if (DVIEW) { try { DVIEW.destroy(); } catch {} DVIEW = null; }
+  const box = $("dView");
+  if (!box) return;
+  box.remove();
+  if ($("days")) { if (DAY && !wide()) sheetHead(esc(TN("days.day_n", { n: fmt(DAY.day) })), toList); else sheetHead(esc(T("days")), null); }
+}
+
 // The list follows the width: a day open on a phone turned wide stays open beside the list, and the other way. The
 // day a wide screen opened on its own has no address of its own, so a phone shows the list instead.
 matchMedia("(min-width: 1024px)").addEventListener("change", () => {
-  if (!$("days")) return;
+  if (!$("days") || !daysShown()) return;
+  if (!$("dView")) sheetHead(esc(T("days")), null);
   if (DAY && (wide() || /^\/days\/./.test(location.pathname))) showDay(DAY);
   else if (DAY) closeDay();
-  else if (!wide()) sheetHead(esc(T("days")), null);
+  else if (wide() && DAYS) {
+    // A wide screen has the day's half empty otherwise.
+    const first = DAYS.days.find((d) => d.final);
+    if (first) openDay(String(first.day), true);
+  }
 });

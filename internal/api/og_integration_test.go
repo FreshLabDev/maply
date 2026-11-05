@@ -103,6 +103,11 @@ func TestADayLinkHasAPreviewOnlyOnceTheDayIsKept(t *testing.T) {
 	if err := store.PutThumb(ctx, db.Thumb{Date: hs.date, Key: stripKey, Recipe: 1, Small: []byte("small"), Wide: []byte("wide")}); err != nil {
 		t.Fatal(err)
 	}
+	// The day's page read without its strip is kept for closedSoon.
+	if strings.Contains(page("/days/1", "uk"), "og:") {
+		t.Fatal("a preview within closedSoon")
+	}
+	hs.now = hs.now.Add(closedSoon)
 	body := page("/days/1", "uk-UA,uk;q=0.9")
 	for _, want := range []string{
 		`<meta property="og:title" content="maply #1 · Львів">`,

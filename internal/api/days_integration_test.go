@@ -77,7 +77,7 @@ func TestDaysShowAPlaceOnlyOnceItIsOverEverywhere(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, path := range []string{"/api/days?n=0", "/api/days?n=61", "/api/days?before=yesterday", "/api/day?n=0", "/api/day?date=soon"} {
+	for _, path := range []string{"/api/days?n=0", "/api/days?n=61", "/api/days?before=yesterday", "/api/day?n=0", "/api/day?n=3000000000", "/api/day?n=1000000", "/api/day?date=soon"} {
 		hs.expect("GET", path, oksana, "", http.StatusBadRequest)
 	}
 	hs.expect("GET", "/api/day?n=2", oksana, "", http.StatusNotFound)
@@ -111,8 +111,12 @@ func TestDaysShowAPlaceOnlyOnceItIsOverEverywhere(t *testing.T) {
 	if got, body = list("/api/days", oksana); got.Days[0].Thumb != "/thumb/"+stripKey+".jpg" || got.Best != "2026-12-10" {
 		t.Fatalf("kept day = %s", body)
 	}
-	// A page read before the strip was drawn is not kept, so the strip shows
-	// on the next visit.
+	// A page read before the strip was drawn is kept for closedSoon only, so
+	// the strip shows soon after.
+	if err := json.Unmarshal([]byte(hs.expect("GET", "/api/day?date=2026-12-10", oksana, "", http.StatusOK)), &page); err != nil || page.Thumb != "" {
+		t.Fatalf("day page within closedSoon = %q, %v", page.Thumb, err)
+	}
+	hs.now = hs.now.Add(closedSoon)
 	if err := json.Unmarshal([]byte(hs.expect("GET", "/api/day?date=2026-12-10", oksana, "", http.StatusOK)), &page); err != nil || page.Thumb != "/thumb/"+stripKey+".w.jpg" {
 		t.Fatalf("day page thumb = %q, %v", page.Thumb, err)
 	}

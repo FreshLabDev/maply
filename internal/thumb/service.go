@@ -31,10 +31,14 @@ type Service struct {
 	ImagesDir string
 	Log       *slog.Logger
 
-	// failed holds the days whose picture would not draw, so a file missing
-	// is logged once and not on every pass.
-	failed map[round.Date]bool
+	// failed holds when a day's picture would not draw, so a file missing
+	// is logged every failedRetry and not on every pass.
+	failed map[round.Date]time.Time
 }
+
+// failedRetry is how long a day whose picture would not draw waits before
+// it is tried again: a file put back by hand is drawn the same day.
+const failedRetry = 6 * time.Hour
 
 // Run draws what is missing now and then every so often, until ctx ends.
 func (s *Service) Run(ctx context.Context, every time.Duration) {
@@ -62,15 +66,15 @@ func (s *Service) DrawAll(ctx context.Context) (int, error) {
 		if ctx.Err() != nil {
 			return drawn, ctx.Err()
 		}
-		if s.failed[d.Date] {
+		if at, ok := s.failed[d.Date]; ok && time.Since(at) < failedRetry {
 			continue
 		}
 		t, err := s.Draw(d)
 		if err != nil {
 			if s.failed == nil {
-				s.failed = map[round.Date]bool{}
+				s.failed = map[round.Date]time.Time{}
 			}
-			s.failed[d.Date] = true
+			s.failed[d.Date] = time.Now()
 			// The error names the image by its random key at most: nothing
 			// about the place, which is out anyway.
 			s.Log.Warn("day strip not drawn", "date", d.Date, "error", err)
