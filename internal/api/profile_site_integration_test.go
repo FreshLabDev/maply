@@ -160,3 +160,42 @@ func TestProfileOfAGoogleAccount(t *testing.T) {
 		t.Fatalf("a cookie the account took in = %d %s", rr.Code, rr.Body.String())
 	}
 }
+
+// A Telegram account keeps the days its guest played on the site before the
+// sign-in: a closed day stays a site row, and the profile counts it on a day
+// with no Telegram answer, in the bot, on the site and for others alike.
+func TestATelegramAccountKeepsItsGuestDays(t *testing.T) {
+	hs := setup(t)
+	const guest = "33333333-3333-4333-8333-333333333333"
+	hs.person(1, "Oksana", kyivGroup)
+	hs.person(2, "Ivan", kyivGroup)
+	hs.seedPast(3, "FR", "europe", pastAnswer{player: guest, km: 50, points: 4000, bonus: 800})
+	hs.seedPast(2, "EG", "africa", pastAnswer{user: 1, km: 400, points: 2500, bonus: 300}, pastAnswer{player: guest, km: 10, points: 4900, bonus: 1500})
+	hs.seedPast(1, "JP", "asia", pastAnswer{user: 1, km: 5, points: 4950, bonus: 1500, speed: 200})
+	oksana := hs.signIn(1, "Oksana")
+	ctx := context.Background()
+	store := hs.srv.Store.(*db.Store)
+	acc, ok, err := store.AccountOf(ctx, db.Identity{Kind: db.KindTelegram, TelegramUserID: 1})
+	if err != nil || !ok {
+		t.Fatalf("account %v %v", ok, err)
+	}
+	if _, err := store.AdoptGuest(ctx, acc.ID, guest, db.Rules{Open: func(round.Date) bool { return false }}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Three days: the guest's alone, the Telegram answer where both played,
+	// and the Telegram one with its speed.
+	want := 4000 + 2500 + 4950 + 200
+	inApp := decode[ownView](t, hs.expect("GET", "/api/profile", initData(1, "Oksana", "uk", ""), "", http.StatusOK))
+	if inApp.Ranked.Days != 3 || inApp.Ranked.Points != want || len(inApp.Ranked.History) != 3 || inApp.Ranked.Percentile == nil {
+		t.Fatalf("in the Mini App = %+v", inApp.Ranked)
+	}
+	onSite := decode[ownView](t, hs.siteExpect("GET", "/api/profile?lang=uk", oksana, "", http.StatusOK))
+	if onSite.Ranked.Days != 3 || onSite.Ranked.Points != want {
+		t.Fatalf("on the site = %+v", onSite.Ranked)
+	}
+	mini := decode[miniView](t, hs.expect("GET", "/api/profile/who?id="+hs.srv.handles().Of(1, "day:x"), initData(2, "Ivan", "ru", ""), "", http.StatusOK))
+	if mini.Days != 3 {
+		t.Fatalf("her mini profile = %+v", mini)
+	}
+}

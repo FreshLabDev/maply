@@ -400,8 +400,11 @@ function redrawSettings(focus) {
   const to = focus && $(focus);
   if (to) to.focus({ preventScroll: true });
 }
+// The accounts page opens over the profile, and its Back brings the profile back as it was: the address stays /me.
 document.addEventListener("click", (e) => {
-  if (e.target.closest("#profAccounts") && typeof openAccounts === "function") openAccounts();
+  if (!e.target.closest("#profAccounts") || typeof openAccounts !== "function") return;
+  const saved = keepSheet();
+  openAccounts(() => restoreSheet(saved));
 });
 
 /* ---------- Public page ---------- */
