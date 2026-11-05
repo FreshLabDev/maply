@@ -22,10 +22,18 @@ import (
 const (
 	Classic = "classic"
 	Streak  = "streak"
+	// Timed is as many places as three minutes allow, the time running
+	// through the reveals too.
+	Timed = "timed"
+	// Archive is one day closed in every zone, played after it.
+	Archive = "archive"
 
 	Solo  = "solo"
 	Party = "party"
 	Duel  = "duel"
+	// Challenge is one person's attempt at a challenge: alone, on the places
+	// of the game it was made from.
+	Challenge = "challenge"
 
 	StatusLobby     = "lobby"
 	StatusPlaying   = "playing"
@@ -61,6 +69,8 @@ const (
 	loadFree = 2 * time.Second
 	// maxDistancePoints is the judge's most for the distance.
 	maxDistancePoints = 3500
+	// TimedSeconds is a timed game's time, all of it.
+	TimedSeconds = 180
 )
 
 // Settings is what a game is played on. Seconds is the time for a place, 0
@@ -91,16 +101,26 @@ func in(v int, set []int) bool {
 }
 
 // ValidSolo is whether one person may play on s: a classic of 3, 5 or 10
-// places on any timer or none, or a streak on 30 or 60 seconds.
+// places on any timer or none, a streak on 30 or 60 seconds, or three minutes
+// against the clock. A day from the archive is not chosen, it is taken.
 func (s Settings) ValidSolo() bool {
 	switch s.Mode {
 	case Classic:
 		return in(s.Seconds, soloSeconds) && in(s.Rounds, allRounds)
 	case Streak:
 		return in(s.Seconds, streakSeconds) && s.Rounds == 0
+	case Timed:
+		return s.Seconds == TimedSeconds && s.Rounds == 0
 	}
 	return false
 }
+
+// ArchiveSettings is a day from the archive: its one place, without a timer.
+var ArchiveSettings = Settings{Mode: Archive, Rounds: 1}
+
+// alone is whether a game of kind is played by one person at their own pace:
+// a solo game, and an attempt at a challenge.
+func alone(kind string) bool { return kind == Solo || kind == Challenge }
 
 // ValidParty is whether a party may play on s. A party has no "no timer": one
 // player who walked away would hold everyone.
@@ -109,15 +129,16 @@ func (s Settings) ValidParty() bool {
 }
 
 // Key names the settings a record is kept for: "classic/60/5",
-// "classic/0/10", "streak/30".
+// "classic/0/10", "streak/30", "timed/180".
 func (s Settings) Key() string {
-	if s.Mode == Streak {
-		return Streak + "/" + strconv.Itoa(s.Seconds)
+	if s.Mode == Streak || s.Mode == Timed {
+		return s.Mode + "/" + strconv.Itoa(s.Seconds)
 	}
 	return s.Mode + "/" + strconv.Itoa(s.Seconds) + "/" + strconv.Itoa(s.Rounds)
 }
 
-// Limit is the time for a place, 0 without a timer.
+// Limit is the time for a place, 0 without a timer; for a timed game, the
+// time for the whole game.
 func (s Settings) Limit() time.Duration { return time.Duration(s.Seconds) * time.Second }
 
 // DefaultSolo is a first game's settings.
@@ -168,6 +189,10 @@ func Speed(seconds int, endsAt, answeredAt time.Time, distancePoints int, auto b
 // always starts with "A", so the two never meet.
 const InvitePrefix = "p"
 
+// ChallengePrefix starts the startapp payload of a challenge: "c" and its
+// code.
+const ChallengePrefix = "c"
+
 // InviteCode is the party code in a startapp payload, if it is an
 // invitation.
 func InviteCode(startParam string) (string, bool) {
@@ -176,4 +201,21 @@ func InviteCode(startParam string) (string, bool) {
 		return "", false
 	}
 	return code, true
+}
+
+// ChallengeCode is the challenge's code in a startapp payload, if it is one.
+func ChallengeCode(startParam string) (string, bool) {
+	code, ok := strings.CutPrefix(startParam, ChallengePrefix)
+	if !ok || !ValidCode(code) {
+		return "", false
+	}
+	return code, true
+}
+
+// Invitation is whether a startapp payload opens the free game: a party's
+// invitation or a challenge. Such a launch is the person's own, as a DM's.
+func Invitation(startParam string) bool {
+	_, party := InviteCode(startParam)
+	_, challenge := ChallengeCode(startParam)
+	return party || challenge
 }
