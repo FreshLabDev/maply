@@ -74,6 +74,7 @@ type Store interface {
 	Puzzle(ctx context.Context, placeID int64) (db.Puzzle, error)
 	Answer(ctx context.Context, placeID int64) (db.Answer, error)
 	ScoreDue(ctx context.Context, d round.Date, now time.Time, judge func(geo.Point) scoring.Score) (int, error)
+	KeepDay(ctx context.Context, d round.Date) error
 	LeaveChat(ctx context.Context, chatID int64) error
 	MigrateChat(ctx context.Context, from, to int64) error
 	FixZone(ctx context.Context, chatID int64, zone string) error

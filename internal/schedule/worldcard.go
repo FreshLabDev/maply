@@ -311,6 +311,11 @@ func (s *Scheduler) worldFinal(ctx context.Context, j db.Job) error {
 	if err := s.scoreDue(ctx, j.Date, answer); err != nil {
 		return err
 	}
+	// Over everywhere and scored, the day's places are kept as they are. A
+	// day not kept is still ranked when asked, only slower.
+	if err := s.Store.KeepDay(ctx, j.Date); err != nil {
+		s.Log.Error("day not kept", "date", j.Date, "error", err)
+	}
 	if err := s.finalGroups(ctx, j.Date, rd, answer); err != nil {
 		return err
 	}

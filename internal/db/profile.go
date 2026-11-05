@@ -92,11 +92,20 @@ func (s *Store) ProfileOf(ctx context.Context, userID int64, today round.Date, n
 	if err != nil {
 		return Profile{}, fmt.Errorf("rounds to %s: %w", today, err)
 	}
-	// The same order as the world post and the days page.
+	// The same order as the world post and the days page: kept for a day
+	// that is over, ranked now only for a day still open somewhere.
+	var open []time.Time
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(array_agg(g.date), '{}') FROM guess g
+		 WHERE g.user_id = $1 AND g.date <= $2
+		   AND NOT EXISTS (SELECT 1 FROM day_closed c WHERE c.date = g.date)`, userID, today.Time()).Scan(&open); err != nil {
+		return Profile{}, fmt.Errorf("open days of %d: %w", userID, err)
+	}
 	rows, err = s.pool.Query(ctx, `
-		SELECT date, rank, n FROM day_rank
-		 WHERE date <= $2 AND user_id = $1
-		 ORDER BY date`, userID, today.Time())
+		SELECT date, rank, n FROM day_place WHERE user_id = $1 AND date <= $2
+		UNION ALL
+		SELECT date, rank, n FROM day_rank WHERE date = ANY($3::date[]) AND user_id = $1
+		 ORDER BY 1`, userID, today.Time(), open)
 	if err != nil {
 		return Profile{}, fmt.Errorf("world places of %d: %w", userID, err)
 	}

@@ -217,6 +217,19 @@ type Mine struct {
 	Rank   int
 }
 
+// KeepDay keeps d's ranking for good. The caller has scored the day, and it
+// is over in every zone. A day kept already stays as it was.
+func (s *Store) KeepDay(ctx context.Context, d round.Date) error {
+	if _, err := s.pool.Exec(ctx, `
+		WITH kept AS (INSERT INTO day_closed (date) VALUES ($1) ON CONFLICT DO NOTHING RETURNING date)
+		INSERT INTO day_place (date, user_id, player, km, points, rank, n)
+		SELECT r.date, r.user_id, r.player, r.km, r.points, r.rank, r.n
+		  FROM day_rank r, kept WHERE r.date = $1`, d.Time()); err != nil {
+		return fmt.Errorf("keep day %s: %w", d, err)
+	}
+	return nil
+}
+
 // MyDays are a Telegram player's scored answers on the dates in days, with
 // the place each had in that day's ranking.
 func (s *Store) MyDays(ctx context.Context, userID int64, days []Day) (map[round.Date]Mine, error) {
@@ -237,9 +250,17 @@ func (s *Store) myDays(ctx context.Context, who string, id any, days []Day) (map
 	for i, d := range days {
 		dates[i] = d.Date.Time()
 	}
+	// A kept day is read as it was kept; only a day still open is ranked.
+	var open []time.Time
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(array_agg(d), '{}') FROM unnest($1::date[]) d
+		 WHERE NOT EXISTS (SELECT 1 FROM day_closed c WHERE c.date = d)`, dates).Scan(&open); err != nil {
+		return nil, fmt.Errorf("my days: %w", err)
+	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT date, km, points, rank FROM day_rank
-		 WHERE date = ANY($2::date[]) AND `+who, id, dates)
+		SELECT date, km, points, rank FROM day_place WHERE date = ANY($2::date[]) AND `+who+`
+		UNION ALL
+		SELECT date, km, points, rank FROM day_rank WHERE date = ANY($3::date[]) AND `+who, id, dates, open)
 	if err != nil {
 		return nil, fmt.Errorf("my days: %w", err)
 	}
