@@ -193,7 +193,8 @@ func (s *Store) FreeKnown(ctx context.Context, userID, placeID int64) (bool, err
 
 // FreeCandidates lists the places a game may get next: the free pool, and the
 // days closed in every zone that none of the game's players answered, minus
-// the game's own places. Each comes with when one of the players last had it
+// the game's own places. Panoramas only: early days had flat photos, and
+// maply shows none of them any more. Each comes with when one of the players last had it
 // in any free game, nil when none has.
 func (s *Store) FreeCandidates(ctx context.Context, id int64) ([]free.Candidate, map[string]bool, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -203,11 +204,13 @@ func (s *Store) FreeCandidates(ctx context.Context, id int64) ([]free.Candidate,
 		     seen AS (SELECT fr.place_id, max(fr.starts_at) AS at FROM free_round fr
 		               WHERE fr.game IN (SELECT game FROM games) GROUP BY fr.place_id),
 		     cand AS (
-		       SELECT p.id, p.country_iso, false AS day FROM place p WHERE p.pool = 'free' AND p.status = 'approved'
+		       SELECT p.id, p.country_iso, false AS day FROM place p
+		        WHERE p.pool = 'free' AND p.status = 'approved' AND p.kind = 'panorama'
 		       UNION ALL
 		       SELECT p.id, p.country_iso, true
 		         FROM day_closed dc JOIN round r ON r.date = dc.date JOIN place p ON p.id = r.place_id
-		        WHERE NOT EXISTS (SELECT 1 FROM guess g JOIN m ON g.user_id = m.user_id WHERE g.date = dc.date)
+		        WHERE p.kind = 'panorama'
+		          AND NOT EXISTS (SELECT 1 FROM guess g JOIN m ON g.user_id = m.user_id WHERE g.date = dc.date)
 		          AND NOT EXISTS (SELECT 1 FROM site_guess g JOIN m ON g.player = m.player WHERE g.date = dc.date))
 		SELECT c.id, c.country_iso, s.at, c.day
 		  FROM cand c LEFT JOIN seen s ON s.place_id = c.id
