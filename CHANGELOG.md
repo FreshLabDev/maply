@@ -11,6 +11,28 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+For the operator: apply core migration 020 (`core.manual_language`) before
+deploying. Without it every launch of the Mini App from a group fails.
+
+### Changed
+
+- Opened from a group, the Mini App speaks the language the person picked by
+  hand in any bot of the family, such as Ukrainian chosen in vido, rather than
+  the group's. A group's language used to win for everyone in it, so a player
+  who had picked their own read the screen in the language another bot had
+  detected for the group. The Telegram app's language does not count as a
+  pick, so a group still reads as one for everyone who has not chosen. What a
+  player shares from the app stays in the group's language, like the bot's
+  posts and the card there.
+
+### Fixed
+
+- In a supergroup every poll of the result screen after the first load got a
+  server error since alpha.14, so the live table stopped updating. The query
+  that answers "nothing changed" typed the chat id as a 32-bit number, and a
+  supergroup's id does not fit. The API's integration tests now use real
+  supergroup ids.
+
 ## v0.0.1-alpha.14 - 2026-11-05
 
 Fixes from two reviews on 4 November: one name could take the whole

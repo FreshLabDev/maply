@@ -50,12 +50,13 @@ func (s *shareStore) GuessOf(context.Context, round.Date, int64) (db.Guess, bool
 	return *s.guess, true, nil
 }
 
-func (s *shareStore) Touch(context.Context, tg.User, *tg.Chat) error  { return nil }
-func (s *shareStore) UserLang(context.Context, int64) (string, error) { return "ru", nil }
-func (s *shareStore) ChatLang(context.Context, int64) (string, error) { return "ru", nil }
-func (s *shareStore) ChatZone(context.Context, int64) (string, error) { return "", nil }
-func (s *shareStore) FixZone(context.Context, int64, string) error    { return nil }
-func (s *shareStore) ChatActive(context.Context, int64) (bool, error) { return true, nil }
+func (s *shareStore) Touch(context.Context, tg.User, *tg.Chat) error    { return nil }
+func (s *shareStore) UserLang(context.Context, int64) (string, error)   { return "ru", nil }
+func (s *shareStore) ManualLang(context.Context, int64) (string, error) { return "", nil }
+func (s *shareStore) ChatLang(context.Context, int64) (string, error)   { return "ru", nil }
+func (s *shareStore) ChatZone(context.Context, int64) (string, error)   { return "", nil }
+func (s *shareStore) FixZone(context.Context, int64, string) error      { return nil }
+func (s *shareStore) ChatActive(context.Context, int64) (bool, error)   { return true, nil }
 func (s *shareStore) Contexts(context.Context, int64) ([]db.Context, error) {
 	return nil, nil
 }

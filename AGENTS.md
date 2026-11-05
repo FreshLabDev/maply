@@ -69,9 +69,12 @@ player, and production-minded.
   missing in one language is a bug.
 - The interface language is core's, shared with every bot in the family:
   `core.set_language` with `manual`, `core.clear_language` for "Follow
-  Telegram". maply keeps no copy of it. Opened from a group that has a
-  language, the Mini App speaks the group's, so what a player shares from it
-  matches the bot's posts there.
+  Telegram". maply keeps no copy of it. Opened from a group, the Mini App
+  speaks the language the person picked by hand in any bot of the family
+  (`core.manual_language`, core migration 020), else the group's, else the
+  person's. The language of their Telegram app is not a pick. What a player
+  shares from a group is in the group's language, as the bot's posts there
+  and the card are (`share_lang` in `/api/today`).
 - Panels look like voicy's and quoto's: `m:<owner>:<action>` callbacks, a
   bold title, an italic hint, the substance in a quote, `◉`/`◎` on choices,
   Success on the current one, Back, and Close only in a group.

@@ -55,6 +55,7 @@ type Store interface {
 	ScoreDue(context.Context, round.Date, time.Time, func(geo.Point) scoring.Score) (int, error)
 	ChatLang(context.Context, int64) (string, error)
 	UserLang(context.Context, int64) (string, error)
+	ManualLang(context.Context, int64) (string, error)
 	ChatZone(context.Context, int64) (string, error)
 	World(context.Context, round.Date) (db.World, error)
 	DayPins(context.Context, round.Date) ([][2]float64, error)
@@ -154,9 +155,13 @@ type play struct {
 	date     round.Date
 	// zone is the context's: the group's for a group, the person's for the DM.
 	zone *time.Location
-	// lang is what the app speaks: the group's language when opened from a
-	// group that has one, else the person's.
+	// lang is what the app speaks: a language the person picked by hand in
+	// any bot of the family, else the group's when opened from a group that
+	// has one, else the person's.
 	lang string
+	// shareLang is the language of what the person shares from the app: the
+	// group's, the one the bot posts in there, since that is where it lands.
+	shareLang string
 }
 
 type apiError struct {
@@ -243,6 +248,7 @@ func (s *Server) resolveAs(r *http.Request, touch bool) (play, error) {
 			}
 		}
 		p.kind, p.lang = "dm", i18n.Resolve(lang)
+		p.shareLang = p.lang
 		p.zone = s.Zones.For(zone, lang)
 		p.date = round.DateIn(s.Now(), p.zone)
 		return p, nil
@@ -282,11 +288,20 @@ func (s *Server) resolveAs(r *http.Request, touch bool) (play, error) {
 	if err != nil {
 		return play{}, err
 	}
-	// Opened from a group, the app speaks the group's language, the one the
-	// bot posts there in: what a player shares from it lands next to those
-	// posts. Their own language is only for a group that has none.
+	// Opened from a group, what a player shares lands next to the bot's posts
+	// there, so it is in the group's language, as the posts and the card are.
+	// The screen is the player's own: a language they picked by hand in any
+	// bot of the family wins over the group's. The language of their
+	// Telegram app does not, so a group still reads as one.
+	p.shareLang = i18n.Resolve(chatLang)
+	manual, err := s.Store.ManualLang(ctx, user.ID)
+	if err != nil {
+		return play{}, err
+	}
 	lang := chatLang
-	if lang == "" {
+	if c := i18n.Normalize(manual); i18n.IsSupported(c) {
+		lang = c
+	} else if lang == "" {
 		if lang, err = s.personLang(ctx, data.User); err != nil {
 			return play{}, err
 		}
@@ -356,10 +371,13 @@ type todayResponse struct {
 	Zone string `json:"zone"`
 	// Lang is the language the app speaks, from core: the one the person
 	// picked in any bot of the family.
-	Lang     string    `json:"lang"`
-	Deadline time.Time `json:"deadline"`
-	Reveal   time.Time `json:"reveal"`
-	Answer   *pin      `json:"answer"`
+	Lang string `json:"lang"`
+	// ShareLang is the language of what the app shares, set only when it is
+	// not Lang: a group's, for a player whose screen speaks their own.
+	ShareLang string    `json:"share_lang,omitempty"`
+	Deadline  time.Time `json:"deadline"`
+	Reveal    time.Time `json:"reveal"`
+	Answer    *pin      `json:"answer"`
 	// Bot is set on the site only: the Telegram bot to play in.
 	Bot string `json:"bot,omitempty"`
 	// Name is the site player's own name for the ranking, empty for "Guest".
@@ -409,6 +427,9 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 		Date: p.date.String(), Day: rd.DayNo, Image: "/img/" + puzzle.ImageKey, Kind: puzzle.Kind,
 		Heading: puzzle.Heading, Zone: p.zone.String(), Lang: p.lang, Deadline: deadline.UTC(), Reveal: opens.UTC(),
 		ZoneSet: zoneSet,
+	}
+	if p.shareLang != "" && p.shareLang != p.lang {
+		resp.ShareLang = p.shareLang
 	}
 	// Their own pin is theirs to see; it says nothing about the place.
 	if g, ok, err := s.Store.GuessOf(ctx, p.date, p.user.ID); err != nil {

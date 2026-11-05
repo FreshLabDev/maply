@@ -15,8 +15,9 @@ piece lands in the right place. The product rules are in
 - Domain tables live in the isolated `maply` schema.
 - Shared Telegram identity, presence and language live in `core`. maply
   connects as `maply_core`, can reference `core.person` and `core.chat`, and can
-  execute only `core.touch`, `core.set_language`, `core.clear_language` and
-  `core.effective_language`. The role and its grants are a migration in the
+  execute only `core.touch`, `core.set_language`, `core.clear_language`,
+  `core.effective_language` and `core.manual_language` (migration 020: whether
+  a person picked their language by hand). The role and its grants are a migration in the
   `core` repository; maply's own migrations never touch `core`.
 - `core.presence` is not just bookkeeping here: it is how the answer window
   finds every chat a person belongs to.

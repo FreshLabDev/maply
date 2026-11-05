@@ -792,3 +792,42 @@ func TestDMKeepsItsDayPastMidnight(t *testing.T) {
 	// Any other date is not the DM's to ask for.
 	hs.expect("GET", "/api/result?date=2026-12-09", oksanaDM, "", http.StatusForbidden)
 }
+
+// A language picked by hand in any bot of the family is the player's screen,
+// even in a group that speaks another; what they share stays in the group's.
+// The Telegram app's language is not a pick, and neither is a pick maply
+// cannot speak.
+func TestPickedLanguageWinsOnTheScreen(t *testing.T) {
+	hs := setup(t)
+	ctx := context.Background()
+	// quoto found the Moscow group writing Russian.
+	if _, err := hs.pool.Exec(ctx, `SELECT core.set_language('quoto', 'chat', $1, 'ru', 'auto')`, moscowGroup); err != nil {
+		t.Fatal(err)
+	}
+	// Pavel's Telegram is in Russian, but he picked Ukrainian in vido; Ivan
+	// picked Finnish, which maply does not speak.
+	for _, pick := range [][2]any{{int64(6), "uk"}, {int64(2), "fi"}} {
+		if _, err := hs.pool.Exec(ctx, `SELECT core.set_language('vido', 'user', $1, $2, 'manual')`, pick[0], pick[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pavel := initData(6, "Pavel", "ru", hs.payload(moscowGroup))
+	for who, want := range map[string][2]string{
+		pavel:                          {"uk", "ru"},
+		initData(6, "Pavel", "ru", ""): {"uk", ""},
+		initData(2, "Ivan", "ru", hs.payload(moscowGroup)):   {"ru", ""},
+		initData(1, "Oksana", "uk", hs.payload(moscowGroup)): {"ru", ""},
+	} {
+		var td todayResponse
+		if err := json.Unmarshal([]byte(hs.expect("GET", "/api/today", who, "", http.StatusOK)), &td); err != nil {
+			t.Fatal(err)
+		}
+		if td.Lang != want[0] || td.ShareLang != want[1] {
+			t.Fatalf("lang %q, share %q; want %q, %q", td.Lang, td.ShareLang, want[0], want[1])
+		}
+	}
+	hs.expect("POST", "/api/guess", pavel, `{"lat":50,"lon":25}`, http.StatusOK)
+	if res := hs.expect("GET", "/api/result", pavel, "", http.StatusOK); !strings.Contains(res, `"city":"Львів"`) {
+		t.Fatalf("Pavel in the Moscow group reads %s, want the city in Ukrainian", res)
+	}
+}

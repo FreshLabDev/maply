@@ -28,6 +28,19 @@ func (s *Store) SetUserLang(ctx context.Context, userID int64, lang string) erro
 	return s.setLang(ctx, "user", userID, lang)
 }
 
+// ManualLang is the language the person picked by hand in any bot of the
+// family, empty when theirs comes from the Telegram app or from nowhere.
+func (s *Store) ManualLang(ctx context.Context, userID int64) (string, error) {
+	var lang *string
+	if err := s.pool.QueryRow(ctx, `SELECT core.manual_language('user', $1)`, userID).Scan(&lang); err != nil {
+		return "", fmt.Errorf("manual lang %d: %w", userID, err)
+	}
+	if lang == nil {
+		return "", nil
+	}
+	return *lang, nil
+}
+
 // ClearUserLang withdraws maply's claim, so the next source in core decides.
 func (s *Store) ClearUserLang(ctx context.Context, userID int64) error {
 	return s.clearLang(ctx, "user", userID)

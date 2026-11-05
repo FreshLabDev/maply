@@ -147,3 +147,15 @@ CREATE OR REPLACE FUNCTION core.effective_language(
   ORDER BY (l.scope = p_prefer) DESC, (l.source = 'manual') DESC, l.observed_at DESC
   LIMIT 1;
 $$;
+
+-- core migration 020: the winning language when it was picked by hand, in
+-- any bot; NULL when it came from the Telegram app or a detection.
+CREATE OR REPLACE FUNCTION core.manual_language(
+  p_scope core.pref_scope, p_subject bigint
+) RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT l.language
+  FROM core.language_observation l
+  WHERE l.scope = p_scope AND l.subject_id = p_subject AND l.source = 'manual'
+  ORDER BY l.observed_at DESC
+  LIMIT 1;
+$$;
