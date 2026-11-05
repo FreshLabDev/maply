@@ -290,6 +290,13 @@ func (s *Scheduler) plan(ctx context.Context) error {
 	for _, c := range chats {
 		byID[c.ID] = c
 	}
+	// A chat that left is planned afresh when it comes back, so a post
+	// skipped while it was away goes out then.
+	for id := range s.planned {
+		if _, ok := byID[id]; !ok {
+			delete(s.planned, id)
+		}
+	}
 	s.chatsMu.Lock()
 	s.chats = byID
 	s.chatsMu.Unlock()

@@ -79,13 +79,19 @@ type Job struct {
 
 // PlanJob queues a send unless its key is already done or given up. A job
 // still waiting for its first attempt moves to runAt: an admin may have moved
-// the morning post.
+// the morning post. A post skipped while the chat was away is planned again
+// when no post of the day went out there: a group that removed maply at
+// 06:00 and added it back at 10:00 still plays that day.
 func (s *Store) PlanJob(ctx context.Context, kind string, chatID int64, d round.Date, runAt time.Time) error {
 	key := fmt.Sprintf("%s:%s:%d", kind, d, chatID)
 	if _, err := s.pool.Exec(ctx, `
 		INSERT INTO job (key, kind, chat_id, date, run_at) VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (key) DO UPDATE SET run_at = EXCLUDED.run_at
-		 WHERE job.status = 'pending' AND job.attempts = 0 AND job.run_at <> EXCLUDED.run_at`, key, kind, chatID, d.Time(), runAt); err != nil {
+		ON CONFLICT (key) DO UPDATE SET run_at = EXCLUDED.run_at, status = 'pending', attempts = 0, locked_until = NULL
+		 WHERE (job.status = 'pending' AND job.attempts = 0 AND job.run_at <> EXCLUDED.run_at)
+		    OR (job.status = 'skipped' AND job.kind = 'post'
+		        AND NOT EXISTS (SELECT 1 FROM chat_round cr
+		                         WHERE cr.chat_id = job.chat_id AND cr.date = job.date AND cr.post_msg_id IS NOT NULL))`,
+		key, kind, chatID, d.Time(), runAt); err != nil {
 		return fmt.Errorf("plan %s: %w", key, err)
 	}
 	return nil
