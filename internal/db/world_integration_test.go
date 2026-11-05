@@ -116,17 +116,11 @@ func TestWorldRanksEveryoneTogether(t *testing.T) {
 		t.Error("a card in another language")
 	}
 
-	days, err := store.Days(ctx, d, 7)
-	if err != nil || len(days) != 1 || days[0].Players != 4 || days[0].Pending != 1 || days[0].DayNo != 1 {
-		t.Fatalf("days = %+v, %v", days, err)
+	if day := dayRow(t, store, d, DaysQuery{UserID: 7}); day.Players != 4 || day.Pending != 1 || day.DayNo != 1 || day.Me == nil || day.Me.Rank != 2 {
+		t.Fatalf("day = %+v, me %+v", day, day.Me)
 	}
-	mine, err := store.MyDays(ctx, 7, days)
-	if err != nil || mine[d].Rank != 2 {
-		t.Fatalf("my days = %+v, %v", mine, err)
-	}
-	site, err := store.SiteDays(ctx, sitePlayer, days)
-	if err != nil || site[d].Rank != 4 {
-		t.Fatalf("site days = %+v, %v", site, err)
+	if site := dayRow(t, store, d, DaysQuery{Player: sitePlayer}).Me; site == nil || site.Rank != 4 {
+		t.Fatalf("site day = %+v", site)
 	}
 	if name, err := store.SiteName(ctx, sitePlayer); err != nil || name != "Lucía" {
 		t.Fatalf("site name = %q, %v", name, err)
@@ -146,7 +140,7 @@ func TestWorldRanksEveryoneTogether(t *testing.T) {
 	}
 }
 
-func TestChatDaysCountMembers(t *testing.T) {
+func TestGroupsDayCountsMembers(t *testing.T) {
 	store := testStore(t)
 	seedRound(t, store)
 	ctx := context.Background()
@@ -165,15 +159,7 @@ func TestChatDaysCountMembers(t *testing.T) {
 	if _, err := store.ScoreDue(ctx, d, at.Add(time.Hour), func(p geo.Point) scoring.Score { return scoring.Judge(p, place, nil) }); err != nil {
 		t.Fatal(err)
 	}
-	days, err := store.Days(ctx, d, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	chat, err := store.ChatDays(ctx, group.ID, days)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c := chat[d]; c.Members != 2 || c.Answered != 1 || c.BestName != "Ana" || c.BestKm == nil {
+	if c := dayRow(t, store, d, DaysQuery{ChatID: group.ID}).Group; c == nil || c.Members != 2 || c.Answered != 1 || c.BestName != "Ana" || c.BestKm == nil {
 		t.Fatalf("chat day = %+v", c)
 	}
 }
@@ -240,15 +226,11 @@ func TestSiteAnswersRankAfterTelegram(t *testing.T) {
 	if err != nil || len(pins) != 3 || pins[0].Km != w.Entries[0].Km || pins[1].Km != w.Entries[1].Km {
 		t.Fatalf("pins = %+v, %v", pins, err)
 	}
-	days, err := store.Days(ctx, d, 1)
-	if err != nil {
-		t.Fatal(err)
+	if mine := dayRow(t, store, d, DaysQuery{Player: sitePlayer}).Me; mine == nil || mine.Rank != 3 {
+		t.Fatalf("site day = %+v", mine)
 	}
-	if mine, err := store.SiteDays(ctx, sitePlayer, days); err != nil || mine[d].Rank != 3 {
-		t.Fatalf("site day = %+v, %v", mine, err)
-	}
-	if mine, err := store.MyDays(ctx, 8, days); err != nil || mine[d].Rank != 1 {
-		t.Fatalf("Ana's day = %+v, %v", mine, err)
+	if mine := dayRow(t, store, d, DaysQuery{UserID: 8}).Me; mine == nil || mine.Rank != 1 {
+		t.Fatalf("Ana's day = %+v", mine)
 	}
 
 	// With no Telegram answer, the site's best is first.

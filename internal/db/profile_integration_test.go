@@ -60,7 +60,6 @@ func TestKeptDayIsReadAsKept(t *testing.T) {
 	                VALUES ('2026-11-01', 7, 'dm', 48.85, 2.35, '2026-11-01 10:00+03', '2026-11-01 20:00+03', 2000, 1000, 300, 50),
 	                       ('2026-11-01', 8, 'dm', 50.40, 30.50, '2026-11-01 11:00+03', '2026-11-01 20:00+03', 10, 3500, 1500, 0)`)
 	d := round.NewDate(2026, 11, 1)
-	days := []Day{{Date: d}}
 	if err := store.KeepDay(ctx, d); err != nil {
 		t.Fatal(err)
 	}
@@ -77,8 +76,8 @@ func TestKeptDayIsReadAsKept(t *testing.T) {
 	if err != nil || len(p.World) != 1 || p.World[0].Rank != 2 || p.World[0].Of != 2 {
 		t.Fatalf("kept world = %+v, %v", p.World, err)
 	}
-	if mine, err := store.MyDays(ctx, 7, days); err != nil || mine[d].Rank != 2 || mine[d].Km != 2000 {
-		t.Fatalf("kept day = %+v, %v", mine, err)
+	if mine := dayRow(t, store, d, DaysQuery{UserID: 7}).Me; mine == nil || mine.Rank != 2 || mine.Km != 2000 {
+		t.Fatalf("kept day = %+v", mine)
 	}
 	// Unkept, the day is ranked anew.
 	exec(t, store, `DELETE FROM maply.day_closed WHERE date = '2026-11-01'`)
@@ -86,7 +85,7 @@ func TestKeptDayIsReadAsKept(t *testing.T) {
 	if err != nil || len(p.World) != 1 || p.World[0].Rank != 1 {
 		t.Fatalf("open world = %+v, %v", p.World, err)
 	}
-	if mine, err := store.MyDays(ctx, 7, days); err != nil || mine[d].Rank != 1 {
-		t.Fatalf("open day = %+v, %v", mine, err)
+	if mine := dayRow(t, store, d, DaysQuery{UserID: 7}).Me; mine == nil || mine.Rank != 1 {
+		t.Fatalf("open day = %+v", mine)
 	}
 }

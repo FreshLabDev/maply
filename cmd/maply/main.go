@@ -27,6 +27,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/schedule"
 	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/FreshLabDev/maply/internal/thumb"
 	"github.com/FreshLabDev/maply/internal/world"
 	"github.com/FreshLabDev/maply/migrations"
 	"github.com/FreshLabDev/maply/web"
@@ -112,6 +113,11 @@ func run(log *slog.Logger) error {
 		opts.Profiles = profiles
 		go profiles.Run(ctx, 10*time.Minute)
 	}
+	if cfg.ImagesDir != "" {
+		// The days page's strips, drawn once a day is over in every zone.
+		thumbs := &thumb.Service{Store: store, ImagesDir: cfg.ImagesDir, Log: log}
+		go thumbs.Run(ctx, 2*time.Minute)
+	}
 	// The players' photos for the pins and tables of the results.
 	avatars := &avatar.Service{Store: store, TG: tgc, Log: log}
 
@@ -188,6 +194,7 @@ func run(log *slog.Logger) error {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", game)
 	mux.Handle("/img/", game)
+	mux.Handle("/thumb/", game)
 	if cards != nil {
 		// The card page is for the renderer, behind a signed link and the
 		// chat's reveal; the shared images are what Telegram fetches.

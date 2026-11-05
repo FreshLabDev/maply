@@ -64,10 +64,10 @@ type Store interface {
 	AdoptDMZone(context.Context, int64, string) (bool, error)
 	FixZone(context.Context, int64, string) error
 	ChatActive(context.Context, int64) (bool, error)
-	Days(context.Context, round.Date, int) ([]db.Day, error)
-	ChatDays(context.Context, int64, []db.Day) (map[round.Date]db.ChatDay, error)
-	MyDays(context.Context, int64, []db.Day) (map[round.Date]db.Mine, error)
-	SiteDays(context.Context, string, []db.Day) (map[round.Date]db.Mine, error)
+	DaysPage(context.Context, db.DaysQuery) (db.DaysPage, error)
+	RoundNo(context.Context, int) (db.Round, bool, error)
+	ClosedDay(context.Context, round.Date, round.Date) (db.ClosedDay, error)
+	ThumbByKey(context.Context, string) (db.Thumb, bool, error)
 	SitePlayer(ctx context.Context, id string, name *string) error
 	SiteName(ctx context.Context, id string) (string, error)
 	InsertSiteGuess(context.Context, db.NewSiteGuess) error
@@ -120,8 +120,10 @@ type Server struct {
 	// siteAll caps the site's writes from everyone together: a site player
 	// is a cookie, and addresses are cheap.
 	siteAll *limiter
-	// imgLimit bounds the place's pictures per address.
-	imgLimit *limiter
+	// imgLimit bounds the place's pictures per address, thumbLimit the
+	// days' strips, of which a page of the list asks for thirty.
+	imgLimit   *limiter
+	thumbLimit *limiter
 
 	// tied remembers who has been tied to which chat's reveal, so a result
 	// polled again does not write to core every time.
@@ -139,6 +141,10 @@ type Server struct {
 	// per new answer, not once each.
 	liveMu sync.Mutex
 	live   map[round.Date]liveDay
+
+	// thumbs keeps the strips last served; they never change.
+	thumbsMu sync.Mutex
+	thumbs   map[string]db.Thumb
 }
 
 func (s *Server) Handler() http.Handler {
@@ -157,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 	// An app open fetches one picture; Cloudflare keeps the .jpg, so a
 	// loop of fetches past it is all that reaches the bot.
 	s.imgLimit = newLimiter(120, time.Minute)
+	s.thumbLimit = newLimiter(600, time.Minute)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/today", s.today)
 	mux.HandleFunc("POST /api/guess", s.guess)
@@ -170,6 +177,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/days", s.days)
 	mux.HandleFunc("GET /api/day", s.day)
 	mux.HandleFunc("GET /img/{key}", s.image)
+	mux.HandleFunc("GET /thumb/{name}", s.thumb)
 	return mux
 }
 
