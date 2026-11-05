@@ -11,6 +11,24 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Added
+
+- The curation scripts prepare the free game's pool. `maply-places -pool
+  free` writes `pool = 'free'`, no facts and one city name, the English one
+  where OSM has it. `-avoid` and `MAPLY_AVOID` keep a batch 10 km from every
+  place and candidate of the other pool, so a free place never becomes a
+  place of the day and the free game never shows the spot of a future one.
+- `scripts/curation/screen.py` drops frames near or inside an OSM military
+  area and in the parts of a country left out, and draws review sheets of the
+  whole panorama instead of the 120° the game opens on. `select.py` turns the
+  reviewers' verdicts into `reviews.json` with at most 15 places a country,
+  and writes a report of the batch.
+- `harvest.py` passes over a soft panorama for another frame of the tile.
+  `pool.py` plans in more countries, with rules for their troubled borders,
+  and `MAPLY_CAP` limits the entries a country gets.
+- `maply-places` writes `sharpen.csv`, the input of `-sharpen`, next to
+  `places.sql`.
+
 ## v0.0.1-alpha.15 - 2026-11-05
 
 Fixes from a review of the whole project on 5 November: security, the

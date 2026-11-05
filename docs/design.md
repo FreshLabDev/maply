@@ -273,6 +273,29 @@ Difficulty by weekday: Monday is easy (a recognizable city), Friday is hard (rem
 
 Russia, Ukraine and Belarus are in the game (decision of 22 October 2026). Excluded: the front line, Crimea and occupied territories, military sites, and frames with recognizable faces. Mapillary blurs faces and plates itself. Whether Panoramax does so has not been checked.
 
+### The free pool
+
+The free game (solo and party) draws from a pool of its own: `place.pool = 'free'`. The day picks only `pool = 'daily'`, so a free place never becomes a place of the day, and the free game never sees a future day.
+
+The pool is curated by the same scripts and the same rules as the places of the day, with these differences:
+
+- **No facts, one city name.** There is no curator to write names and facts in sixteen languages. The city is stored as `{"en": …}`: the English name of the area whose outline gives the city bonus, or the local name where OSM has no English one. The client names the country itself with `Intl.DisplayNames`.
+- **The two pools keep apart.** No free frame is a frame of the day, and none is within 10 km of a place of the day or of any candidate of a daily batch, where a spare frame may still go to the queue. A daily batch keeps 10 km from the free pool the same way. `MAPLY_AVOID` in `pool.py`, `harvest.py` and `screen.py`, and `-avoid` in `maply-places`, take the other pool's `places.sql` and `candidates.json` files.
+- **A wide spread.** At most 15 places a country, more countries than the daily batches (`pool.py` weights), and the scene mix of batch-004: a fifth city outskirts, two fifths towns and villages, two fifths roads and nature. No two frames of a batch closer than 5 km.
+- **More checks before the eyes.** `harvest.py` passes over a soft panorama for another frame of the tile. `screen.py` drops frames within 300 m of an OSM military area or inside one, frames in a part of a country left out, and draws the review sheets as the whole 360° band, so a face or a fence behind the camera is in front of the reviewer too. The daily batches showed only the 120° the game opens on.
+
+The pipeline, for `curation/batch-free-001`:
+
+```sh
+pool.py pool-free-001.json 160 270 270          # MAPLY_CAP=20, MAPLY_AVOID=…
+harvest.py batch-free-001                       # MAPLY_POOL=pool-free-001.json, MAPLY_AVOID=…
+screen.py batch-free-001                        # Overpass, then pano-K.jpg
+# reviewers write review-K.json from the pano sheets
+select.py batch-free-001 500                    # reviews.json and report.md
+maply-places -pool free -avoid … -out out-free batch-free-001
+maply-places -out out-free -sharpen out-free/sharpen.csv
+```
+
 ## Architecture
 
 ```text
