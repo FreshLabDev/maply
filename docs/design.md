@@ -291,8 +291,8 @@ pool.py pool-free-001.json 160 270 270          # MAPLY_CAP=20, MAPLY_AVOID=…
 harvest.py batch-free-001                       # MAPLY_POOL=pool-free-001.json, MAPLY_AVOID=…
 screen.py batch-free-001                        # Overpass, then pano-K.jpg
 # reviewers write review-K.json from the pano sheets
-choose.py batch-free-001 500                    # reviews.json and report.md
-maply-places -pool free -avoid … -out out-free batch-free-001
+choose.py batch-free-001 batch-free-002         # MAPLY_TARGET=500: reviews.json, report.md
+maply-places -pool free -avoid … -out out-free batch-free-001 batch-free-002
 maply-places -out out-free -sharpen out-free/sharpen.csv
 ```
 
