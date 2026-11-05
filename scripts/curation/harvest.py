@@ -12,12 +12,17 @@ Output: <out>/candidates.json, <out>/full/NNN.jpg (2048 px), <out>/view/NNN.jpg
 With MAPLY_POOL, every region of a pool.py plan is tried once: a "city" in
 the ring between inner and km, a "town" at its centre, "nature" on the ring
 around a village.
+
+A panorama softer than MAPLY_MIN_SHARP (see sharpness) is passed over for
+another frame, and MAPLY_AVOID keeps the batch clear of the other pool's
+places (see avoid.py).
 """
 import io, json, math, os, random, sys, time, urllib.request, concurrent.futures as cf
 import mapbox_vector_tile
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageStat
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from regions import REGIONS
+import avoid
 
 TOKEN = os.environ["MAPILLARY_TOKEN"]
 OUT = sys.argv[1]
@@ -27,6 +32,11 @@ MIN_TS = 1514764800000  # 2018-01-01, milliseconds
 PANO_ONLY = os.environ.get("MAPLY_PANO_ONLY", "1") != "0"
 # computed_compass_angle: where the frame centre points after Mapillary alignment; the panorama compass needs it.
 FIELDS = "thumb_2048_url,geometry,creator,captured_at,is_pano,width,height,computed_compass_angle,compass_angle"
+AVOID = avoid.from_env()
+# Calibrated on batch-004: its kept panoramas measure 578 and up, and a
+# Gaussian blur of 1.5 px brings every frame tried below 280.
+MIN_SHARP = float(os.environ.get("MAPLY_MIN_SHARP", "350"))
+LAPLACE = ImageFilter.Kernel((3, 3), (0, 1, 0, 1, -4, 1, 0, 1, 0), scale=1, offset=128)
 
 def get(url, timeout=60):
     for attempt in range(3):
@@ -53,6 +63,20 @@ def feature_lonlat(f, x, y, z=14, extent=4096):
     lon = (x + fx / extent) / n * 360 - 180
     lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + 1 - fy / extent) / n))))
     return lat, lon
+
+def sharpness(im):
+    """How sharp a panorama is where there is something to see. The band
+    around the horizon is cut into 64 tiles at 1024 px across, and the
+    Laplacian's variance of the tile at the 90th percentile is the measure:
+    an empty road or a desert is smooth in most tiles, but a sharp frame has
+    edges somewhere, and a soft one has them nowhere."""
+    w, h = im.size
+    band = im.crop((0, int(h * 0.30), w, int(h * 0.62))).convert("L")
+    band = band.resize((1024, max(4, band.height * 1024 // w)), Image.BOX).filter(LAPLACE)
+    tw, th = band.width // 16, band.height // 4
+    v = sorted(ImageStat.Stat(band.crop((x * tw, y * th, x * tw + tw, y * th + th))).var[0]
+               for x in range(16) for y in range(4))
+    return v[int(len(v) * 0.9)]
 
 def front_view(im):
     w, h = im.size
@@ -87,8 +111,13 @@ def harvest(region):
         if not pool:
             continue
         for f in random.sample(pool, min(3, len(pool))):
+            if AVOID and AVOID.taken(f["id"]):
+                continue
             try:
                 meta = json.loads(get(f"https://graph.mapillary.com/{f['id']}?fields={FIELDS}&access_token={TOKEN}"))
+                lo, la = meta["geometry"]["coordinates"]
+                if AVOID and AVOID.why(la, lo):
+                    continue
                 im = Image.open(io.BytesIO(get(meta["thumb_2048_url"]))).convert("RGB")
             except Exception:
                 continue
@@ -96,10 +125,13 @@ def harvest(region):
             pano = bool(meta.get("is_pano"))
             if pano and abs(w / h - 2) > 0.05:
                 continue
-            lo, la = meta["geometry"]["coordinates"]
+            sharp = sharpness(im) if pano else None
+            if pano and sharp < MIN_SHARP:
+                continue
             return {"region": name, "kind": kind, "country": region.get("country") if isinstance(region, dict) else None,
                     "source": "mapillary", "source_id": str(f["id"]), "lat": la, "lon": lo,
-                    "is_pano": pano, "captured_at": meta.get("captured_at"),
+                    "is_pano": pano, "sharpness": round(sharp) if sharp is not None else None,
+                    "captured_at": meta.get("captured_at"),
                     "heading": meta.get("computed_compass_angle", meta.get("compass_angle")),
                     "author": (meta.get("creator") or {}).get("username"), "license": "CC-BY-SA-4.0"}, im
     return None
