@@ -64,7 +64,13 @@ func (s *Server) siteViewer(r *http.Request) account.Viewer {
 // as the person's DM: the DM's zone and date, without touching core.
 func (s *Server) resolveSite(r *http.Request, v account.Viewer) (play, error) {
 	// The session is a cookie: another site's page must not answer for it.
+	// A GET writes too, the DM's zone on the first visit or from the
+	// browser's clock, and a link from another site, even another ws04.cc
+	// one, would carry the Lax cookie: only maply's own page may ask.
 	if r.Method != http.MethodGet && !ownJSON(r) {
+		return play{}, errBadRequest
+	}
+	if site := r.Header.Get("Sec-Fetch-Site"); site == "cross-site" || site == "same-site" {
 		return play{}, errBadRequest
 	}
 	if !s.userLimit.allow(v.TelegramUserID) {

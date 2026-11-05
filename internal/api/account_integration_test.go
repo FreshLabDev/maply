@@ -124,6 +124,11 @@ func TestATelegramAccountPlaysOnTheSite(t *testing.T) {
 	hs.siteExpect("POST", "/api/guess", oksana, `{"lat":49.8,"lon":24}`, http.StatusBadRequest, "Content-Type", "text/plain")
 	hs.siteExpect("POST", "/api/guess", oksana, `{"lat":49.8,"lon":24}`, http.StatusBadRequest, "Sec-Fetch-Site", "cross-site")
 	hs.siteExpect("GET", "/api/today", "not-a-session", "", http.StatusUnauthorized)
+	// A link from another site carries the Lax cookie; the GET would fix
+	// the DM's zone from its ?tz= and ?lang=.
+	for _, from := range []string{"cross-site", "same-site"} {
+		hs.siteExpect("GET", "/api/today?tz=Pacific/Honolulu&lang=en", oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", from)
+	}
 
 	// She answers on the site: scored at once, with the speed bonus, the
 	// place shown, Ivan without his name.
