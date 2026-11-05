@@ -54,7 +54,7 @@ func TestDaysShowAPlaceOnlyOnceItIsOverEverywhere(t *testing.T) {
 		}
 		d := got.Days[0]
 		latest := time.Date(2026, time.December, 11, 4, 0, 0, 0, time.UTC).Format(time.RFC3339)
-		if d.Final || d.Day != 1 || d.OpensAt != latest || d.Pending != 1 || !d.Played || d.Image != "/img/"+testImageKey+".jpg" || d.Kind != "photo" {
+		if d.Final || d.Day != 1 || d.OpensAt != latest || d.Pending != 1 || !d.Played || d.Image != "/img/"+testImageKey+".jpg" || d.Kind != "panorama" {
 			t.Fatalf("open day = %+v", d)
 		}
 		for _, path := range []string{"/api/day?n=1", "/api/day?date=2026-12-10"} {
@@ -92,7 +92,7 @@ func TestDaysShowAPlaceOnlyOnceItIsOverEverywhere(t *testing.T) {
 	if err := json.Unmarshal([]byte(hs.expect("GET", "/api/day?n=1", oksana, "", http.StatusOK)), &page); err != nil {
 		t.Fatal(err)
 	}
-	if page.Day != 1 || page.Date != "2026-12-10" || page.Place.City != "Львів" || page.Image != "/img/"+testImageKey+".jpg" || page.Kind != "photo" ||
+	if page.Day != 1 || page.Date != "2026-12-10" || page.Place.City != "Львів" || page.Image != "/img/"+testImageKey+".jpg" || page.Kind != "panorama" ||
 		page.Heading == nil || *page.Heading != 164.5 || page.Thumb != "" || len(page.Pins) != 1 || len(page.Misses) != 1 ||
 		page.BestKm == nil || page.Prev != 0 || page.Next != 0 {
 		t.Fatalf("day page = %+v", page)

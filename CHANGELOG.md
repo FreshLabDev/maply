@@ -201,6 +201,9 @@ For the operator:
 
 ### Fixed
 
+- A day takes only a 360° panorama. The queue let an approved flat photo
+  become a day; prod had 42 of them, now rejected by hand.
+
 - `maply-places` wrote a heading of 359.96° as `360.0`, which the schema
   refuses, and the whole `places.sql` failed to load. It is written as `0.0`.
 - `pool.py` leaves out the west coast of Sinai and the Russian strip east of

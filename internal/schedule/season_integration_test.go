@@ -27,8 +27,8 @@ func TestSeasonEndsInTheLookBackOfTheMonth(t *testing.T) {
 	exec(t, pool, `INSERT INTO maply.place (id, status, source, source_id, license, kind, lat, lon, image_key,
 	                                       country_iso, continent, difficulty, reviewed_at)
 	               OVERRIDING SYSTEM VALUE
-	               VALUES (1, 'used', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now()),
-	                      (2, 'used', 'mapillary', 'm2', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k2', 'PT', 'europe', 2, now())`)
+	               VALUES (1, 'used', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now()),
+	                      (2, 'used', 'mapillary', 'm2', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k2', 'PT', 'europe', 2, now())`)
 	exec(t, pool, `INSERT INTO maply.round (date, day_no, place_id) VALUES ('2026-10-30', 1, 1), ('2026-10-31', 2, 2)`)
 	chat := &tg.Chat{ID: group, Type: "supergroup", Title: "Maps"}
 	for _, u := range []tg.User{{ID: player, FirstName: "Pin"}, {ID: quiet, FirstName: "Ana"}} {

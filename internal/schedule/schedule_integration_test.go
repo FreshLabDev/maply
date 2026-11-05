@@ -232,7 +232,7 @@ func TestOneDay(t *testing.T) {
 	}
 	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
 	                                       country_iso, continent, city, fact, difficulty, reviewed_at)
-	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe',
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe',
 	                       '{"en":"Lisbon","ru":"Лиссабон"}', '{"en":"Built on seven hills."}', 2, now())`)
 	chat := &tg.Chat{ID: group, Type: "supergroup", Title: "Maps"}
 	for _, u := range []tg.User{{ID: player, FirstName: "Pin"}, {ID: quiet, FirstName: "Q<b>"}} {
@@ -388,7 +388,7 @@ func TestGroupWithoutPictureRights(t *testing.T) {
 	}
 	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
 	                                       country_iso, continent, city, fact, difficulty, reviewed_at)
-	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe',
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe',
 	                       '{"en":"Lisbon"}', '{"en":"Built on seven hills."}', 2, now())`)
 	if err := store.Touch(ctx, tg.User{ID: player, FirstName: "Pin"}, &tg.Chat{ID: group, Type: "supergroup", Title: "Maps"}); err != nil {
 		t.Fatal(err)
@@ -441,7 +441,7 @@ func TestChatBackTheSameDayGetsThePost(t *testing.T) {
 	}
 	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
 	                                       country_iso, continent, difficulty, reviewed_at)
-	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
 	if err := store.Touch(ctx, tg.User{ID: alone, FirstName: "Solo"}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +495,7 @@ func TestBlockedChatIsLeft(t *testing.T) {
 			}
 			exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
 			                                       country_iso, continent, difficulty, reviewed_at)
-			               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+			               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
 			if err := store.Touch(ctx, tg.User{ID: alone, FirstName: "Solo"}, nil); err != nil {
 				t.Fatal(err)
 			}
@@ -532,7 +532,7 @@ func TestStopFinishesTheJobInFlight(t *testing.T) {
 	}
 	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
 	                                       country_iso, continent, difficulty, reviewed_at)
-	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
 	for _, id := range []int64{player, quiet, alone} {
 		if err := store.Touch(context.Background(), tg.User{ID: id, FirstName: "P"}, nil); err != nil {
 			t.Fatal(err)
@@ -582,7 +582,7 @@ func TestResultFollowsAZoneMovedWest(t *testing.T) {
 	}
 	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
 	                                       country_iso, continent, difficulty, reviewed_at)
-	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
 	if err := store.Touch(ctx, tg.User{ID: alone, FirstName: "Solo"}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -647,10 +647,10 @@ func TestPinRequestComesOnce(t *testing.T) {
 	}
 	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
 	                                       country_iso, continent, difficulty, reviewed_at)
-	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now()),
-	                      ('approved', 'mapillary', 'm2', 'CC-BY-SA-4.0', 'photo', 50.45, 30.52, 'k2', 'UA', 'europe', 2, now()),
-	                      ('approved', 'mapillary', 'm3', 'CC-BY-SA-4.0', 'photo', 48.85, 2.35, 'k3', 'FR', 'europe', 2, now()),
-	                      ('approved', 'mapillary', 'm4', 'CC-BY-SA-4.0', 'photo', 52.52, 13.40, 'k4', 'DE', 'europe', 2, now())`)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now()),
+	                      ('approved', 'mapillary', 'm2', 'CC-BY-SA-4.0', 'panorama', 50.45, 30.52, 'k2', 'UA', 'europe', 2, now()),
+	                      ('approved', 'mapillary', 'm3', 'CC-BY-SA-4.0', 'panorama', 48.85, 2.35, 'k3', 'FR', 'europe', 2, now()),
+	                      ('approved', 'mapillary', 'm4', 'CC-BY-SA-4.0', 'panorama', 52.52, 13.40, 'k4', 'DE', 'europe', 2, now())`)
 	if err := store.Touch(ctx, tg.User{ID: player, FirstName: "Pin", LanguageCode: "en"}, &tg.Chat{ID: group, Type: "supergroup", Title: "Maps"}); err != nil {
 		t.Fatal(err)
 	}

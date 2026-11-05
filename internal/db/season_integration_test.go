@@ -27,7 +27,7 @@ func TestSeasonSumsTheBestTwentyDays(t *testing.T) {
 	exec(t, store, `INSERT INTO maply.place (id, status, source, source_id, license, kind, lat, lon, image_key,
 	                                        country_iso, continent, difficulty, reviewed_at)
 	                OVERRIDING SYSTEM VALUE
-	                SELECT g, 'used', 'mapillary', 'm' || g, 'CC-BY-SA-4.0', 'photo', 50, 30, 'k' || g, 'UA', 'europe', 2, now()
+	                SELECT g, 'used', 'mapillary', 'm' || g, 'CC-BY-SA-4.0', 'panorama', 50, 30, 'k' || g, 'UA', 'europe', 2, now()
 	                  FROM generate_series(2, 31) g`)
 	exec(t, store, `INSERT INTO maply.round (date, day_no, place_id)
 	                SELECT DATE '2026-11-01' + (g - 1), g, g FROM generate_series(2, 30) g`)

@@ -106,8 +106,8 @@ func TestStatsCountScoredDays(t *testing.T) {
 	exec(t, store, `INSERT INTO maply.place (id, status, source, source_id, license, kind, lat, lon, image_key,
 	                                        country_iso, continent, difficulty, reviewed_at)
 	                OVERRIDING SYSTEM VALUE VALUES
-	                (2, 'used', 'mapillary', 'm2', 'CC-BY-SA-4.0', 'photo', 1, 1, 'k2', 'UA', 'europe', 2, now()),
-	                (3, 'used', 'mapillary', 'm3', 'CC-BY-SA-4.0', 'photo', 1, 1, 'k3', 'UA', 'europe', 2, now())`)
+	                (2, 'used', 'mapillary', 'm2', 'CC-BY-SA-4.0', 'panorama', 1, 1, 'k2', 'UA', 'europe', 2, now()),
+	                (3, 'used', 'mapillary', 'm3', 'CC-BY-SA-4.0', 'panorama', 1, 1, 'k3', 'UA', 'europe', 2, now())`)
 	exec(t, store, `INSERT INTO maply.round (date, day_no, place_id) VALUES ('2026-11-02', 2, 2), ('2026-11-03', 3, 3)`)
 	// The first day was scored before the speed bonus existed; the second has one.
 	exec(t, store, `INSERT INTO maply.guess (date, user_id, context, lat, lon, answered_at, deadline_at, km, pts_km, pts_bonus, pts_speed) VALUES
