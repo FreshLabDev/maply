@@ -21,7 +21,7 @@ func approvePlace(t *testing.T, s *Store, sourceID string, difficulty int) int64
 	err := s.pool.QueryRow(context.Background(), `
 		INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
 		                         country_iso, continent, difficulty, reviewed_at)
-		VALUES ('approved', 'mapillary', $1, 'CC-BY-SA-4.0', 'photo', 50, 30, 'key-'||$1, 'UA', 'europe', $2, now())
+		VALUES ('approved', 'mapillary', $1, 'CC-BY-SA-4.0', 'panorama', 50, 30, 'key-'||$1, 'UA', 'europe', $2, now())
 		RETURNING id`, sourceID, difficulty).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
@@ -34,6 +34,11 @@ func TestEnsureRoundSpendsOnePlacePerDate(t *testing.T) {
 	ctx := context.Background()
 	easy := approvePlace(t, store, "easy", 1)
 	hard := approvePlace(t, store, "hard", 5)
+	// maply plays 360° panoramas only: an approved flat photo, the best fit
+	// for Monday, never becomes a day.
+	exec(t, store, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+	                                         country_iso, continent, difficulty, reviewed_at)
+	                VALUES ('approved', 'mapillary', 'flat', 'CC-BY-SA-4.0', 'photo', 50, 30, 'key-flat', 'UA', 'europe', 1, now())`)
 
 	monday := round.NewDate(2026, time.November, 2)
 	friday := monday.AddDays(4)
@@ -78,6 +83,10 @@ func TestEnsureRoundSpendsOnePlacePerDate(t *testing.T) {
 	}
 	if used != 2 {
 		t.Fatalf("%d places used, want 2", used)
+	}
+	var flat string
+	if err := store.pool.QueryRow(ctx, `SELECT status FROM maply.place WHERE source_id = 'flat'`).Scan(&flat); err != nil || flat != "approved" {
+		t.Fatalf("the photo is %q, %v", flat, err)
 	}
 }
 

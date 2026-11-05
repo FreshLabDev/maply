@@ -191,8 +191,11 @@ The settings screen starts on the last game's settings, and a game begins in one
 |:--|:--|:--|:--|
 | Classic | 3, 5 or 10 | Blitz 30, 60, 90, 120 s, or no timer | After the last place |
 | Country streak | Until a miss | 30 or 60 s | Wrong country, a pin in the sea, or the time running out |
+| Against the clock | As many as fit | 3 minutes for the whole game | The three minutes running out |
 
 Without a timer a place ends with the answer or with "Give up", which scores 0 and shows the place. A streak has no "no timer": without one it turns into a search for the answer on the internet. After each place the player sees it with the distance, the points and their parts and the fact, and goes on when they like. The final shows the sum, or the streak's length, and the record for those settings.
+
+Against the clock the score is the number of countries found in three minutes. A wrong country does not end the game, a place can be skipped, and there is no speed bonus: the clock is the game. Every place ends when the game does, so the time runs on through a place's reveal, and a place cut by the end counts as missed.
 
 A place is three requests: start, answer, picture. Starting writes when the place began and when it ends, and only then gives the picture; asking again gives the same picture and the same time left, so a reload does not reset the clock, and the place counts as seen from then on. The answer is taken until the end plus 2 s for the network. A game nobody touches closes after a day.
 
@@ -204,6 +207,14 @@ The bot prepares an invitation, "maply · Blitz · 5 places · 30 s" with a butt
 
 The final has the standings, "Ahead of 67% of the others" in place of an average place (2nd of 3 and 2nd of 8 do not compare), the closest pin of the game, "Rematch" into a new lobby on the same settings, and "Share". With friends needs a Telegram person: the Mini App, or the site signed in with an account that has Telegram. The invitation from the site is the link, since the site has no `shareMessage`.
 
+### The archive
+
+Past days of the daily game, one place each and no timer, from the free screen's "Archive". Only days in `day_closed` are there, over in every zone, so the archive never holds a place still in play. A player takes a day once; a day they answered in the bot or on the site, and a day whose place came up in their free play, are shown closed. Taking a day starts its place, which counts as seen from then on, and taking it again gives the same game. After the answer the player sees where they would have stood in that day's table, "4 of 12", counted on the points without the speed bonus, a tie counting as behind; the day's real table does not change. A site guest plays the archive as the browser's player.
+
+### Challenges
+
+A challenge is a party for friends who are not online at once. After a classic game on a timer the player taps "Challenge friends": the game's places, in the same order and on the same settings, become a challenge with a code, and the game is their attempt. The invitation goes out as a party's does, `startapp=c<code>`. Everyone who takes it plays an attempt of their own, once, on their own clock: a place starts when they start it, as in a solo game. The challenge's table shows names and sums only, never a place, and lists the attempts still going and the ones given up after a day. A place the player has had before is played all the same and marked in the table: the places were drawn for the maker, and someone who plays a lot will know some of them. Challenges need a Telegram person, as parties do; the free screen lists the ones from the last seven days. Taking one records the person with `TouchPerson`, never as a DM.
+
 ### Points and records
 
 The judge is the day's: up to 3,500 for the distance and the bonuses for continent, country and city. The speed bonus is up to +200 a place and counts the share of the time left, not the seconds, so the same share earns the same bonus on every timer; it scales with the distance points, so a quick random click earns nothing:
@@ -214,7 +225,7 @@ share = min(1, left / (T − 2 s))      -- the first 2 s load the picture
 speed = round10(200 × share × points_for_distance / 3500)
 ```
 
-No timer, an answer in the 2 s of grace and a pin the app sent at zero earn none. With friends, equal points rank by fewer kilometres in all, then by less time in all; a missed place counts as half the Earth's circumference and the whole time, or silence would look like a quick answer. Records are kept for each set of settings, "60 s · 5 places" or "Country streak · 30 s", from finished games, alone and with friends together, since the counting is the same. On the site an account with Telegram is the person, the same games and records as in the Mini App, and writes nothing to core: the sign-in has recorded them. A site guest plays alone and keeps no records, and so does an account with Google alone, as its own site player, so its games follow it from browser to browser.
+No timer, an answer in the 2 s of grace and a pin the app sent at zero earn none. With friends, equal points rank by fewer kilometres in all, then by less time in all; a missed place counts as half the Earth's circumference and the whole time, or silence would look like a quick answer. Records are kept for each set of settings, "60 s · 5 places", "Country streak · 30 s" or the countries found against the clock, from finished games, alone and with friends together, since the counting is the same. On the site an account with Telegram is the person, the same games and records as in the Mini App, and writes nothing to core: the sign-in has recorded them. A day from the archive keeps no record: it has its place in the day's table instead. A site guest plays alone and keeps no records, and so does an account with Google alone, as its own site player, so its games follow it from browser to browser.
 
 ### Leaderboards
 

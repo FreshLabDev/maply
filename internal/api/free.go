@@ -75,6 +75,12 @@ func (s *Server) freeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/party/{code}/leave", s.partyLeave)
 	mux.HandleFunc("POST /api/party/{code}/rematch", s.partyRematch)
 	mux.HandleFunc("POST /api/party/{code}/invite", s.partyInvite)
+	mux.HandleFunc("GET /api/free/archive", s.archiveList)
+	mux.HandleFunc("POST /api/free/archive", s.archiveTake)
+	mux.HandleFunc("POST /api/free/solo/{id}/challenge", s.challengeMake)
+	mux.HandleFunc("GET /api/free/challenge/{code}", s.challengeView)
+	mux.HandleFunc("POST /api/free/challenge/{code}/play", s.challengeTake)
+	mux.HandleFunc("POST /api/free/challenge/{code}/invite", s.challengeInvite)
 }
 
 // freeViewer is who is asking, as the free game knows them.

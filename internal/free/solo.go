@@ -25,6 +25,10 @@ type Home struct {
 	Best map[string]int `json:"best"`
 	// Party is the code of a party the player is in, to go back to.
 	Party string `json:"party,omitempty"`
+	// Archive is how many closed days the player may still take.
+	Archive int `json:"archive"`
+	// Challenges are the latest challenges the person is in.
+	Challenges []ChallengeBrief `json:"challenges"`
 }
 
 // SoloRound is a place of a solo game that has been answered.
@@ -48,11 +52,27 @@ type SoloView struct {
 	// Current is the place started and not answered yet.
 	Current *RoundView `json:"current"`
 	// Next is the number of the place to start next, 0 when there is none.
-	Next   int       `json:"next"`
-	Points int       `json:"points"`
-	Streak int       `json:"streak"`
-	Final  *Final    `json:"final,omitempty"`
-	Now    time.Time `json:"now"`
+	Next   int `json:"next"`
+	Points int `json:"points"`
+	Streak int `json:"streak"`
+	// Countries is how many places had the right country: the score against
+	// the clock.
+	Countries int `json:"countries"`
+	// EndsAt is when a timed game ends, once its first place has begun.
+	EndsAt *time.Time `json:"ends_at,omitempty"`
+	// Day is the closed day a game from the archive plays.
+	Day *DayView `json:"day,omitempty"`
+	// Challenge is the code of the challenge an attempt is at, or of the one
+	// made from this game.
+	Challenge string    `json:"challenge,omitempty"`
+	Final     *Final    `json:"final,omitempty"`
+	Now       time.Time `json:"now"`
+}
+
+// DayView names a closed day: its number and date.
+type DayView struct {
+	N    int    `json:"n"`
+	Date string `json:"date"`
 }
 
 // Final is a finished game's sum, and where it stands against the player's
@@ -62,6 +82,10 @@ type Final struct {
 	Key    string `json:"key"`
 	Best   *int   `json:"best"`
 	Record bool   `json:"record"`
+	// DayRank is where a day from the archive would have stood among the
+	// day's answers, and DayOf of how many, this one included.
+	DayRank int `json:"day_rank,omitempty"`
+	DayOf   int `json:"day_of,omitempty"`
 }
 
 // GuessIn is an answer: a pin, or nothing for a place given up or run out of
@@ -82,9 +106,11 @@ func (s *Service) lockSolo(id int64) func() {
 // SoloHome is the solo screen for w.
 func (s *Service) SoloHome(ctx context.Context, w Who) (Home, error) {
 	s.init()
-	h := Home{Last: DefaultSolo, Best: map[string]int{}}
+	h := Home{Last: DefaultSolo, Best: map[string]int{}, Challenges: []ChallengeBrief{}}
 	if !w.Valid() {
-		return h, nil
+		days, err := s.Store.FreeArchive(ctx, w)
+		h.Archive = len(days)
+		return h, err
 	}
 	last, ok, err := s.Store.LastFreeSettings(ctx, w)
 	if err != nil {
@@ -92,6 +118,15 @@ func (s *Service) SoloHome(ctx context.Context, w Who) (Home, error) {
 	}
 	if ok {
 		h.Last = last
+	}
+	days, err := s.Store.FreeArchive(ctx, w)
+	if err != nil {
+		return Home{}, err
+	}
+	for _, d := range days {
+		if d.State == DayOpen {
+			h.Archive++
+		}
 	}
 	open, err := s.Store.OpenFreeGames(ctx, w, Solo)
 	if err != nil {
@@ -111,6 +146,9 @@ func (s *Service) SoloHome(ctx context.Context, w Who) (Home, error) {
 			return Home{}, err
 		}
 		if h.Party, err = s.openParty(ctx, w); err != nil {
+			return Home{}, err
+		}
+		if h.Challenges, err = s.Store.FreeChallenges(ctx, w.UserID, s.Now().Add(-ChallengeShown)); err != nil {
 			return Home{}, err
 		}
 	}
@@ -197,7 +235,7 @@ func (s *Service) soloSnap(ctx context.Context, w Who, id int64, now time.Time) 
 	if err != nil {
 		return Snapshot{}, err
 	}
-	if snap.Game.Kind != Solo {
+	if !alone(snap.Game.Kind) {
 		return Snapshot{}, ErrNotFound
 	}
 	if _, ok := snap.member(w); !ok {
@@ -221,7 +259,7 @@ func (s *Service) settle(ctx context.Context, snap *Snapshot, now time.Time) (bo
 	if r, ok := snap.last(); ok && r.EndsAt != nil && now.After(r.Over()) {
 		if _, answered := snap.guess(r.N, 1); !answered {
 			at := r.Over()
-			g := Guess{N: r.N, M: 1, AnsweredAt: at, TimeMs: snap.Game.Settings.Limit().Milliseconds()}
+			g := Guess{N: r.N, M: 1, AnsweredAt: at, TimeMs: r.EndsAt.Sub(r.StartsAt).Milliseconds()}
 			if _, err := s.Store.InsertFreeGuess(ctx, snap.Game.ID, g); err != nil {
 				return false, err
 			}
@@ -233,7 +271,7 @@ func (s *Service) settle(ctx context.Context, snap *Snapshot, now time.Time) (bo
 			return false, err
 		}
 	}
-	if at, over := soloOver(snap); over {
+	if at, over := soloOver(snap, now); over {
 		if err := s.finish(ctx, snap, at); err != nil {
 			return false, err
 		}
@@ -257,10 +295,10 @@ func (s *Service) reread(ctx context.Context, snap *Snapshot) error {
 	return nil
 }
 
-// soloOver is whether a solo game has no place left to play, and when its
-// last place was answered: every place of a classic, or the first miss of a
-// streak.
-func soloOver(snap *Snapshot) (time.Time, bool) {
+// soloOver is whether a solo game has no place left to play, and when it
+// ended: at the answer to every place of a classic, to the first miss of a
+// streak, and when the time of a timed game ran out.
+func soloOver(snap *Snapshot, now time.Time) (time.Time, bool) {
 	r, ok := snap.last()
 	if !ok {
 		return time.Time{}, false
@@ -270,10 +308,30 @@ func soloOver(snap *Snapshot) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	set := snap.Game.Settings
-	if set.Mode == Streak && !g.CountryOK || set.Mode == Classic && r.N >= set.Rounds {
-		return g.AnsweredAt, true
+	switch set.Mode {
+	case Streak:
+		return g.AnsweredAt, !g.CountryOK
+	case Timed:
+		end, _ := timedEnd(snap)
+		return later(end, g.AnsweredAt), !now.Before(end)
 	}
-	return time.Time{}, false
+	return g.AnsweredAt, r.N >= set.Rounds
+}
+
+// timedEnd is when a timed game ends: its time after its first place began.
+func timedEnd(snap *Snapshot) (time.Time, bool) {
+	first, ok := snap.round(1)
+	if !ok || snap.Game.Settings.Mode != Timed {
+		return time.Time{}, false
+	}
+	return first.StartsAt.Add(snap.Game.Settings.Limit()), true
+}
+
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // SoloGame is a solo game as its player sees it now, its places named in
@@ -313,15 +371,17 @@ func (s *Service) StartSolo(ctx context.Context, w Who, id int64, n int) (RoundV
 	if snap.Game.Status != StatusPlaying {
 		return RoundView{}, ErrOver
 	}
-	if n != nextSolo(&snap) {
+	if n != nextSolo(&snap, now) {
 		return RoundView{}, ErrOrder
 	}
-	c, repeat, err := s.pick(ctx, id)
+	place, repeat, err := s.placeFor(ctx, &snap, w, n)
 	if err != nil {
 		return RoundView{}, err
 	}
-	nr := NewRound{N: n, PlaceID: c.PlaceID, Repeat: repeat, StartsAt: now}
-	if limit := snap.Game.Settings.Limit(); limit > 0 {
+	nr := NewRound{N: n, PlaceID: place, Repeat: repeat, StartsAt: now}
+	if end, ok := timedEnd(&snap); ok {
+		nr.EndsAt = &end
+	} else if limit := snap.Game.Settings.Limit(); limit > 0 {
 		ends := now.Add(limit)
 		nr.EndsAt = &ends
 	}
@@ -342,9 +402,29 @@ func (s *Service) StartSolo(ctx context.Context, w Who, id int64, n int) (RoundV
 	return s.roundView(id, r, p, now), nil
 }
 
+// placeFor is the place a solo game gets as its place n, and whether the
+// player has seen it: an attempt at a challenge plays the places of the game
+// it was made from, in their order, and every other game draws one.
+func (s *Service) placeFor(ctx context.Context, snap *Snapshot, w Who, n int) (int64, bool, error) {
+	if snap.Game.From == 0 {
+		c, repeat, err := s.pick(ctx, snap.Game.ID)
+		return c.PlaceID, repeat, err
+	}
+	place, err := s.Store.FreeRoundPlace(ctx, snap.Game.From, n)
+	if errors.Is(err, ErrNoRow) {
+		return 0, false, ErrOver
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	known, err := s.Store.FreeKnown(ctx, w.UserID, place)
+	return place, known, err
+}
+
 // nextSolo is the place a solo game may start next: one past the last, once
-// the last is answered or over. 0 when the game has no place left.
-func nextSolo(snap *Snapshot) int {
+// the last is answered or over. 0 when the game has no place left. A day from
+// the archive has its place from the start.
+func nextSolo(snap *Snapshot, now time.Time) int {
 	if snap.Game.Status != StatusPlaying {
 		return 0
 	}
@@ -355,7 +435,7 @@ func nextSolo(snap *Snapshot) int {
 	if _, answered := snap.guess(r.N, 1); !answered {
 		return 0
 	}
-	if _, over := soloOver(snap); over {
+	if _, over := soloOver(snap, now); over {
 		return 0
 	}
 	return r.N + 1
@@ -380,7 +460,9 @@ func (s *Service) GuessSolo(ctx context.Context, w Who, id int64, in GuessIn, la
 		return SoloView{}, ErrOrder
 	}
 	switch {
-	case in.Skip && r.EndsAt != nil && now.Before(*r.EndsAt):
+	// Against the clock a place may be passed: the time it would cost runs
+	// on all the same.
+	case in.Skip && r.EndsAt != nil && now.Before(*r.EndsAt) && snap.Game.Settings.Mode != Timed:
 		return SoloView{}, ErrBadRequest
 	case !in.Skip && (in.Pin == nil || !in.Pin.Valid()):
 		return SoloView{}, ErrBadRequest
@@ -433,11 +515,19 @@ func (v *SoloView) markLate(n int) {
 
 func (s *Service) soloView(ctx context.Context, snap *Snapshot, w Who, now time.Time, lang string) (SoloView, error) {
 	g := snap.Game
-	v := SoloView{ID: g.ID, Settings: g.Settings, Status: g.Status, Done: []SoloRound{}, Next: nextSolo(snap), Now: now.UTC()}
+	v := SoloView{ID: g.ID, Settings: g.Settings, Status: g.Status, Done: []SoloRound{}, Next: nextSolo(snap, now), Now: now.UTC()}
 	lines := Lines(g.Settings, snap.Members, snap.Rounds, snap.Guesses)
 	if len(lines) == 1 {
-		v.Points, v.Streak = lines[0].Points, lines[0].Streak
+		v.Points, v.Streak, v.Countries = lines[0].Points, lines[0].Streak, lines[0].Countries
 	}
+	if end, ok := timedEnd(snap); ok {
+		end = end.UTC()
+		v.EndsAt = &end
+	}
+	if g.DayNo != 0 {
+		v.Day = &DayView{N: g.DayNo, Date: g.Day.Format(time.DateOnly)}
+	}
+	v.Challenge = g.Challenge
 	for _, r := range snap.Rounds {
 		p, err := s.place(ctx, r.PlaceID)
 		if err != nil {
@@ -453,21 +543,35 @@ func (s *Service) soloView(ctx context.Context, snap *Snapshot, w Who, now time.
 	}
 	if g.Status == StatusDone && len(lines) == 1 {
 		f := &Final{Line: lines[0], Key: g.Settings.Key()}
-		if w.Telegram() {
+		if w.Telegram() && g.Settings.Mode != Archive {
 			best, err := s.Store.FreeBest(ctx, w.UserID, g.ID)
 			if err != nil {
 				return SoloView{}, err
 			}
-			score := f.Points
-			if g.Settings.Mode == Streak {
-				score = f.Streak
-			}
 			if b, ok := best[f.Key]; ok {
 				f.Best = &b
-				f.Record = score > b
+				f.Record = Score(g.Settings, f.Line) > b
+			}
+		}
+		if g.Settings.Mode == Archive && f.Answered > 0 {
+			var err error
+			if f.DayRank, f.DayOf, err = s.Store.FreeDayRank(ctx, g.Day, f.Base, f.Km); err != nil {
+				return SoloView{}, err
 			}
 		}
 		v.Final = f
 	}
 	return v, nil
+}
+
+// Score is what a finished game is measured by: the points of a classic, the
+// length of a streak, the places with the right country against the clock.
+func Score(s Settings, l Line) int {
+	switch s.Mode {
+	case Streak:
+		return l.Streak
+	case Timed:
+		return l.Countries
+	}
+	return l.Points
 }

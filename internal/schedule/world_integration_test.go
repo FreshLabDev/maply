@@ -28,7 +28,7 @@ func TestLookBackComesOnceTheDayAfter(t *testing.T) {
 	exec(t, pool, `INSERT INTO maply.place (id, status, source, source_id, license, kind, lat, lon, image_key,
 	                                       country_iso, continent, difficulty, reviewed_at)
 	               OVERRIDING SYSTEM VALUE
-	               VALUES (1, 'used', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+	               VALUES (1, 'used', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
 	y, d := round.NewDate(2026, 11, 1), round.NewDate(2026, 11, 2)
 	exec(t, pool, `INSERT INTO maply.round (date, day_no, place_id) VALUES ($1, 1, 1)`, y.Time())
 	chat := &tg.Chat{ID: group, Type: "supergroup", Title: "Café <3"}
@@ -107,7 +107,7 @@ func TestOwnLinesTellThePersonTheirDay(t *testing.T) {
 	exec(t, pool, `INSERT INTO maply.place (id, status, source, source_id, license, kind, lat, lon, image_key,
 	                                       country_iso, continent, difficulty, reviewed_at)
 	               OVERRIDING SYSTEM VALUE
-	               VALUES (1, 'used', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+	               VALUES (1, 'used', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
 	d := round.NewDate(2026, 11, 1)
 	exec(t, pool, `INSERT INTO maply.round (date, day_no, place_id) VALUES ($1, 1, 1)`, d.Time())
 	if err := store.EnsureChat(ctx, group); err != nil {

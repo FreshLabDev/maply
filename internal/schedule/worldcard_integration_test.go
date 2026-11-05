@@ -33,7 +33,7 @@ func TestDMResultIsTheWorld(t *testing.T) {
 	}
 	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
 	                                       country_iso, continent, city, fact, difficulty, reviewed_at)
-	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe',
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe',
 	                       '{"en":"Lisbon"}', '{"en":"Built on seven hills."}', 2, now())`)
 	const late = int64(10) // answers from far west, after the Kyiv result
 	// Both are DMs with the bot.

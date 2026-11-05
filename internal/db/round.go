@@ -64,7 +64,7 @@ func (s *Store) EnsureRound(ctx context.Context, d round.Date) (Round, error) {
 	var placeID int64
 	err = tx.QueryRow(ctx, `
 		SELECT id FROM place
-		 WHERE status = 'approved' AND pool = 'daily'
+		 WHERE status = 'approved' AND pool = 'daily' AND kind = 'panorama'
 		 ORDER BY abs(difficulty - $1), md5(id::text), id
 		 LIMIT 1
 		 FOR UPDATE`, round.TargetDifficulty(d.Weekday())).Scan(&placeID)
