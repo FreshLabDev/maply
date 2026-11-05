@@ -6,7 +6,7 @@ can move. It is for development only.
 
 ```sh
 scripts/dev-db.sh start
-go run ./cmd/maply-dev -places ../curation/out-004,../curation/out
+go run ./cmd/maply-dev -places ../curation/out-004,../curation/out-free
 ```
 
 Open <http://127.0.0.1:8399/dev>. The page opens the Mini App as any of
@@ -22,7 +22,9 @@ next morning; and wipes and seeds the stand again.
   tests wipe their own.
 - **Places.** `-places` takes curation output folders, each with
   `places.sql` and `images/` (and `sharp/`, preferred). They are outside git.
-  Without it the stand makes synthetic places with drawn panoramas.
+  Without it the stand makes synthetic places with drawn panoramas. maply
+  plays 360° panoramas only: leave out `curation/out`, the first batch, whose
+  42 flat photos predate that rule.
 - **History.** `-days` past days (30 by default) are created by the store's
   own queue, answered by the players before their own deadlines, scored by the
   real judge and kept once they are over in every zone. One day in nine nobody
