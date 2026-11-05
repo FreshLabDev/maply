@@ -136,6 +136,17 @@ func (s *Store) RetryJob(ctx context.Context, id int64, at time.Time, lastErr st
 	return nil
 }
 
+// PostponeJob puts a job that ran too early back in the queue for at,
+// without counting the run as an attempt.
+func (s *Store) PostponeJob(ctx context.Context, id int64, at time.Time) error {
+	if _, err := s.pool.Exec(ctx, `
+		UPDATE job SET status = 'pending', run_at = $2, attempts = greatest(attempts - 1, 0), locked_until = NULL
+		 WHERE id = $1`, id, at); err != nil {
+		return fmt.Errorf("postpone job %d: %w", id, err)
+	}
+	return nil
+}
+
 // ChatRound is what has already been sent to a chat for a date.
 type ChatRound struct {
 	PostMsgID    int64
@@ -148,6 +159,10 @@ type ChatRound struct {
 	// Yesterday is the look back at the day before that the post carried,
 	// empty when the post had none.
 	Yesterday string
+	// ResultText is a group's result caption as it went out, and ResultWorld
+	// its world line, which the morning makes final.
+	ResultText  string
+	ResultWorld string
 }
 
 // ChatRound returns the chat's state for d, creating the row the first time.
@@ -163,9 +178,9 @@ func (s *Store) ChatRound(ctx context.Context, chatID int64, d round.Date) (Chat
 	var kind *string
 	err := s.pool.QueryRow(ctx, `
 		SELECT post_msg_id, pinned, intrigue_sent, intrigue_kind, result_msg_id, answered, answered_at,
-		       COALESCE(yesterday, '')
+		       COALESCE(yesterday, ''), COALESCE(result_text, ''), COALESCE(result_world, '')
 		  FROM chat_round WHERE chat_id = $1 AND date = $2`, chatID, d.Time()).
-		Scan(&post, &cr.Pinned, &cr.IntrigueSent, &kind, &result, &answered, &answeredAt, &cr.Yesterday)
+		Scan(&post, &cr.Pinned, &cr.IntrigueSent, &kind, &result, &answered, &answeredAt, &cr.Yesterday, &cr.ResultText, &cr.ResultWorld)
 	if err != nil {
 		return ChatRound{}, fmt.Errorf("chat round %d %s: %w", chatID, d, err)
 	}
@@ -217,6 +232,25 @@ func (s *Store) SetPost(ctx context.Context, chatID int64, d round.Date, msgID i
 	return s.updateChatRound(ctx, chatID, d, `post_msg_id = $3, answered = $4, answered_at = $5, yesterday = NULLIF($6, '')`, msgID, line, at, yesterday)
 }
 
+// SetYesterday replaces the quote under the morning post: the look back at
+// yesterday, the rules in a group's first post, and the admins' note when
+// maply may not pin.
+func (s *Store) SetYesterday(ctx context.Context, chatID int64, d round.Date, text string) error {
+	return s.updateChatRound(ctx, chatID, d, `yesterday = NULLIF($3, '')`, text)
+}
+
+// FirstPost reports whether the chat has had no morning post on any date but
+// d: maply has just come to it.
+func (s *Store) FirstPost(ctx context.Context, chatID int64, d round.Date) (bool, error) {
+	var first bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT NOT EXISTS (SELECT 1 FROM chat_round WHERE chat_id = $1 AND date <> $2 AND post_msg_id IS NOT NULL)`,
+		chatID, d.Time()).Scan(&first); err != nil {
+		return false, fmt.Errorf("first post of %d: %w", chatID, err)
+	}
+	return first, nil
+}
+
 func (s *Store) SetPinned(ctx context.Context, chatID int64, d round.Date, pinned bool) error {
 	return s.updateChatRound(ctx, chatID, d, `pinned = $3`, pinned)
 }
@@ -229,6 +263,11 @@ func (s *Store) SetIntrigueSent(ctx context.Context, chatID int64, d round.Date,
 // animation, its file_id; empty leaves none.
 func (s *Store) SetResult(ctx context.Context, chatID int64, d round.Date, msgID int64, fileID string) error {
 	return s.updateChatRound(ctx, chatID, d, `result_msg_id = $3, result_file_id = NULLIF($4, '')`, msgID, fileID)
+}
+
+// SetResultText keeps a group result's caption and its world line.
+func (s *Store) SetResultText(ctx context.Context, chatID int64, d round.Date, text, world string) error {
+	return s.updateChatRound(ctx, chatID, d, `result_text = $3, result_world = NULLIF($4, '')`, text, world)
 }
 
 // ResultAnimation is the file_id of the animation chatID's result for d went
@@ -299,14 +338,26 @@ func (s *Store) SetPhotoFileID(ctx context.Context, d round.Date, id string) err
 	return nil
 }
 
-// WarnPin reports whether the admins still have to hear that the post is
-// better pinned, and marks that they have.
-func (s *Store) WarnPin(ctx context.Context, chatID int64) (bool, error) {
-	tag, err := s.pool.Exec(ctx, `UPDATE chat_settings SET pin_warned = true WHERE chat_id = $1 AND NOT pin_warned`, chatID)
+// PinWarned reports whether the admins have heard that the post is better
+// pinned.
+func (s *Store) PinWarned(ctx context.Context, chatID int64) (bool, error) {
+	var warned bool
+	err := s.pool.QueryRow(ctx, `SELECT pin_warned FROM chat_settings WHERE chat_id = $1`, chatID).Scan(&warned)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("pin warning of %d: %w", chatID, err)
 	}
-	return tag.RowsAffected() == 1, nil
+	return warned, nil
+}
+
+// SetPinWarned marks that the admins have heard it, once the post says so.
+func (s *Store) SetPinWarned(ctx context.Context, chatID int64) error {
+	if _, err := s.pool.Exec(ctx, `UPDATE chat_settings SET pin_warned = true WHERE chat_id = $1`, chatID); err != nil {
+		return fmt.Errorf("pin warning of %d: %w", chatID, err)
+	}
+	return nil
 }
 
 // Member is somebody core has seen in a chat with maply.

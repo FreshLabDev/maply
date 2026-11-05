@@ -64,13 +64,30 @@ func (s *Store) clearLang(ctx context.Context, scope string, subject int64) erro
 func (s *Store) ChatZone(ctx context.Context, chatID int64) (string, error) {
 	var zone *string
 	err := s.pool.QueryRow(ctx, `SELECT timezone FROM chat_settings WHERE chat_id = $1`, chatID).Scan(&zone)
-	if errors.Is(err, pgx.ErrNoRows) || zone == nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("chat zone %d: %w", chatID, err)
 	}
+	if zone == nil {
+		return "", nil
+	}
 	return *zone, nil
+}
+
+// ChatActive reports whether maply is still in the group: false once it was
+// removed. A chat with no settings row yet counts as active.
+func (s *Store) ChatActive(ctx context.Context, chatID int64) (bool, error) {
+	var active bool
+	err := s.pool.QueryRow(ctx, `SELECT active FROM chat_settings WHERE chat_id = $1`, chatID).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("chat active %d: %w", chatID, err)
+	}
+	return active, nil
 }
 
 // SetChatZone stores the zone a chat picked. The caller checks it is one of
@@ -78,7 +95,7 @@ func (s *Store) ChatZone(ctx context.Context, chatID int64) (string, error) {
 func (s *Store) SetChatZone(ctx context.Context, chatID int64, zone string) error {
 	if _, err := s.pool.Exec(ctx, `
 		INSERT INTO chat_settings (chat_id, kind, timezone) VALUES ($1, $2, $3)
-		ON CONFLICT (chat_id) DO UPDATE SET timezone = EXCLUDED.timezone, updated_at = now()`,
+		ON CONFLICT (chat_id) DO UPDATE SET timezone = EXCLUDED.timezone, zone_auto = false, updated_at = now()`,
 		chatID, kindOf(chatID), zone); err != nil {
 		return fmt.Errorf("set zone of %d: %w", chatID, err)
 	}
@@ -92,20 +109,34 @@ func (s *Store) AdoptChatZone(ctx context.Context, chatID int64, zone string) er
 	if _, err := s.pool.Exec(ctx, `
 		INSERT INTO chat_settings (chat_id, kind, timezone) VALUES ($1, $2, $3)
 		ON CONFLICT (chat_id) DO UPDATE SET timezone = COALESCE(chat_settings.timezone, EXCLUDED.timezone),
-		                                    active = true, updated_at = now()`,
+		                                    active = true, left_at = NULL, updated_at = now()`,
 		chatID, kindOf(chatID), zone); err != nil {
 		return fmt.Errorf("adopt zone of %d: %w", chatID, err)
 	}
 	return nil
 }
 
-// AdoptDMZone sets a person's zone from their phone, only while they have
-// none: a zone they picked stays. It reports whether it set one.
+// FixZone stores the zone a chat is in while it has none, so the reveal stops
+// following the language. A DM's is marked as fixed this way: the phone's
+// zone may replace it.
+func (s *Store) FixZone(ctx context.Context, chatID int64, zone string) error {
+	if _, err := s.pool.Exec(ctx, `
+		INSERT INTO chat_settings (chat_id, kind, timezone, zone_auto) VALUES ($1, $2, $3, $2 = 'dm')
+		ON CONFLICT (chat_id) DO UPDATE SET timezone = EXCLUDED.timezone, zone_auto = EXCLUDED.zone_auto, updated_at = now()
+		 WHERE chat_settings.timezone IS NULL`, chatID, kindOf(chatID), zone); err != nil {
+		return fmt.Errorf("fix zone of %d: %w", chatID, err)
+	}
+	return nil
+}
+
+// AdoptDMZone sets a person's zone from their phone while they have none or
+// only the one their language gave: a zone they picked stays. It reports
+// whether it set one.
 func (s *Store) AdoptDMZone(ctx context.Context, userID int64, zone string) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `
 		INSERT INTO chat_settings (chat_id, kind, timezone) VALUES ($1, 'dm', $2)
-		ON CONFLICT (chat_id) DO UPDATE SET timezone = EXCLUDED.timezone, updated_at = now()
-		 WHERE chat_settings.timezone IS NULL`, userID, zone)
+		ON CONFLICT (chat_id) DO UPDATE SET timezone = EXCLUDED.timezone, zone_auto = false, updated_at = now()
+		 WHERE chat_settings.timezone IS NULL OR chat_settings.zone_auto`, userID, zone)
 	if err != nil {
 		return false, fmt.Errorf("adopt zone of %d: %w", userID, err)
 	}
@@ -113,11 +144,15 @@ func (s *Store) AdoptDMZone(ctx context.Context, userID int64, zone string) (boo
 }
 
 // LeaveChat marks a group maply was removed from, or a DM whose person
-// blocked it. The row stays: its zone is still the chat's if maply comes back.
+// blocked it. The row stays: its zone is still the chat's if maply comes back,
+// and left_at keeps the chat in the answer window of a day whose result it
+// may already have shown.
 func (s *Store) LeaveChat(ctx context.Context, chatID int64) error {
 	if _, err := s.pool.Exec(ctx, `
-		INSERT INTO chat_settings (chat_id, kind, active) VALUES ($1, $2, false)
-		ON CONFLICT (chat_id) DO UPDATE SET active = false, updated_at = now()`, chatID, kindOf(chatID)); err != nil {
+		INSERT INTO chat_settings (chat_id, kind, active, left_at) VALUES ($1, $2, false, now())
+		ON CONFLICT (chat_id) DO UPDATE SET active = false, updated_at = now(),
+		       left_at = CASE WHEN chat_settings.active THEN now() ELSE COALESCE(chat_settings.left_at, now()) END`,
+		chatID, kindOf(chatID)); err != nil {
 		return fmt.Errorf("leave chat %d: %w", chatID, err)
 	}
 	return nil
@@ -127,7 +162,7 @@ func (s *Store) LeaveChat(ctx context.Context, chatID int64) error {
 // to it, or the group talks to it.
 func (s *Store) ReturnChat(ctx context.Context, chatID int64) error {
 	if _, err := s.pool.Exec(ctx, `
-		UPDATE chat_settings SET active = true, updated_at = now() WHERE chat_id = $1 AND NOT active`, chatID); err != nil {
+		UPDATE chat_settings SET active = true, left_at = NULL, updated_at = now() WHERE chat_id = $1 AND NOT active`, chatID); err != nil {
 		return fmt.Errorf("return chat %d: %w", chatID, err)
 	}
 	return nil

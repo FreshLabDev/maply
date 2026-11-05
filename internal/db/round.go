@@ -116,41 +116,71 @@ type Context struct {
 }
 
 // Contexts lists every chat core has seen the person in with maply, minus
-// groups maply has left. The answer window closes at the earliest reveal
-// among them.
+// chats maply has left.
 func (s *Store) Contexts(ctx context.Context, userID int64) ([]Context, error) {
+	all, err := s.contexts(ctx, userID, false)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Context, len(all))
+	for i, c := range all {
+		out[i] = c.Context
+	}
+	return out, nil
+}
+
+// leftContext is a context with when maply left it, nil while it is there.
+type leftContext struct {
+	Context
+	left *time.Time
+}
+
+// contexts lists the person's chats: those maply is in, and with withLeft
+// also those it has left.
+func (s *Store) contexts(ctx context.Context, userID int64, withLeft bool) ([]leftContext, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT p.chat_id,
 		       COALESCE(cs.timezone, ''),
 		       COALESCE(CASE WHEN p.chat_id = 0 THEN core.effective_language($1, NULL, 'user')
 		                     ELSE core.effective_language(0, p.chat_id, 'chat') END,
-		                '')
+		                ''),
+		       CASE WHEN COALESCE(cs.active, true) THEN NULL ELSE COALESCE(cs.left_at, cs.updated_at) END
 		  FROM core.maply_presence p
 		  LEFT JOIN chat_settings cs
 		         ON cs.chat_id = CASE WHEN p.chat_id = 0 THEN $1 ELSE p.chat_id END
 		 WHERE p.telegram_user_id = $1
-		   AND COALESCE(cs.active, true)
-		 ORDER BY p.chat_id`, userID)
+		   AND (COALESCE(cs.active, true) OR $2)
+		 ORDER BY p.chat_id`, userID, withLeft)
 	if err != nil {
 		return nil, fmt.Errorf("contexts of %d: %w", userID, err)
 	}
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Context, error) {
-		var c Context
-		err := row.Scan(&c.ChatID, &c.Zone, &c.Lang)
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (leftContext, error) {
+		var c leftContext
+		err := row.Scan(&c.ChatID, &c.Zone, &c.Lang, &c.left)
 		return c, err
 	})
 }
 
-// Deadline is when userID's answer window for d closes. With no context at all
-// it is the default zone's reveal.
-func (s *Store) Deadline(ctx context.Context, zones round.Zones, userID int64, d round.Date) (time.Time, error) {
-	contexts, err := s.Contexts(ctx, userID)
+// Deadline is when userID's answer window for d closes: the earliest reveal
+// among own (the chat answering now, which core may not have recorded yet;
+// nil for none), the chats the person plays in, and the chats maply left
+// after their reveal of d, whose result the person may have seen before it
+// went. With none of these it is the default zone's reveal.
+func (s *Store) Deadline(ctx context.Context, zones round.Zones, userID int64, d round.Date, own *time.Location) (time.Time, error) {
+	contexts, err := s.contexts(ctx, userID, true)
 	if err != nil {
 		return time.Time{}, err
 	}
 	locs := make([]*time.Location, 0, len(contexts)+1)
+	if own != nil {
+		locs = append(locs, own)
+	}
 	for _, c := range contexts {
-		locs = append(locs, zones.For(c.Zone, c.Lang))
+		loc := zones.For(c.Zone, c.Lang)
+		if c.left != nil && c.left.Before(d.Reveal(loc)) {
+			continue
+		}
+		locs = append(locs, loc)
 	}
 	if len(locs) == 0 {
 		locs = append(locs, zones.For("", ""))

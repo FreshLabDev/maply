@@ -136,11 +136,15 @@ func (h *handler) add(name string, data []byte, immutable bool) {
 }
 
 // Texts is what the app reads in lang: its strings without the "app." prefix,
-// and the name of every zone a chat can be in.
+// the units the bot writes distances with, and the name of every zone a chat
+// can be in.
 func Texts(lang string) ([]byte, error) {
 	t := map[string]string{}
 	for key, text := range i18n.WithPrefix(lang, "app.") {
 		t[strings.TrimPrefix(key, "app.")] = text
+	}
+	for key, text := range i18n.WithPrefix(lang, "unit.") {
+		t[key] = text
 	}
 	zones := map[string]string{}
 	for _, name := range round.ZoneChoices {

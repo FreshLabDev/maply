@@ -109,7 +109,7 @@ func TestTextsPerLanguage(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 			t.Fatal(err)
 		}
-		if got.Lang != lang || got.T["where"] == "" || len(got.Zone) != len(round.ZoneChoices) {
+		if got.Lang != lang || got.T["where"] == "" || got.T["unit.m"] == "" || len(got.Zone) != len(round.ZoneChoices) {
 			t.Fatalf("%s: lang %q, where %q, %d zones", lang, got.Lang, got.T["where"], len(got.Zone))
 		}
 		if _, ok := got.T["btn.play"]; ok {
@@ -127,6 +127,9 @@ func TestAppKeysExist(t *testing.T) {
 	known := map[string]bool{}
 	for key := range i18n.WithPrefix("en", "app.") {
 		known[strings.TrimPrefix(key, "app.")] = true
+	}
+	for key := range i18n.WithPrefix("en", "unit.") {
+		known[key] = true
 	}
 	uses := regexp.MustCompile(`\b(?:T|lines)\("([a-z_.]*[a-z_])"|data-(?:t|aria)="([a-z_.]+)"|LOOK = \{([^}]*)\}`)
 	quoted := regexp.MustCompile(`"([a-z_]+)"`)
@@ -154,7 +157,7 @@ func TestAppKeysExist(t *testing.T) {
 		}
 	}
 	for _, key := range []string{"compass_n", "compass_ne", "compass_e", "compass_se", "compass_s", "compass_sw", "compass_w", "compass_nw",
-		"loading", "on_water", "on_land", "moved", "logo", "error.network"} {
+		"loading", "on_water", "on_land", "moved", "error.network", "error.left", "error.unavailable", "error.bad_request", "error.internal"} {
 		if !known[key] {
 			t.Errorf("the app builds %q, which internal/i18n does not have", key)
 		}

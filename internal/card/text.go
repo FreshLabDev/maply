@@ -48,13 +48,32 @@ func Quoted(lang string, dayNo int, a db.Answer) string {
 	if place := Place(lang, a); place != "" {
 		quote = append(quote, html.EscapeString(place))
 	}
-	if fact := localized(a.Fact, lang); fact != "" {
+	if fact := clip(localized(a.Fact, lang), factMax); fact != "" {
 		quote = append(quote, "<i>"+html.EscapeString(fact)+"</i>")
 	}
 	if len(quote) > 0 {
 		head += "\n<blockquote>" + strings.Join(quote, "\n") + "</blockquote>"
 	}
 	return head
+}
+
+// factMax is the most of a fact a caption carries. Telegram takes 1,024
+// characters; the head always fits with room left for the table, and a
+// caption that drops lines from the end never has to drop the head.
+const factMax = 600
+
+// clip cuts s to n characters at a word, with an ellipsis.
+func clip(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	cut := string(r[:n])
+	if i := strings.LastIndexByte(cut, ' '); i > n/2 {
+		cut = cut[:i]
+	}
+	// Dashes are trimmed too; written as escapes, since no dash is ever shown.
+	return strings.TrimRight(cut, " ,.;:\u2014\u2013-") + "…"
 }
 
 // Score is a person's day for a forwarded message: the distance and the

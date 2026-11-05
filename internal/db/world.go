@@ -80,14 +80,14 @@ func (w World) PlaceOf(player string) int {
 // of them by person.
 func (s *Store) World(ctx context.Context, d round.Date) (World, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT row_number() OVER (ORDER BY ds.points DESC, ds.km, ds.answered_at, ds.user_id, ds.player),
-		       COALESCE(ds.user_id, 0), COALESCE(ds.player::text, ''),
-		       COALESCE(pe.first_name, sp.name, ''), ds.km, ds.points, ds.pts_bonus, ds.pts_speed
-		  FROM day_score ds
-		  LEFT JOIN core.person pe ON pe.telegram_user_id = ds.user_id
-		  LEFT JOIN site_player sp ON sp.id = ds.player
-		 WHERE ds.date = $1
-		 ORDER BY 1`, d.Time())
+		SELECT dr.rank,
+		       COALESCE(dr.user_id, 0), COALESCE(dr.player::text, ''),
+		       COALESCE(pe.first_name, sp.name, ''), dr.km, dr.points, dr.pts_bonus, dr.pts_speed
+		  FROM day_rank dr
+		  LEFT JOIN core.person pe ON pe.telegram_user_id = dr.user_id
+		  LEFT JOIN site_player sp ON sp.id = dr.player
+		 WHERE dr.date = $1
+		 ORDER BY dr.rank`, d.Time())
 	if err != nil {
 		return World{}, fmt.Errorf("world %s: %w", d, err)
 	}
@@ -238,11 +238,8 @@ func (s *Store) myDays(ctx context.Context, who string, id any, days []Day) (map
 		dates[i] = d.Date.Time()
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT date, km, points, rank FROM (
-		  SELECT date, user_id, player, km, points,
-		         row_number() OVER (PARTITION BY date ORDER BY points DESC, km, answered_at, user_id, player) AS rank
-		    FROM day_score WHERE date = ANY($2::date[])) r
-		 WHERE `+who, id, dates)
+		SELECT date, km, points, rank FROM day_rank
+		 WHERE date = ANY($2::date[]) AND `+who, id, dates)
 	if err != nil {
 		return nil, fmt.Errorf("my days: %w", err)
 	}
@@ -319,15 +316,18 @@ type NewSiteGuess struct {
 	Pin        geo.Point
 	AnsweredAt time.Time
 	Deadline   time.Time
+	// Late is an answer after the day's first reveal, which does not take
+	// the world's first place.
+	Late bool
 }
 
 // InsertSiteGuess stores the site player's one answer of the day.
 func (s *Store) InsertSiteGuess(ctx context.Context, g NewSiteGuess) error {
 	tag, err := s.pool.Exec(ctx, `
-		INSERT INTO site_guess (date, player, lat, lon, answered_at, deadline_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO site_guess (date, player, lat, lon, answered_at, deadline_at, late)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (date, player) DO NOTHING`,
-		g.Date.Time(), g.Player, g.Pin.Lat, g.Pin.Lon, g.AnsweredAt, g.Deadline)
+		g.Date.Time(), g.Player, g.Pin.Lat, g.Pin.Lon, g.AnsweredAt, g.Deadline, g.Late)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 		return fmt.Errorf("site guess for an unknown player or date: %w", err)

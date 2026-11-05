@@ -152,7 +152,18 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if player := playerID(r); player != "" {
+	// The day has closed everywhere: the whole world's table, names and all.
+	world, err := s.Store.World(ctx, d)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	player := playerID(r)
+	isMe := func(e db.Entry) bool { return player != "" && e.Player == player }
+	secret := s.boardSecret()
+	resp.Board = board(secret, d, 0, world, isMe, nil, nil, true, true)
+	resp.Players = world.Players()
+	if player != "" {
 		g, ok, err := s.Store.SiteGuessOf(ctx, d, player)
 		if err != nil {
 			s.fail(w, r, err)
@@ -160,7 +171,8 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 		}
 		if ok && g.Km != nil {
 			total, bonus := g.Total(), *g.PtsBonus
-			resp.Table = append(resp.Table, line{Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Points: &total, Bonus: &bonus, Me: true})
+			resp.Table = append(resp.Table, line{Key: boardKey(secret, d, 0, db.Entry{Player: player}), Lat: g.Pin.Lat, Lon: g.Pin.Lon,
+				Km: g.Km, Points: &total, Bonus: &bonus, Me: true})
 			writeJSON(w, http.StatusOK, resp)
 			return
 		}
@@ -173,7 +185,7 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 		place := scoring.Place{Point: answer.Point, Country: answer.CountryISO, Continent: answer.Continent, City: answer.CityShape}
 		sc := scoring.Judge(pt, place, s.Countries)
 		km, total, bonus := sc.Km, sc.Total(), sc.Bonus
-		resp.Table = append(resp.Table, line{Lat: lat, Lon: lon, Km: &km, Points: &total, Bonus: &bonus, Me: true})
+		resp.Table = append(resp.Table, line{Key: "me", Lat: lat, Lon: lon, Km: &km, Points: &total, Bonus: &bonus, Me: true})
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

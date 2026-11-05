@@ -47,6 +47,8 @@ type Store interface {
 	Puzzle(context.Context, int64) (db.Puzzle, error)
 	Answer(context.Context, int64) (db.Answer, error)
 	Contexts(context.Context, int64) ([]db.Context, error)
+	ResultCounts(context.Context, round.Date, int64) (int, int, error)
+	Deadline(context.Context, round.Zones, int64, round.Date, *time.Location) (time.Time, error)
 	InsertGuess(context.Context, db.NewGuess) error
 	GuessOf(context.Context, round.Date, int64) (db.Guess, bool, error)
 	ChatGuesses(context.Context, round.Date, int64) ([]db.Guess, error)
@@ -57,6 +59,8 @@ type Store interface {
 	World(context.Context, round.Date) (db.World, error)
 	DayPins(context.Context, round.Date) ([][2]float64, error)
 	AdoptDMZone(context.Context, int64, string) (bool, error)
+	FixZone(context.Context, int64, string) error
+	ChatActive(context.Context, int64) (bool, error)
 	Days(context.Context, round.Date, int) ([]db.Day, error)
 	ChatDays(context.Context, int64, []db.Day) (map[round.Date]db.ChatDay, error)
 	MyDays(context.Context, int64, []db.Day) (map[round.Date]db.Mine, error)
@@ -120,8 +124,10 @@ func (s *Server) Handler() http.Handler {
 	s.userLimit = newLimiter(30, time.Minute)
 	// A share draws a picture, which is the most expensive thing here.
 	s.shareLimit = newLimiter(5, time.Minute)
-	s.logLimit = newLimiter(10, time.Minute)
-	s.logAll = newLimiter(120, time.Minute)
+	// A broken release reports itself in a few lines a minute; more is a
+	// flood, and the journal is shared with every stack on the host.
+	s.logLimit = newLimiter(5, time.Minute)
+	s.logAll = newLimiter(30, time.Minute)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/today", s.today)
 	mux.HandleFunc("POST /api/guess", s.guess)
@@ -143,7 +149,9 @@ type play struct {
 	user   auth.User
 	kind   string // dm or group
 	chatID int64
-	date   round.Date
+	// chatType is the group's type as the launch named it.
+	chatType string
+	date     round.Date
 	// zone is the context's: the group's for a group, the person's for the DM.
 	zone *time.Location
 	// lang is what the app speaks: the group's language when opened from a
@@ -170,12 +178,32 @@ var (
 	errNotRevealed  = apiError{http.StatusForbidden, "not_revealed"}
 	errNotAnswered  = apiError{http.StatusForbidden, "not_answered"}
 	errUnavailable  = apiError{http.StatusServiceUnavailable, "unavailable"}
+	// errLeft is a link from a group maply has been removed from: the group
+	// no longer plays, and its reveal no longer bounds anyone's answer.
+	errLeft = apiError{http.StatusGone, "left"}
 )
 
 // resolve verifies initData from "Authorization: tma <initData>" and works
 // out the context. A start_param means the Mini App was opened from a group
 // post; without one it is the DM.
-func (s *Server) resolve(r *http.Request) (play, error) {
+func (s *Server) resolve(r *http.Request) (play, error) { return s.resolveAs(r, true) }
+
+// touch records the person, and the group the app was opened from, in core.
+// A group recorded is a group whose reveal closes the person's answers.
+func (s *Server) touch(ctx context.Context, p play) error {
+	user := tg.User{ID: p.user.ID, FirstName: p.user.FirstName, LastName: p.user.LastName,
+		Username: p.user.Username, LanguageCode: p.user.LanguageCode}
+	if p.kind != "group" {
+		return s.Store.Touch(ctx, user, nil)
+	}
+	return s.Store.Touch(ctx, user, &tg.Chat{ID: p.chatID, Type: p.chatType})
+}
+
+// resolveAs is resolve that records the person and the chat in core only
+// when touch is set. The result is polled every few seconds while the names
+// are hidden; /api/today, which every opening of the app starts with, has
+// recorded them already.
+func (s *Server) resolveAs(r *http.Request, touch bool) (play, error) {
 	raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "tma ")
 	if !ok {
 		return play{}, errUnauthorized
@@ -193,8 +221,10 @@ func (s *Server) resolve(r *http.Request) (play, error) {
 		Username: data.User.Username, LanguageCode: data.User.LanguageCode}
 
 	if data.StartParam == "" {
-		if err := s.Store.Touch(ctx, user, nil); err != nil {
-			return play{}, err
+		if touch {
+			if err := s.touch(ctx, p); err != nil {
+				return play{}, err
+			}
 		}
 		lang, err := s.personLang(ctx, data.User)
 		if err != nil {
@@ -203,6 +233,14 @@ func (s *Server) resolve(r *http.Request) (play, error) {
 		zone, err := s.Store.ChatZone(ctx, user.ID)
 		if err != nil {
 			return play{}, err
+		}
+		// Fixed at the first contact, the DM's zone no longer follows the
+		// language: switching it could reopen a day the DM has seen.
+		if zone == "" {
+			zone = round.DefaultName(lang)
+			if err := s.Store.FixZone(ctx, user.ID, zone); err != nil {
+				return play{}, err
+			}
 		}
 		p.kind, p.lang = "dm", i18n.Resolve(lang)
 		p.zone = s.Zones.For(zone, lang)
@@ -213,6 +251,11 @@ func (s *Server) resolve(r *http.Request) (play, error) {
 	payload, err := s.Payloads.Verify(data.StartParam)
 	if err != nil {
 		return play{}, errUnauthorized
+	}
+	if active, err := s.Store.ChatActive(ctx, payload.ChatID); err != nil {
+		return play{}, err
+	} else if !active {
+		return play{}, errLeft
 	}
 	member, err := s.Members.IsMember(ctx, payload.Date, payload.ChatID, user.ID)
 	if err != nil {
@@ -225,8 +268,11 @@ func (s *Server) resolve(r *http.Request) (play, error) {
 	if chatType != "group" && chatType != "supergroup" {
 		chatType = "supergroup"
 	}
-	if err := s.Store.Touch(ctx, user, &tg.Chat{ID: payload.ChatID, Type: chatType}); err != nil {
-		return play{}, err
+	p.kind, p.chatID, p.chatType = "group", payload.ChatID, chatType
+	if touch {
+		if err := s.touch(ctx, p); err != nil {
+			return play{}, err
+		}
 	}
 	zone, err := s.Store.ChatZone(ctx, payload.ChatID)
 	if err != nil {
@@ -245,7 +291,7 @@ func (s *Server) resolve(r *http.Request) (play, error) {
 			return play{}, err
 		}
 	}
-	p.kind, p.chatID, p.date, p.lang = "group", payload.ChatID, payload.Date, i18n.Resolve(lang)
+	p.date, p.lang = payload.Date, i18n.Resolve(lang)
 	p.zone = s.Zones.For(zone, chatLang)
 	// A post for a date that has not begun in the chat's zone was not sent by
 	// the bot.
@@ -268,17 +314,10 @@ func (s *Server) personLang(ctx context.Context, u auth.User) (string, error) {
 }
 
 // deadline is the earliest reveal among every context the person plays in,
-// this one included even if core has not recorded it.
+// this one included even if core has not recorded it, and chats maply left
+// after their reveal.
 func (s *Server) deadline(ctx context.Context, p play) (time.Time, error) {
-	contexts, err := s.Store.Contexts(ctx, p.user.ID)
-	if err != nil {
-		return time.Time{}, err
-	}
-	locs := []*time.Location{p.zone}
-	for _, c := range contexts {
-		locs = append(locs, s.Zones.For(c.Zone, c.Lang))
-	}
-	return round.Deadline(p.date, locs)
+	return s.Store.Deadline(ctx, s.Zones, p.user.ID, p.date, p.zone)
 }
 
 // opensAt is when this context may see the answer. A group sees it at its own
@@ -478,6 +517,9 @@ type placeView struct {
 // line is one answer of the chat, for its marker on the map. Before the
 // reveal another player's line has no name.
 type line struct {
+	// Key is the same as the person's row in the world's table, so two answers
+	// on one spot stay two markers.
+	Key    string   `json:"key"`
 	Name   string   `json:"name"`
 	Lat    float64  `json:"lat"`
 	Lon    float64  `json:"lon"`
@@ -499,9 +541,10 @@ type worldNow struct {
 	Pins    []pin `json:"pins"`
 }
 
-// boardLine is one row of the world's table under the map. Before the
-// reveal only your own row has a name. Group marks the players of the chat the
-// app was opened from.
+// boardLine is one row of the world's table under the map. Group marks the
+// players of the chat the app was opened from. Hidden is a row whose name is
+// not out yet, a site player's too: a name typed on the site comes out with
+// the rest of the world's, and a guest without one reads "Guest" then.
 type boardLine struct {
 	// Key tells the rows apart from one poll to the next without saying whose
 	// they are: it is keyed by a secret the process makes at start.
@@ -514,6 +557,8 @@ type boardLine struct {
 	Speed  int     `json:"speed,omitempty"`
 	Me     bool    `json:"me,omitempty"`
 	Group  bool    `json:"group,omitempty"`
+	Hidden bool    `json:"hidden,omitempty"`
+	Site   bool    `json:"site,omitempty"`
 	Photo  string  `json:"photo,omitempty"`
 }
 
@@ -521,16 +566,45 @@ type boardLine struct {
 // and your group's come on top of them wherever they stand.
 const boardShown = 200
 
-var boardSecret = func() []byte {
+// randomSecret keys the rows when there is no signer, in tests.
+var randomSecret = func() []byte {
 	b := make([]byte, 32)
 	rand.Read(b)
 	return b
 }()
 
-func boardKey(d round.Date, e db.Entry) string {
-	m := hmac.New(sha256.New, boardSecret)
-	m.Write([]byte(d.String() + "|" + strconv.FormatInt(e.UserID, 10) + "|" + e.Player))
+// boardSecret keys the rows' keys. It comes from the bot's signer, so a row
+// keeps its key across a restart and an open app does not see every row as
+// new after a deploy.
+func (s *Server) boardSecret() []byte {
+	if s.Payloads == nil {
+		return randomSecret
+	}
+	return s.Payloads.Key("maply-board-v1")
+}
+
+// boardKey names a row for the app, the same all day so a row keeps its
+// place while the table grows. viewer is the chat looking: one person's key
+// in a group is not their key in another group or a DM, so two chats cannot
+// match up who is who among the unnamed rows.
+func boardKey(secret []byte, d round.Date, viewer int64, e db.Entry) string {
+	m := hmac.New(sha256.New, secret)
+	m.Write([]byte(d.String() + "|" + strconv.FormatInt(viewer, 10) + "|" + strconv.FormatInt(e.UserID, 10) + "|" + e.Player))
 	return hex.EncodeToString(m.Sum(nil)[:6])
+}
+
+// viewer is the chat a result is drawn for: the group, or the person's DM.
+func (p play) viewer() int64 {
+	if p.kind == "group" {
+		return p.chatID
+	}
+	return p.user.ID
+}
+
+// resultVersion changes with a new answer in the chat or the world, at the
+// chat's reveal and when the world's names open.
+func resultVersion(chatN, worldN int, phase string, worldOpen bool) string {
+	return strconv.Itoa(chatN) + "." + strconv.Itoa(worldN) + "." + phase + "." + strconv.FormatBool(worldOpen)
 }
 
 type resultResponse struct {
@@ -550,6 +624,9 @@ type resultResponse struct {
 	Players int         `json:"players"`
 	// Version changes when someone answers, so the app redraws only then.
 	Version string `json:"version,omitempty"`
+	// Same answers an app that asked with the current version: nothing has
+	// changed, and the rest of the result is left out.
+	Same bool `json:"same,omitempty"`
 }
 
 // worldPinsShown is how many of the world's pins go to the app: enough for a
@@ -557,12 +634,20 @@ type resultResponse struct {
 const worldPinsShown = 300
 
 func (s *Server) result(w http.ResponseWriter, r *http.Request) {
-	p, err := s.resolve(r)
+	p, err := s.resolveAs(r, false)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	resp, err := s.buildResult(r.Context(), p, s.Now())
+	// A DM's day ends at midnight in its zone, while one of the person's
+	// groups may still be guessing it: an app opened on that day keeps it.
+	// A group's date is in its signed link.
+	if p.kind == "dm" {
+		if d, err := round.ParseDate(r.URL.Query().Get("date")); err == nil && d.String() == p.date.AddDays(-1).String() {
+			p.date = d
+		}
+	}
+	resp, err := s.buildResultSince(r.Context(), p, s.Now(), r.URL.Query().Get("since"))
 	var early earlyError
 	if errors.As(err, &early) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": early.code, "opens_at": early.opens.UTC()})
@@ -570,6 +655,10 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.fail(w, r, err)
+		return
+	}
+	if resp.Same {
+		writeJSON(w, http.StatusOK, map[string]any{"same": true, "version": resp.Version, "phase": resp.Phase, "opens_at": resp.OpensAt})
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -587,6 +676,13 @@ func (e earlyError) Error() string { return e.code }
 // context's reveal it is there only for someone who has answered, and the
 // others in it have no names.
 func (s *Server) buildResult(ctx context.Context, p play, now time.Time) (resultResponse, error) {
+	return s.buildResultSince(ctx, p, now, "")
+}
+
+// buildResultSince is buildResult for an app that already shows the version
+// since: when nothing has changed it gets the version back and nothing else,
+// without the pins and the table it has.
+func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, since string) (resultResponse, error) {
 	opens, err := s.opensAt(ctx, p)
 	if err != nil {
 		return resultResponse{}, err
@@ -613,6 +709,39 @@ func (s *Server) buildResult(ctx context.Context, p play, now time.Time) (result
 	if err := s.scoreDay(ctx, p.date, answer, now); err != nil {
 		return resultResponse{}, err
 	}
+	phase := "final"
+	if live {
+		phase = "live"
+	}
+	worldOpen := !now.Before(s.Zones.LastReveal(p.date))
+	var opensAt *time.Time
+	if live {
+		at := opens.UTC()
+		opensAt = &at
+	}
+	// A poll that has this version already costs two counts, not the
+	// day's whole ranking.
+	if since != "" {
+		chatN, worldN, err := s.Store.ResultCounts(ctx, p.date, p.chatID)
+		if err != nil {
+			return resultResponse{}, err
+		}
+		if p.kind != "group" {
+			chatN = 0
+			if answered {
+				chatN = 1
+			}
+		}
+		if version := resultVersion(chatN, worldN, phase, worldOpen); since == version {
+			return resultResponse{Phase: phase, OpensAt: opensAt, Version: version, Same: true}, nil
+		}
+	} else if !answered {
+		// Seeing the place without an answer ties the person to this chat's
+		// reveal, as /api/today does; a launch that skipped it is caught here.
+		if err := s.touch(ctx, p); err != nil {
+			return resultResponse{}, err
+		}
+	}
 	var guesses []db.Guess
 	if p.kind == "group" {
 		guesses, err = s.Store.ChatGuesses(ctx, p.date, p.chatID)
@@ -626,6 +755,14 @@ func (s *Server) buildResult(ctx context.Context, p play, now time.Time) (result
 	if err != nil {
 		return resultResponse{}, err
 	}
+	world, err := s.Store.World(ctx, p.date)
+	if err != nil {
+		return resultResponse{}, err
+	}
+	version := resultVersion(len(guesses), world.Players(), phase, worldOpen)
+	if since != "" && since == version {
+		return resultResponse{Phase: phase, OpensAt: opensAt, Version: version, Same: true}, nil
+	}
 	resp := resultResponse{
 		Date: p.date.String(), Day: rd.DayNo,
 		Place: placeView{
@@ -633,13 +770,10 @@ func (s *Server) buildResult(ctx context.Context, p play, now time.Time) (result
 			City: localized(answer.City, p.lang), Fact: localized(answer.Fact, p.lang),
 			Author: answer.Author, License: answer.License, Source: answer.Source,
 		},
-		Table: make([]line, 0, len(guesses)),
-		Phase: "final",
-	}
-	if live {
-		resp.Phase = "live"
-		at := opens.UTC()
-		resp.OpensAt = &at
+		Table:   make([]line, 0, len(guesses)),
+		Phase:   phase,
+		OpensAt: opensAt,
+		Version: version,
 	}
 	photos := map[int64][]byte{}
 	if s.Avatars != nil && !live {
@@ -649,9 +783,11 @@ func (s *Server) buildResult(ctx context.Context, p play, now time.Time) (result
 		}
 		photos = s.Avatars.Kept(ctx, ids)
 	}
+	secret := s.boardSecret()
+	viewer := p.viewer()
 	for _, g := range guesses {
 		me := g.UserID == p.user.ID
-		l := line{Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Me: me}
+		l := line{Key: boardKey(secret, p.date, viewer, db.Entry{UserID: g.UserID}), Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Me: me}
 		if g.PtsKm != nil && g.PtsBonus != nil {
 			total := g.Total()
 			l.Points, l.Bonus, l.Speed = &total, g.PtsBonus, g.Speed()
@@ -664,19 +800,20 @@ func (s *Server) buildResult(ctx context.Context, p play, now time.Time) (result
 		}
 		resp.Table = append(resp.Table, l)
 	}
-	world, err := s.Store.World(ctx, p.date)
-	if err != nil {
-		return resultResponse{}, err
-	}
 	if answered {
 		if resp.World, err = s.worldNow(ctx, p, world); err != nil {
 			return resultResponse{}, err
 		}
 	}
-	resp.Board = board(p, world, guesses, photos, live)
-	players := world.Players()
-	resp.Players = players
-	resp.Version = strconv.Itoa(len(guesses)) + "." + strconv.Itoa(players) + "." + resp.Phase
+	group := map[int64]bool{}
+	if p.kind == "group" {
+		for _, g := range guesses {
+			group[g.UserID] = true
+		}
+	}
+	isMe := func(e db.Entry) bool { return e.UserID != 0 && e.UserID == p.user.ID }
+	resp.Board = board(secret, p.date, viewer, world, isMe, group, photos, !live, worldOpen)
+	resp.Players = world.Players()
 	return resp, nil
 }
 
@@ -699,25 +836,24 @@ func (s *Server) worldNow(ctx context.Context, p play, w db.World) (*worldNow, e
 }
 
 // board is the world's table as this person may see it: the best rows, and
-// theirs and their group's wherever they stand. Until the reveal the others
-// have no names.
-func board(p play, w db.World, guesses []db.Guess, photos map[int64][]byte, live bool) []boardLine {
-	group := map[int64]bool{}
-	if p.kind == "group" {
-		for _, g := range guesses {
-			group[g.UserID] = true
-		}
-	}
+// theirs and their group's wherever they stand. Your own row has its name.
+// Your group's names open at the chat's reveal, groupOpen; everyone else's
+// once the day has closed in every zone, worldOpen, so a group in Tokyo does
+// not learn who is who in a Kyiv group still guessing.
+func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.Entry) bool, group map[int64]bool, photos map[int64][]byte, groupOpen, worldOpen bool) []boardLine {
 	out := make([]boardLine, 0, min(len(w.Entries), boardShown+len(group)+1))
 	for i, e := range w.Entries {
-		me := e.UserID != 0 && e.UserID == p.user.ID
+		me := isMe(e)
 		inGroup := e.UserID != 0 && group[e.UserID]
 		if i >= boardShown && !me && !inGroup {
 			continue
 		}
-		l := boardLine{Key: boardKey(p.date, e), Rank: e.Rank, Km: e.Km, Points: e.Points, Bonus: e.Bonus, Speed: e.Speed, Me: me, Group: inGroup && !me}
-		if me || !live {
+		l := boardLine{Key: boardKey(secret, d, viewer, e), Rank: e.Rank, Km: e.Km, Points: e.Points, Bonus: e.Bonus, Speed: e.Speed,
+			Me: me, Group: inGroup && !me, Site: e.Site()}
+		if me || worldOpen || groupOpen && inGroup {
 			l.Name = e.Name
+		} else {
+			l.Hidden = true
 		}
 		if b := photos[e.UserID]; b != nil && e.UserID != 0 {
 			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)

@@ -16,6 +16,8 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,12 +42,14 @@ type Store interface {
 	ClaimJobs(ctx context.Context, now time.Time, lease time.Duration, limit int) ([]db.Job, error)
 	FinishJob(ctx context.Context, id int64, status, lastErr string) error
 	RetryJob(ctx context.Context, id int64, at time.Time, lastErr string) error
+	PostponeJob(ctx context.Context, id int64, at time.Time) error
 	ChatRound(ctx context.Context, chatID int64, d round.Date) (db.ChatRound, error)
 	LastIntrigue(ctx context.Context, chatID int64, d round.Date) (string, error)
 	SetPost(ctx context.Context, chatID int64, d round.Date, msgID int64, line, yesterday string, at time.Time) error
 	SetPinned(ctx context.Context, chatID int64, d round.Date, pinned bool) error
 	SetIntrigueSent(ctx context.Context, chatID int64, d round.Date, kind string, at time.Time) error
 	SetResult(ctx context.Context, chatID int64, d round.Date, msgID int64, fileID string) error
+	SetResultText(ctx context.Context, chatID int64, d round.Date, text, world string) error
 	SetWorldResult(ctx context.Context, chatID int64, d round.Date, msgID int64, fileID, version string) error
 	WorldVersion(ctx context.Context, chatID int64, d round.Date) (string, error)
 	DMResults(ctx context.Context, d round.Date) ([]db.DMResult, error)
@@ -54,7 +58,10 @@ type Store interface {
 	OpenPosts(ctx context.Context, since round.Date) ([]db.OpenPost, error)
 	PhotoFileID(ctx context.Context, d round.Date) (string, error)
 	SetPhotoFileID(ctx context.Context, d round.Date, id string) error
-	WarnPin(ctx context.Context, chatID int64) (bool, error)
+	PinWarned(ctx context.Context, chatID int64) (bool, error)
+	SetPinWarned(ctx context.Context, chatID int64) error
+	FirstPost(ctx context.Context, chatID int64, d round.Date) (bool, error)
+	SetYesterday(ctx context.Context, chatID int64, d round.Date, text string) error
 	Silent(ctx context.Context, chatID int64, d round.Date) ([]db.Member, error)
 	Streaks(ctx context.Context, userIDs []int64, d round.Date) (map[int64]int, error)
 	DayPins(ctx context.Context, d round.Date) ([][2]float64, error)
@@ -68,6 +75,7 @@ type Store interface {
 	Answer(ctx context.Context, placeID int64) (db.Answer, error)
 	ScoreDue(ctx context.Context, d round.Date, now time.Time, judge func(geo.Point) scoring.Score) (int, error)
 	LeaveChat(ctx context.Context, chatID int64) error
+	FixZone(ctx context.Context, chatID int64, zone string) error
 }
 
 type Telegram interface {
@@ -134,6 +142,26 @@ type Scheduler struct {
 	// worldPlanned is the dates whose final world job is queued.
 	worldPlanned map[round.Date]bool
 	refreshing   inflight
+	// redrawWait holds the chats whose last redraw failed, until when the
+	// next one waits. Only the scheduler's own goroutine redraws.
+	redrawWait map[int64]redrawRetry
+}
+
+type redrawRetry struct {
+	at time.Time
+	n  int
+}
+
+// postGone tells whether an edit failed because the post is not there to
+// edit any more: deleted, or too old for Telegram to change.
+func postGone(err error) bool {
+	var apiErr *tg.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	d := strings.ToLower(apiErr.Description)
+	return strings.Contains(d, "message to edit not found") || strings.Contains(d, "message can't be edited") ||
+		strings.Contains(d, "message_id_invalid")
 }
 
 const (
@@ -220,6 +248,21 @@ func (s *Scheduler) plan(ctx context.Context) error {
 	if s.planned == nil {
 		s.planned = map[int64]string{}
 	}
+	// A chat with no zone of its own follows its language. Fixed now, the
+	// language can change without moving a reveal: a DM whose day is shown
+	// could otherwise land in a zone where it is still open.
+	for i, c := range chats {
+		if c.Zone != "" {
+			continue
+		}
+		name := round.DefaultName(c.Lang)
+		if err := s.Store.FixZone(ctx, c.ID, name); err != nil {
+			// The day is planned in the same zone; fixing it waits for the
+			// next plan, and one chat does not hold up the rest.
+			s.Log.Error("fix zone failed", "chat", c.ID, "error", err)
+		}
+		chats[i].Zone = name
+	}
 	byID := make(map[int64]db.Chat, len(chats))
 	for _, c := range chats {
 		byID[c.ID] = c
@@ -234,7 +277,9 @@ func (s *Scheduler) plan(ctx context.Context) error {
 	for _, c := range chats {
 		loc := s.location(c)
 		d := round.DateIn(now, loc)
-		mark := fmt.Sprintf("%s %02d:%02d %t", d, c.PostHour, c.PostMin, c.Intrigue)
+		// The zone is in the mark: a chat that moves to another zone gets its
+		// jobs moved the same minute, not after a restart.
+		mark := fmt.Sprintf("%s %s %02d:%02d %t", d, loc, c.PostHour, c.PostMin, c.Intrigue)
 		if s.planned[c.ID] == mark {
 			continue
 		}
@@ -261,6 +306,12 @@ func (s *Scheduler) plan(ctx context.Context) error {
 // errSkip ends a job without a send: there was nothing to say.
 var errSkip = errors.New("nothing to send")
 
+// laterError puts a job back in the queue: it ran before its time, because
+// the chat moved to a zone further west after it was planned.
+type laterError struct{ at time.Time }
+
+func (e laterError) Error() string { return "not due until " + e.at.UTC().Format(time.RFC3339) }
+
 func (s *Scheduler) work(ctx context.Context) error {
 	for {
 		jobs, err := s.Store.ClaimJobs(ctx, s.now(), lease, 20)
@@ -273,22 +324,36 @@ func (s *Scheduler) work(ctx context.Context) error {
 	}
 }
 
-func (s *Scheduler) runJob(ctx context.Context, j db.Job) {
-	var err error
+// do runs the job. A panic fails it like an error does, so one bad name or
+// picture costs a job and its retries, not the process.
+func (s *Scheduler) do(ctx context.Context, j db.Job) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			s.Log.Error("job panicked", "key", j.Key, "panic", p, "stack", string(debug.Stack()))
+			err = fmt.Errorf("panic: %v", p)
+		}
+	}()
 	switch j.Kind {
 	case jobPost:
-		err = s.post(ctx, j)
+		return s.post(ctx, j)
 	case jobIntrigue:
-		err = s.intrigue(ctx, j)
+		return s.intrigue(ctx, j)
 	case jobResult:
-		err = s.result(ctx, j)
+		return s.result(ctx, j)
 	case jobWorld:
-		err = s.worldFinal(ctx, j)
-	default:
-		err = errSkip
+		return s.worldFinal(ctx, j)
 	}
+	return errSkip
+}
+
+func (s *Scheduler) runJob(ctx context.Context, j db.Job) {
+	err := s.do(ctx, j)
 	var apiErr *tg.APIError
+	var later laterError
 	switch {
+	case errors.As(err, &later):
+		s.Log.Info("job early, moved", "key", j.Key, "to", later.at)
+		err = s.Store.PostponeJob(ctx, j.ID, later.at)
 	case err == nil:
 		err = s.Store.FinishJob(ctx, j.ID, "done", "")
 	case errors.Is(err, errSkip):
@@ -356,19 +421,58 @@ func (s *Scheduler) post(ctx context.Context, j db.Job) error {
 	if err != nil {
 		return err
 	}
+	// A group's first post says how the game goes, in place of a look back at
+	// a day it did not play.
+	if c.Kind == "group" {
+		first, err := s.Store.FirstPost(ctx, c.ID, j.Date)
+		if err != nil {
+			return err
+		}
+		if first {
+			yesterday = i18n.T(lang, "post.rules")
+		}
+	}
 	markup, err := s.playMarkup(c, j.Date, lang, "btn.guess")
 	if err != nil {
 		return err
 	}
-	msg, err := s.sendPost(ctx, c.ID, rd, postCaption(lang, rd.DayNo, yesterday, line, c.Kind == "group"), markup)
+	at := revealAt(lang, c)
+	msg, err := s.sendPost(ctx, c.ID, rd, postCaption(lang, rd.DayNo, at, yesterday, line, c.Kind == "group"), markup)
 	if err != nil {
 		return err
 	}
 	if err := s.Store.SetPost(ctx, c.ID, j.Date, msg.MessageID, line, yesterday, s.now()); err != nil {
 		return err
 	}
-	if c.Kind == "group" {
-		s.pin(ctx, c, j.Date, msg.MessageID, lang)
+	if c.Kind == "group" && s.pin(ctx, c, j.Date, msg.MessageID) {
+		// No right to pin: the admins hear it once, in the post itself. A
+		// message of its own would be the group's fourth that day.
+		note := i18n.T(lang, "group.pin_rights")
+		if yesterday != "" {
+			note = yesterday + "\n\n" + note
+		}
+		// Stored first, so a failed edit is made by the redraw instead.
+		if err := s.Store.SetYesterday(ctx, c.ID, j.Date, note); err != nil {
+			s.Log.Warn("pin request not stored", "chat", c.ID, "error", err)
+			return nil
+		}
+		caption := postCaption(lang, rd.DayNo, at, note, line, true)
+		err := s.TG.EditCaption(ctx, c.ID, msg.MessageID, caption, markup)
+		switch {
+		case err == nil:
+			if err := s.Store.SetPinWarned(ctx, c.ID); err != nil {
+				s.Log.Warn("pin request not marked", "chat", c.ID, "error", err)
+			}
+		case tg.IsMessageNotModified(err):
+			// No room for it today: tomorrow's post asks again.
+			s.Log.Info("pin request did not fit", "chat", c.ID)
+		default:
+			// The line stored as stale makes the redraw put the request in.
+			s.Log.Warn("pin request not added, left to the redraw", "chat", c.ID, "error", err)
+			if err := s.Store.SetAnswered(ctx, c.ID, j.Date, "", s.now()); err != nil {
+				s.Log.Warn("post not marked for a redraw", "chat", c.ID, "error", err)
+			}
+		}
 	}
 	return nil
 }
@@ -423,28 +527,38 @@ func (s *Scheduler) sendResult(ctx context.Context, c db.Chat, rd db.Round, scen
 	return s.sendPhoto(ctx, c.ID, rd, caption, markup)
 }
 
+// noRights is Telegram refusing because maply is not allowed to.
+func noRights(err error) bool {
+	var apiErr *tg.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	d := strings.ToLower(apiErr.Description)
+	return strings.Contains(d, "not enough rights") || strings.Contains(d, "admin_required") || strings.Contains(d, "have no rights")
+}
+
 func refusedPicture(err error) bool {
 	var apiErr *tg.APIError
 	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && !apiErr.IsUnreachableDestination()
 }
 
 // pin pins the post without a sound. Without the right to pin the game goes
-// on, and the admins hear about it once.
-func (s *Scheduler) pin(ctx context.Context, c db.Chat, d round.Date, msgID int64, lang string) {
+// on; pin reports whether the admins are to hear about it, which is when
+// Telegram said maply has no right to and they have not heard it yet. A
+// flood wait or a timeout is not theirs to fix.
+func (s *Scheduler) pin(ctx context.Context, c db.Chat, d round.Date, msgID int64) (ask bool) {
 	if err := s.TG.Pin(ctx, c.ID, msgID); err != nil {
 		s.Log.Info("post not pinned", "chat", c.ID, "error", err)
-		warn, werr := s.Store.WarnPin(ctx, c.ID)
-		if werr != nil || !warn {
-			return
+		if !noRights(err) {
+			return false
 		}
-		if _, err := s.TG.SendText(ctx, c.ID, i18n.T(lang, "group.pin_rights"), nil); err != nil {
-			s.Log.Warn("pin warning not sent", "chat", c.ID, "error", err)
-		}
-		return
+		warned, werr := s.Store.PinWarned(ctx, c.ID)
+		return werr == nil && !warned
 	}
 	if err := s.Store.SetPinned(ctx, c.ID, d, true); err != nil {
 		s.Log.Warn("pin not stored", "chat", c.ID, "error", err)
 	}
+	return false
 }
 
 // playMarkup is the post's one button. A DM opens the Mini App directly; a
@@ -503,13 +617,38 @@ func (s *Scheduler) redraw(ctx context.Context) error {
 		if err != nil || !ok {
 			continue
 		}
+		if r, ok := s.redrawWait[c.ID]; ok && now.Before(r.at) {
+			continue
+		}
 		markup, err := s.playMarkup(c, p.Date, lang, "btn.guess")
 		if err != nil {
 			continue
 		}
-		err = s.TG.EditCaption(ctx, c.ID, p.PostMsgID, postCaption(lang, rd.DayNo, p.Yesterday, line, true), markup)
-		if err != nil && !tg.IsMessageNotModified(err) {
-			s.Log.Warn("post redraw failed", "chat", c.ID, "error", err)
+		err = s.TG.EditCaption(ctx, c.ID, p.PostMsgID, postCaption(lang, rd.DayNo, revealAt(lang, c), p.Yesterday, line, true), markup)
+		switch {
+		case err == nil || tg.IsMessageNotModified(err):
+			delete(s.redrawWait, c.ID)
+		case postGone(err):
+			// Deleted by an admin: nothing to keep up to date. The line is
+			// stored as drawn, so only the next answer tries again.
+			s.Log.Info("post gone, not redrawn", "chat", c.ID, "error", err)
+			delete(s.redrawWait, c.ID)
+		default:
+			// Telegram says how long to wait when it is flooded; anything
+			// else backs off, so a failing edit is not retried every tick
+			// until the evening and the result has room to go out.
+			if s.redrawWait == nil {
+				s.redrawWait = map[int64]redrawRetry{}
+			}
+			r := s.redrawWait[c.ID]
+			r.n++
+			wait := tg.RetryAfter(err)
+			if wait <= 0 {
+				wait = min(30*time.Second<<min(r.n-1, 6), 30*time.Minute)
+			}
+			r.at = now.Add(wait)
+			s.redrawWait[c.ID] = r
+			s.Log.Warn("post redraw failed", "chat", c.ID, "attempt", r.n, "retry_in", wait, "error", err)
 			continue
 		}
 		if err := s.Store.SetAnswered(ctx, c.ID, p.Date, line, now); err != nil {

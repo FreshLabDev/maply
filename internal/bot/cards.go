@@ -4,6 +4,7 @@ package bot
 import (
 	"context"
 	"errors"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -99,6 +100,11 @@ func (b *Bot) showStats(ctx context.Context, chatID, msgID int64, userID int64, 
 	}
 	seq := b.screens.get(chatID, id).seq
 	go func() {
+		defer func() {
+			if p := recover(); p != nil {
+				b.log.Error("profile draw panicked", "user", userID, "panic", p, "stack", string(debug.Stack()))
+			}
+		}()
 		ctx, cancel := context.WithTimeout(ctx, drawWait)
 		defer cancel()
 		card, err := b.opts.Profiles.Draw(ctx, userID, lang, 0)

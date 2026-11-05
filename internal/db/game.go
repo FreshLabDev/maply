@@ -174,6 +174,22 @@ func (s *Store) ChatGuesses(ctx context.Context, d round.Date, chatID int64) ([]
 	return pgx.CollectRows(rows, scanGuess)
 }
 
+// ResultCounts is how many in chatID have answered d (0 for no chat) and how
+// many answers the world ranks: what a result's version is made of, counted
+// without reading either list.
+func (s *Store) ResultCounts(ctx context.Context, d round.Date, chatID int64) (chat, world int, err error) {
+	err = s.pool.QueryRow(ctx, `
+		SELECT (SELECT count(*) FROM guess g
+		         WHERE $2 <> 0 AND g.date = $1
+		           AND EXISTS (SELECT 1 FROM core.maply_presence p
+		                        WHERE p.telegram_user_id = g.user_id AND p.chat_id = $2)),
+		       (SELECT count(*) FROM day_score WHERE date = $1)`, d.Time(), chatID).Scan(&chat, &world)
+	if err != nil {
+		return 0, 0, fmt.Errorf("result counts %d: %w", chatID, err)
+	}
+	return chat, world, nil
+}
+
 const guessSelect = `
 	SELECT g.user_id, COALESCE(pe.first_name, ''), g.lat, g.lon, g.answered_at, g.km, g.pts_km, g.pts_bonus, g.pts_speed
 	  FROM guess g

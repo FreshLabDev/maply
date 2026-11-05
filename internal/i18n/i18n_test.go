@@ -91,7 +91,7 @@ func TestUkrainianAndBelarusianAreNotRussian(t *testing.T) {
 // The Mini App splits these into one line per item: an empty line would be a
 // blank toast.
 func TestListsHaveNoEmptyItems(t *testing.T) {
-	for _, key := range []string{"app.loading", "app.on_water", "app.on_land", "app.moved", "app.logo"} {
+	for _, key := range []string{"app.loading", "app.on_water", "app.on_land", "app.moved"} {
 		for _, code := range Codes() {
 			for i, line := range strings.Split(translations[key][code], "\n") {
 				if strings.TrimSpace(line) == "" {
@@ -152,5 +152,21 @@ func TestFormatKmAndNumber(t *testing.T) {
 	}
 	if got := FormatNumber("de", 3500); got != "3.500" {
 		t.Fatalf("FormatNumber(de) = %q", got)
+	}
+	// Arabic texts write places and times in Western digits; the numbers match.
+	if got := FormatNumber("ar", 3500); got != "3,500" {
+		t.Fatalf("FormatNumber(ar) = %q", got)
+	}
+	if got := FormatKm("ar", 3.5); got != "3.5" {
+		t.Fatalf("FormatKm(ar) = %q", got)
+	}
+}
+
+func TestAtNamesTheZone(t *testing.T) {
+	if got := At("ru", "20:00", "Europe/Kyiv"); got != "20:00 (Киев)" {
+		t.Fatalf("At(ru) = %q", got)
+	}
+	if got := At("ja", "20:00", "Asia/Tokyo"); !strings.HasPrefix(got, "20:00（") || !strings.HasSuffix(got, "）") {
+		t.Fatalf("At(ja) = %q", got)
 	}
 }

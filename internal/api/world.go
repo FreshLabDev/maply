@@ -68,6 +68,11 @@ func (s *Server) siteGuess(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errRateLimited)
 		return
 	}
+	// The player is a cookie: another site's form must not answer for it.
+	if !ownJSON(r) {
+		s.fail(w, r, errBadRequest)
+		return
+	}
 	var body siteGuessBody
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 	dec.DisallowUnknownFields()
@@ -97,7 +102,10 @@ func (s *Server) siteGuess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setPlayer(w, player)
-	err = s.Store.InsertSiteGuess(ctx, db.NewSiteGuess{Date: d, Player: player, Pin: pt, AnsweredAt: now, Deadline: deadline})
+	err = s.Store.InsertSiteGuess(ctx, db.NewSiteGuess{
+		Date: d, Player: player, Pin: pt, AnsweredAt: now, Deadline: deadline,
+		Late: now.After(s.Zones.FirstReveal(d)),
+	})
 	if errors.Is(err, db.ErrAlreadyAnswered) {
 		s.fail(w, r, errAnswered)
 		return
@@ -113,6 +121,10 @@ func (s *Server) siteGuess(w http.ResponseWriter, r *http.Request) {
 func (s *Server) siteName(w http.ResponseWriter, r *http.Request) {
 	if !s.ipLimit.allowIP(clientIP(r)) {
 		s.fail(w, r, errRateLimited)
+		return
+	}
+	if !ownJSON(r) {
+		s.fail(w, r, errBadRequest)
 		return
 	}
 	var body struct {

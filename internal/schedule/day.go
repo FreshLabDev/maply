@@ -40,6 +40,12 @@ const (
 
 func revealText() string { return fmt.Sprintf("%02d:00", round.RevealHour) }
 
+// revealAt is the reveal with the chat's zone, "20:00 (Kyiv)": a reader in
+// another zone does not take it for their own 20:00.
+func revealAt(lang string, c db.Chat) string {
+	return i18n.At(lang, revealText(), round.Name(c.Zone, c.Lang))
+}
+
 func (s *Scheduler) intrigue(ctx context.Context, j db.Job) error {
 	c, ok, err := s.chatOf(ctx, j.ChatID)
 	if err != nil {
@@ -75,7 +81,7 @@ func (s *Scheduler) intrigue(ctx context.Context, j db.Job) error {
 		if _, answered, err := s.Store.GuessOf(ctx, j.Date, c.ID); err != nil || answered {
 			return orSkip(err)
 		}
-		kind, text = "dm", i18n.T(lang, "intrigue.dm", "time", revealText())
+		kind, text = "dm", i18n.T(lang, "intrigue.dm", "time", revealAt(lang, c))
 		if now, at, ok := s.nowThere(ctx, answer.Point, lang); ok {
 			text, there = now+"\n"+text, &at
 		}
@@ -124,8 +130,9 @@ func (s *Scheduler) groupIntrigue(ctx context.Context, c db.Chat, d round.Date, 
 		return "", "", nil, err
 	}
 	spread := spreadOf(guesses)
-	if len(silent) == 0 && len(guesses) > 0 {
-		return "all", i18n.T(lang, "intrigue.all", "km", i18n.FormatKm(lang, spread), "time", revealText()), nil, nil
+	// One answer is not "everybody": a spread of 0 km says nothing.
+	if len(silent) == 0 && len(guesses) >= 2 {
+		return "all", i18n.T(lang, "intrigue.all", "km", i18n.FormatKm(lang, spread), "time", revealAt(lang, c)), nil, nil
 	}
 	last, err := s.Store.LastIntrigue(ctx, c.ID, d)
 	if err != nil {
@@ -159,7 +166,10 @@ func (s *Scheduler) groupIntrigue(ctx context.Context, c db.Chat, d round.Date, 
 		add("streak", text)
 	}
 	if len(options) == 0 {
-		return "waiting", i18n.T(lang, "intrigue.waiting", "n", strconv.Itoa(len(guesses)), "time", revealText()), nil, nil
+		if len(guesses) == 0 {
+			return "waiting", i18n.T(lang, "intrigue.waiting_none", "time", revealAt(lang, c)), nil, nil
+		}
+		return "waiting", i18n.T(lang, "intrigue.waiting", "n", i18n.FormatNumber(lang, len(guesses)), "time", revealAt(lang, c)), nil, nil
 	}
 	h := fnv.New32a()
 	fmt.Fprintf(h, "intrigue:%d:%s", c.ID, d)
@@ -194,7 +204,14 @@ func (s *Scheduler) nowThere(ctx context.Context, p geo.Point, lang string) (str
 		return i18n.T(lang, "intrigue.now_time", "time", at), now, true
 	}
 	now.weather = strconv.Itoa(int(math.Round(*temp))) + " °C"
-	return i18n.T(lang, "intrigue.now", "time", at, "temp", now.weather), now, true
+	shown := now.weather
+	if lang == "ar" {
+		// A left-to-right mark keeps the minus in front of the number in a
+		// right-to-left line: "-5 °C", not "5 °C-". The picture draws its
+		// own line and does not need it.
+		shown = "\u200e" + shown
+	}
+	return i18n.T(lang, "intrigue.now", "time", at, "temp", shown), now, true
 }
 
 // worldLine is the continent most of today's players chose, worldwide.
@@ -264,6 +281,11 @@ func (s *Scheduler) result(ctx context.Context, j db.Job) error {
 	if cr.ResultMsgID != 0 {
 		return nil
 	}
+	// A chat that moved west after the job was planned still answers until
+	// its new reveal: the place waits for it.
+	if reveal := j.Date.Reveal(s.location(c)); s.now().Before(reveal) {
+		return laterError{reveal}
+	}
 	answer, err := s.Store.Answer(ctx, rd.PlaceID)
 	if err != nil {
 		return err
@@ -304,12 +326,20 @@ func (s *Scheduler) groupResult(ctx context.Context, c db.Chat, rd db.Round, cr 
 	if err != nil {
 		return err
 	}
-	return s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID, animationID(msg))
+	if err := s.Store.SetResult(ctx, c.ID, rd.Date, msg.MessageID, animationID(msg)); err != nil {
+		return err
+	}
+	if final {
+		return nil
+	}
+	return s.Store.SetResultText(ctx, c.ID, rd.Date, gr.caption, gr.world)
 }
 
 // groupDay is a group's result: its caption and what it was drawn from.
 type groupDay struct {
 	caption string
+	// world is the world line in the caption, empty when it has none.
+	world   string
 	guesses []db.Guess
 	streaks map[int64]int
 }
@@ -336,14 +366,15 @@ func (s *Scheduler) groupCaption(ctx context.Context, c db.Chat, rd db.Round, cr
 		return groupDay{}, err
 	}
 	lines := table(lang, guesses, streaks)
+	world := ""
 	if len(guesses) > 0 {
 		lines = append(lines, "", i18n.T(lang, "result.answered_of", "n", strconv.Itoa(len(guesses)), "total", strconv.Itoa(len(guesses)+len(silent))))
 		w, err := s.Store.World(ctx, rd.Date)
 		if err != nil {
 			return groupDay{}, err
 		}
-		if line := worldGroupLine(lang, w, guesses, final); line != "" {
-			lines = append(lines, "", line)
+		if world = worldGroupLine(lang, w, guesses, final); world != "" {
+			lines = append(lines, "", world)
 		}
 	}
 	back, err := s.lateLookBack(ctx, lang, rd.Date, c, cr)
@@ -353,7 +384,11 @@ func (s *Scheduler) groupCaption(ctx context.Context, c db.Chat, rd db.Round, cr
 	if back != "" {
 		lines = append(lines, "", "<blockquote>"+back+"</blockquote>")
 	}
-	return groupDay{fitCaption(card.Quoted(lang, rd.DayNo, answer), lines), guesses, streaks}, nil
+	caption := fitCaption(card.Quoted(lang, rd.DayNo, answer), lines)
+	if !strings.Contains(caption, world) {
+		world = ""
+	}
+	return groupDay{caption, world, guesses, streaks}, nil
 }
 
 // dmResult is the whole result for somebody who plays alone, and only their
@@ -480,15 +515,21 @@ var medals = []string{"🥇", "🥈", "🥉"}
 // postCaption is the morning post: the day and the question, in a group who
 // has answered and the best distances so far, and the look back at yesterday
 // when it is final, set apart in a quote.
-func postCaption(lang string, dayNo int, yesterday, block string, group bool) string {
-	text := fmt.Sprintf("<b>maply #%d</b> · %s\n%s", dayNo, i18n.T(lang, "post.hint"), i18n.T(lang, "post.how", "time", revealText()))
+func postCaption(lang string, dayNo int, at, yesterday, block string, group bool) string {
+	text := fmt.Sprintf("<b>maply #%d</b> · %s\n%s", dayNo, i18n.T(lang, "post.hint"), i18n.T(lang, "post.how", "time", at))
 	if group {
 		text += "\n\n" + block
 	}
-	// Yesterday is the first to go when the caption would not fit.
+	// Yesterday is the first to go when the caption would not fit; a request
+	// for the right to pin goes last, since it is said once.
 	if yesterday != "" {
 		if with := text + "\n\n<blockquote>" + yesterday + "</blockquote>"; visibleLen(with) <= captionLimit {
 			return with
+		}
+		if ask := i18n.T(lang, "group.pin_rights"); yesterday != ask && strings.HasSuffix(yesterday, ask) {
+			if with := text + "\n\n<blockquote>" + ask + "</blockquote>"; visibleLen(with) <= captionLimit {
+				return with
+			}
 		}
 	}
 	return text
@@ -548,6 +589,17 @@ func answeredBlock(lang string, guesses []db.Guess) string {
 // worldGroupLine is where the group's players stand among everyone who has
 // answered today, best first. final says the day has closed in every zone.
 func worldGroupLine(lang string, w db.World, guesses []db.Guess, final bool) string {
+	line, first := worldGroupParts(lang, w, guesses, final)
+	if first != "" {
+		return line + "\n" + first
+	}
+	return line
+}
+
+// worldGroupParts is worldGroupLine in two: the group's places, and on a
+// closed day the world's first when they are not in the group, which is what
+// gives way when the caption has no room.
+func worldGroupParts(lang string, w db.World, guesses []db.Guess, final bool) (line, first string) {
 	type placed struct {
 		name string
 		rank int
@@ -559,7 +611,7 @@ func worldGroupLine(lang string, w db.World, guesses []db.Guess, final bool) str
 		}
 	}
 	if len(list) == 0 {
-		return ""
+		return "", ""
 	}
 	sort.SliceStable(list, func(i, j int) bool { return list[i].rank < list[j].rank })
 	places := make([]string, 0, min(len(list), groupPlaces)+1)
@@ -572,15 +624,15 @@ func worldGroupLine(lang string, w db.World, guesses []db.Guess, final bool) str
 	}
 	n := i18n.FormatNumber(lang, w.Players())
 	if !final {
-		return i18n.T(lang, "result.world_group_now", "places", strings.Join(places, " · "), "n", n)
+		return i18n.T(lang, "result.world_group_now", "places", strings.Join(places, " · "), "n", n), ""
 	}
-	line := i18n.T(lang, "result.world_group_final", "places", strings.Join(places, " · "), "n", n)
+	line = i18n.T(lang, "result.world_group_final", "places", strings.Join(places, " · "), "n", n)
 	// The world's first, unless they are in this group and named already.
 	if list[0].rank != 1 {
-		first := w.Entries[0]
-		line += "\n" + i18n.T(lang, "result.world_first", "name", entryName(lang, first), "km", kmText(lang, first.Km))
+		e := w.Entries[0]
+		first = i18n.T(lang, "result.world_first", "name", entryName(lang, e), "km", kmText(lang, e.Km))
 	}
-	return line
+	return line, first
 }
 
 func sortByAnswer(gs []db.Guess) {

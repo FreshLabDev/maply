@@ -54,8 +54,16 @@ func (s *shareStore) Touch(context.Context, tg.User, *tg.Chat) error  { return n
 func (s *shareStore) UserLang(context.Context, int64) (string, error) { return "ru", nil }
 func (s *shareStore) ChatLang(context.Context, int64) (string, error) { return "ru", nil }
 func (s *shareStore) ChatZone(context.Context, int64) (string, error) { return "", nil }
+func (s *shareStore) FixZone(context.Context, int64, string) error    { return nil }
+func (s *shareStore) ChatActive(context.Context, int64) (bool, error) { return true, nil }
 func (s *shareStore) Contexts(context.Context, int64) ([]db.Context, error) {
 	return nil, nil
+}
+func (s *shareStore) ResultCounts(context.Context, round.Date, int64) (int, int, error) {
+	return 0, 0, nil
+}
+func (s *shareStore) Deadline(_ context.Context, _ round.Zones, _ int64, d round.Date, own *time.Location) (time.Time, error) {
+	return d.Reveal(own), nil
 }
 func (s *shareStore) RoundOn(context.Context, round.Date) (db.Round, bool, error) {
 	return db.Round{Date: shareDay, DayNo: 12, PlaceID: 1}, true, nil

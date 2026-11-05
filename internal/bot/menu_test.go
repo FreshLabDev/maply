@@ -44,7 +44,7 @@ func everyPanel(t *testing.T, v view) []drawn {
 	median := 1234.4
 	var out []drawn
 	add := func(name string, text string, m telegram.Markup) { out = append(out, drawn{name, text, m}) }
-	text, m := v.home("https://maply.example/", true)
+	text, m := v.home("https://maply.example/", true, "Europe/Kyiv")
 	add("home", text, m)
 	text, m = v.help()
 	add("help", text, m)
@@ -125,18 +125,18 @@ func TestCloseOnlyInGroups(t *testing.T) {
 
 func TestHome(t *testing.T) {
 	dm := view{lang: "en", owner: 1, sc: scopePrivate}
-	_, m := dm.home("https://maply.example/", false)
+	_, m := dm.home("https://maply.example/", false, "Europe/Kyiv")
 	play := m[0][0]
 	if play.WebApp != "https://maply.example/" || play.Style != tg.StylePrimary {
 		t.Fatalf("play = %+v", play)
 	}
-	if _, m := dm.home("", false); m[0][0].WebApp != "" {
+	if _, m := dm.home("", false, "Europe/Kyiv"); m[0][0].WebApp != "" {
 		t.Fatal("a home without APP_URL offered Play")
 	}
 
 	group := view{lang: "en", owner: 1, sc: scopeGroup}
-	_, member := group.home("https://maply.example/", false)
-	_, admin := group.home("https://maply.example/", true)
+	_, member := group.home("https://maply.example/", false, "Europe/Kyiv")
+	_, admin := group.home("https://maply.example/", true, "Europe/Kyiv")
 	if has(member, actSettings) || !has(admin, actSettings) {
 		t.Fatal("Settings must be on an admin's group home and only there")
 	}
@@ -432,7 +432,7 @@ func TestLocationIsAnAnswer(t *testing.T) {
 	if len(store.guesses) != 1 || store.guesses[0].Pin.Lat != 48.85 || store.guesses[0].Context != "dm" {
 		t.Fatalf("guesses = %+v", store.guesses)
 	}
-	if got := client.sends[1].text; got != i18n.T("ru", "loc.accepted", "time", "20:00") {
+	if got := client.sends[1].text; got != i18n.T("ru", "loc.accepted", "time", "20:00 (Киев)") {
 		t.Fatalf("accepted = %q", got)
 	}
 	if got := client.sends[2].text; got != i18n.T("ru", "loc.already") {

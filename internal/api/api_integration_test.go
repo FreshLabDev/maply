@@ -60,6 +60,7 @@ type harness struct {
 	signer *auth.Signer
 	now    time.Time
 	date   round.Date
+	pool   *pgxpool.Pool
 }
 
 func setup(t *testing.T) *harness {
@@ -129,6 +130,7 @@ func setup(t *testing.T) *harness {
 		t:      t,
 		logs:   &strings.Builder{},
 		signer: auth.NewSigner(botToken),
+		pool:   pool,
 		// A winter Thursday: Kyiv is UTC+2, Moscow and Minsk UTC+3.
 		date: round.NewDate(2026, time.December, 10),
 		now:  time.Date(2026, time.December, 10, 9, 0, 0, 0, time.UTC),
@@ -295,7 +297,7 @@ func TestADayAcrossZones(t *testing.T) {
 	keys := map[string]bool{}
 	for i, l := range live.Board {
 		keys[l.Key] = true
-		if l.Rank != i+1 || l.Key == "" || l.Me != (l.Name == "Ivan") || (!l.Me && l.Name != "") || l.Points <= 0 {
+		if l.Rank != i+1 || l.Key == "" || l.Me != (l.Name == "Ivan") || (!l.Me && l.Name != "") || l.Hidden == l.Me || l.Points <= 0 {
 			t.Fatalf("board row %d = %+v", i, l)
 		}
 	}
@@ -310,6 +312,10 @@ func TestADayAcrossZones(t *testing.T) {
 	}
 	if strings.Contains(got, "Pavel") {
 		t.Fatalf("Ivan's live result names Pavel: %s", got)
+	}
+	// A poll that already shows this version gets it back and nothing more.
+	if same := hs.expect("GET", "/api/result?since="+url.QueryEscape(live.Version), ivan, "", http.StatusOK); !strings.Contains(same, `"same":true`) || strings.Contains(same, `"place"`) {
+		t.Fatalf("a poll with the current version = %s", same)
 	}
 	record(hs.expect("POST", "/api/guess", ivan, `{"lat":10,"lon":10}`, http.StatusConflict))
 	record(hs.expect("POST", "/api/guess", alesia, `{"lat":100,"lon":0}`, http.StatusBadRequest))
@@ -358,15 +364,21 @@ func TestADayAcrossZones(t *testing.T) {
 	if rr.Phase != "final" || rr.Place.Lat != placeLat || rr.Place.City != "Львов" || len(rr.Table) != 2 || !strings.Contains(res, "Pavel") {
 		t.Fatalf("Moscow result = %s", res)
 	}
-	// At the reveal the world's rows have names, and keep their keys.
+	// At the Moscow reveal the group's rows have names and keep their keys;
+	// the rest of the world stays hidden until the day closes in every zone,
+	// since Kyiv and Minsk are still answering.
 	kept := 0
 	for _, l := range rr.Board {
 		if keys[l.Key] {
 			kept++
 		}
-		if l.Name == "" || l.Group != (l.Name == "Pavel") {
+		ours := l.Me || l.Group
+		if ours == (l.Name == "") || ours == l.Hidden || l.Group != (l.Name == "Pavel") {
 			t.Fatalf("board row after the reveal = %+v", l)
 		}
+	}
+	if strings.Contains(res, "Dmitry") || strings.Contains(res, "Alesia") {
+		t.Fatalf("the Moscow group learns names from groups still guessing: %s", res)
 	}
 	if kept != len(keys) {
 		t.Fatalf("the board's keys changed at the reveal: %+v", rr.Board)
@@ -392,6 +404,20 @@ func TestADayAcrossZones(t *testing.T) {
 	hs.expect("GET", "/api/result", oksanaDM, "", http.StatusOK)
 	hs.expect("GET", "/api/result", dmitryDM, "", http.StatusOK)
 
+	// Once the day has closed in every zone, every row has its name.
+	evening := hs.now
+	hs.now = hs.srv.Zones.LastReveal(round.DateIn(hs.now, time.UTC))
+	var closed resultResponse
+	if err := json.Unmarshal([]byte(hs.expect("GET", "/api/result", ivan, "", http.StatusOK)), &closed); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range closed.Board {
+		if l.Name == "" || l.Hidden {
+			t.Fatalf("board row after the day closed = %+v", l)
+		}
+	}
+	hs.now = evening
+
 	// Once the Moscow group has a language, the app opened from it speaks
 	// that language, the one the bot posts there in; the DM keeps hers.
 	if err := hs.srv.Store.(*db.Store).SetChatLang(context.Background(), moscowGroup, "ru"); err != nil {
@@ -409,6 +435,14 @@ func TestADayAcrossZones(t *testing.T) {
 	res = hs.expect("GET", "/api/result", oksanaMoscow, "", http.StatusOK)
 	if !strings.Contains(res, `"city":"Львов"`) {
 		t.Fatalf("Oksana in the Moscow group reads %s, want the city in Russian", res)
+	}
+
+	// maply is removed from the Kyiv group: its old links open nothing.
+	if err := hs.srv.Store.(*db.Store).LeaveChat(context.Background(), kyivGroup); err != nil {
+		t.Fatal(err)
+	}
+	if got := hs.expect("GET", "/api/result", oksanaKyiv, "", http.StatusGone); !strings.Contains(got, `"left"`) {
+		t.Fatalf("a link from a group maply left = %s", got)
 	}
 }
 
@@ -490,6 +524,9 @@ func TestSitePlayerIsRanked(t *testing.T) {
 	hs.now = time.Date(2026, time.December, 10, 11, 0, 0, 0, time.UTC)
 	send := func(method, path, cookie, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
 		if cookie != "" {
 			req.AddCookie(&http.Cookie{Name: playerCookie, Value: cookie})
 		}
@@ -550,6 +587,10 @@ func TestSitePlayerIsRanked(t *testing.T) {
 	if err := json.Unmarshal(send("GET", "/api/site/result?date=2026-12-10", player, "").Body.Bytes(), &res); err != nil || len(res.Table) != 1 || res.Table[0].Km == nil || *res.Table[0].Km > 20 {
 		t.Fatalf("site result from the stored answer = %+v, %v", res, err)
 	}
+	// The table under the map is the world's, with the player's own row in it.
+	if res.Players != 1 || len(res.Board) != 1 || !res.Board[0].Me || !res.Board[0].Site || res.Board[0].Hidden || res.Board[0].Name != "Lucía" {
+		t.Fatalf("site board = %+v", res.Board)
+	}
 }
 
 // A DM that never picked a zone takes the phone's, once; a picked one stays.
@@ -601,4 +642,151 @@ func TestDMZoneFromThePhone(t *testing.T) {
 		t.Fatalf("Tom's today from Los Angeles after London's reveal = %s", body)
 	}
 	hs.expect("POST", "/api/guess", tom, `{"lat":50,"lon":25}`, http.StatusConflict)
+
+	// Yuki's DM is on Tokyo's clock by her language. At 12:00 UTC she has
+	// seen the place without answering, then switches the language to
+	// English. The DM's zone was fixed at her first visit and stays in Tokyo:
+	// London's evening does not reopen the day.
+	yuki := initData(9, "Yuki", "ja", "")
+	hs.now = time.Date(2026, time.December, 10, 12, 0, 0, 0, time.UTC)
+	hs.expect("GET", "/api/result", yuki, "", http.StatusOK)
+	if err := hs.srv.Store.(*db.Store).SetUserLang(context.Background(), 9, "en"); err != nil {
+		t.Fatal(err)
+	}
+	body = hs.expect("GET", "/api/today", yuki, "", http.StatusOK)
+	today = todayResponse{}
+	if err := json.Unmarshal([]byte(body), &today); err != nil || today.Zone != "Asia/Tokyo" {
+		t.Fatalf("Yuki's today in English = %s", body)
+	}
+	hs.expect("POST", "/api/guess", yuki, `{"lat":50,"lon":25}`, http.StatusConflict)
+}
+
+// maply leaving a chat after its reveal does not reopen the day: the place
+// may already have been seen there.
+func TestLeavingAfterTheRevealKeepsTheDayClosed(t *testing.T) {
+	hs := setup(t)
+	store := hs.srv.Store.(*db.Store)
+	ctx := context.Background()
+	leave := func(chatID int64, at time.Time) {
+		t.Helper()
+		if err := store.LeaveChat(ctx, chatID); err != nil {
+			t.Fatal(err)
+		}
+		// The database clock is today's; the test's day is in December.
+		if _, err := hs.pool.Exec(ctx, `UPDATE maply.chat_settings SET left_at = $2 WHERE chat_id = $1`, chatID, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Oksana plays in the Moscow group (20:00 is 17:00 UTC) and the Kyiv one
+	// (18:00 UTC). At 17:05 she sees Moscow's result without answering, then
+	// maply is removed from the Moscow group.
+	oksanaKyiv := initData(1, "Oksana", "uk", hs.payload(kyivGroup))
+	oksanaMoscow := initData(1, "Oksana", "uk", hs.payload(moscowGroup))
+	hs.expect("GET", "/api/today", oksanaKyiv, "", http.StatusOK)
+	hs.expect("GET", "/api/today", oksanaMoscow, "", http.StatusOK)
+	hs.now = time.Date(2026, time.December, 10, 17, 5, 0, 0, time.UTC)
+	if res := hs.expect("GET", "/api/result", oksanaMoscow, "", http.StatusOK); !leaks(res) {
+		t.Fatalf("Moscow's result at 17:05 = %s", res)
+	}
+	leave(moscowGroup, hs.now.Add(time.Minute))
+	hs.expect("POST", "/api/guess", oksanaKyiv, `{"lat":49.84,"lon":24.03}`, http.StatusConflict)
+
+	// Dmitry's DM is on Moscow and he plays in the Kyiv group. His DM's
+	// result went out at 17:00 UTC; blocking maply does not give him Kyiv's
+	// hour.
+	dmitryKyiv := initData(5, "Dmitry", "ru", hs.payload(kyivGroup))
+	hs.now = time.Date(2026, time.December, 10, 9, 0, 0, 0, time.UTC)
+	hs.expect("GET", "/api/today", dmitryKyiv, "", http.StatusOK)
+	hs.expect("GET", "/api/today", initData(5, "Dmitry", "ru", ""), "", http.StatusOK)
+	hs.now = time.Date(2026, time.December, 10, 17, 5, 0, 0, time.UTC)
+	leave(5, hs.now)
+	hs.expect("POST", "/api/guess", dmitryKyiv, `{"lat":49.84,"lon":24.03}`, http.StatusConflict)
+}
+
+// maply leaving a chat before its reveal takes the chat out of the day: there
+// was no result there to see.
+func TestLeavingBeforeTheRevealFreesTheDay(t *testing.T) {
+	hs := setup(t)
+	store := hs.srv.Store.(*db.Store)
+	ctx := context.Background()
+	oksanaKyiv := initData(1, "Oksana", "uk", hs.payload(kyivGroup))
+	hs.expect("GET", "/api/today", oksanaKyiv, "", http.StatusOK)
+	hs.expect("GET", "/api/today", initData(1, "Oksana", "uk", hs.payload(moscowGroup)), "", http.StatusOK)
+	if err := store.LeaveChat(ctx, moscowGroup); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hs.pool.Exec(ctx, `UPDATE maply.chat_settings SET left_at = $2 WHERE chat_id = $1`,
+		moscowGroup, time.Date(2026, time.December, 10, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	hs.now = time.Date(2026, time.December, 10, 17, 30, 0, 0, time.UTC)
+	hs.expect("POST", "/api/guess", oksanaKyiv, `{"lat":49.84,"lon":24.03}`, http.StatusOK)
+}
+
+// Seeing a group's result without an answer ties the person to that group's
+// reveal even when the app skipped /api/today, and a row's key is the
+// viewing chat's own: one person's key in a group is not their key in a DM.
+func TestResultTiesThePersonToTheGroup(t *testing.T) {
+	hs := setup(t)
+	oksanaKyiv := initData(1, "Oksana", "uk", hs.payload(kyivGroup))
+	oksanaDM := initData(1, "Oksana", "uk", "")
+	hs.expect("GET", "/api/today", oksanaKyiv, "", http.StatusOK)
+	hs.expect("POST", "/api/guess", oksanaKyiv, `{"lat":50,"lon":25}`, http.StatusOK)
+	var inGroup, inDM resultResponse
+	if err := json.Unmarshal([]byte(hs.expect("GET", "/api/result", oksanaKyiv, "", http.StatusOK)), &inGroup); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(hs.expect("GET", "/api/result", oksanaDM, "", http.StatusOK)), &inDM); err != nil {
+		t.Fatal(err)
+	}
+	if len(inGroup.Table) != 1 || len(inDM.Table) != 1 || len(inGroup.Board) != 1 {
+		t.Fatalf("group %+v, DM %+v", inGroup, inDM)
+	}
+	if inGroup.Table[0].Key != inGroup.Board[0].Key || inGroup.Table[0].Key == inDM.Table[0].Key {
+		t.Fatalf("keys: group table %s, group board %s, DM %s", inGroup.Table[0].Key, inGroup.Board[0].Key, inDM.Table[0].Key)
+	}
+	// A poll with the version it has gets nothing new, counted without the lists.
+	if same := hs.expect("GET", "/api/result?since="+url.QueryEscape(inDM.Version), oksanaDM, "", http.StatusOK); !strings.Contains(same, `"same":true`) {
+		t.Fatalf("DM poll = %s", same)
+	}
+	if same := hs.expect("GET", "/api/result?since="+url.QueryEscape(inGroup.Version), oksanaKyiv, "", http.StatusOK); !strings.Contains(same, `"same":true`) {
+		t.Fatalf("group poll = %s", same)
+	}
+
+	// Minsk's 20:00 is 17:00 UTC; Tom's DM, on London's clock, would run to
+	// 20:00 UTC.
+	hs.srv.Members.(members)[[2]int64{minskGroup, 9}] = true
+	tomMinsk := initData(9, "Tom", "en", hs.payload(minskGroup))
+	hs.now = time.Date(2026, time.December, 10, 17, 5, 0, 0, time.UTC)
+	if res := hs.expect("GET", "/api/result", tomMinsk, "", http.StatusOK); !leaks(res) {
+		t.Fatalf("Minsk's result = %s", res)
+	}
+	hs.expect("POST", "/api/guess", initData(9, "Tom", "en", ""), `{"lat":49.84,"lon":24.03}`, http.StatusConflict)
+}
+
+// A DM on Tokyo's clock passes midnight while the person's Kyiv group still
+// guesses the day: the app opened on that day keeps showing it, live.
+func TestDMKeepsItsDayPastMidnight(t *testing.T) {
+	hs := setup(t)
+	if err := hs.srv.Store.(*db.Store).SetChatZone(context.Background(), 1, "Asia/Tokyo"); err != nil {
+		t.Fatal(err)
+	}
+	oksanaKyiv := initData(1, "Oksana", "uk", hs.payload(kyivGroup))
+	oksanaDM := initData(1, "Oksana", "uk", "")
+	hs.expect("GET", "/api/today", oksanaKyiv, "", http.StatusOK)
+	hs.now = time.Date(2026, time.December, 10, 10, 0, 0, 0, time.UTC)
+	hs.expect("POST", "/api/guess", oksanaDM, `{"lat":50,"lon":25}`, http.StatusOK)
+
+	// 00:30 in Tokyo: the DM's own date is the 11th, which she has not answered.
+	hs.now = time.Date(2026, time.December, 10, 15, 30, 0, 0, time.UTC)
+	hs.expect("GET", "/api/result", oksanaDM, "", http.StatusForbidden)
+	var rr resultResponse
+	body := hs.expect("GET", "/api/result?date=2026-12-10", oksanaDM, "", http.StatusOK)
+	if err := json.Unmarshal([]byte(body), &rr); err != nil || rr.Phase != "live" || rr.Date != "2026-12-10" || rr.OpensAt == nil ||
+		!rr.OpensAt.Equal(time.Date(2026, time.December, 10, 18, 0, 0, 0, time.UTC)) {
+		t.Fatalf("yesterday's result = %s", body)
+	}
+	// Any other date is not the DM's to ask for.
+	hs.expect("GET", "/api/result?date=2026-12-09", oksanaDM, "", http.StatusForbidden)
 }

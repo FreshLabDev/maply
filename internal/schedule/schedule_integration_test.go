@@ -25,6 +25,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/FreshLabDev/maply/internal/i18n"
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/telegram"
 	"github.com/FreshLabDev/maply/migrations"
@@ -45,6 +46,8 @@ type fakeTG struct {
 	log  []sent
 	// fail makes the next send to the chat fail with this error.
 	fail map[int64]error
+	// failKind makes every call of a kind fail with this error.
+	failKind map[string]error
 }
 
 func (f *fakeTG) add(s sent) (tg.Message, error) {
@@ -52,6 +55,9 @@ func (f *fakeTG) add(s sent) (tg.Message, error) {
 	defer f.mu.Unlock()
 	if err := f.fail[s.chatID]; err != nil {
 		delete(f.fail, s.chatID)
+		return tg.Message{}, err
+	}
+	if err := f.failKind[s.kind]; err != nil {
 		return tg.Message{}, err
 	}
 	f.next++
@@ -301,7 +307,7 @@ func TestOneDay(t *testing.T) {
 		t.Errorf("DM button = %+v, want the Mini App", b)
 	}
 	result := fake.last("photo", group).text
-	for _, want := range []string{"Lisbon", "Portugal", "Built on seven hills.", "🥇 Pin", "<b>🌍 Places in the world, of 1</b>\nPin #1"} {
+	for _, want := range []string{"Lisbon", "Portugal", "Built on seven hills.", "🥇 Pin", "<b>🌍 Places in the world so far, of 1</b>\nPin #1"} {
 		if !strings.Contains(result, want) {
 			t.Errorf("group result %q lacks %q", result, want)
 		}
@@ -319,6 +325,11 @@ func TestOneDay(t *testing.T) {
 	s.Step(ctx)
 	if edit := fake.last("edit", group); !strings.Contains(edit.text, "<b>🌍 Final places in the world, of 1</b>\nPin #1") || !strings.Contains(edit.text, "🥇 Pin") {
 		t.Errorf("final world edit = %q", edit.text)
+	}
+	// Only the world line changes: the rest is the caption that went out.
+	evening := strings.Replace(result, "<b>🌍 Places in the world so far, of 1</b>", "<b>🌍 Final places in the world, of 1</b>", 1)
+	if edit := fake.last("edit", group); edit.text != evening {
+		t.Errorf("final world edit = %q, want the evening's caption with the line made final: %q", edit.text, evening)
 	}
 	if got := fake.count("photo", group) + fake.count("text", group); got != 3 {
 		t.Errorf("the group got %d messages, want 3", got)
@@ -364,5 +375,168 @@ func TestBlockedChatIsLeft(t *testing.T) {
 	chats, err := store.ActiveChats(ctx)
 	if err != nil || len(chats) != 0 {
 		t.Fatalf("active chats after the block = %+v, %v", chats, err)
+	}
+}
+
+// A DM that moves west after its day was planned still answers until its new
+// reveal: the result moves with the zone, and one that runs early anyway goes
+// back in the queue without a send.
+func TestResultFollowsAZoneMovedWest(t *testing.T) {
+	store, pool := testDB(t)
+	ctx := context.Background()
+	images := t.TempDir()
+	if err := os.WriteFile(filepath.Join(images, "k1"), []byte("jpeg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+	                                       country_iso, continent, difficulty, reviewed_at)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+	if err := store.Touch(ctx, tg.User{ID: alone, FirstName: "Solo"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.chat_settings (chat_id, kind, timezone) VALUES ($1, 'dm', 'Europe/Kyiv')`, alone)
+	zones, _ := round.LoadZones()
+	countries, _ := geo.World()
+	clock := time.Date(2026, 11, 2, 7, 0, 0, 0, time.UTC)
+	fake := &fakeTG{fail: map[int64]error{}}
+	s := &Scheduler{Store: store, TG: fake, Payloads: auth.NewSigner("123:abc"), Zones: zones, Countries: countries,
+		ImagesDir: images, Username: "maplyin_bot", AppURL: "https://maply.example/", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now: func() time.Time { return clock }}
+	s.Step(ctx)
+	if got := fake.count("photo", alone); got != 1 {
+		t.Fatalf("morning: %d photos, want the post", got)
+	}
+	d := round.DateIn(clock, time.UTC)
+	key := fmt.Sprintf("result:%s:%d", d, alone)
+	berlinReveal := time.Date(2026, 11, 2, 19, 0, 0, 0, time.UTC)
+
+	// The person moves the DM to Berlin; at 20:05 Kyiv the day is still open there.
+	exec(t, pool, `UPDATE maply.chat_settings SET timezone = 'Europe/Berlin' WHERE chat_id = $1`, alone)
+	clock = time.Date(2026, 11, 2, 18, 5, 0, 0, time.UTC)
+	s.Step(ctx)
+	if got := fake.count("photo", alone); got != 1 {
+		t.Fatalf("20:05 Kyiv: %d photos, want no result before Berlin's reveal", got)
+	}
+	var runAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT run_at FROM maply.job WHERE key = $1`, key).Scan(&runAt); err != nil || !runAt.Equal(berlinReveal) {
+		t.Fatalf("result planned at %v (%v), want %v", runAt, err, berlinReveal)
+	}
+
+	// A job the planner could no longer move, being retried, runs early: it
+	// goes back to Berlin's reveal and sends nothing.
+	exec(t, pool, `UPDATE maply.job SET run_at = $2, attempts = 1 WHERE key = $1`, key, time.Date(2026, 11, 2, 18, 0, 0, 0, time.UTC))
+	clock = clock.Add(time.Minute)
+	s.Step(ctx)
+	var attempts int
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT run_at, attempts, status FROM maply.job WHERE key = $1`, key).Scan(&runAt, &attempts, &status); err != nil ||
+		!runAt.Equal(berlinReveal) || attempts != 1 || status != "pending" || fake.count("photo", alone) != 1 {
+		t.Fatalf("early job: %v %d %s (%v), %d photos", runAt, attempts, status, err, fake.count("photo", alone))
+	}
+
+	clock = berlinReveal.Add(time.Minute)
+	s.Step(ctx)
+	if got := fake.count("photo", alone); got != 2 {
+		t.Fatalf("after Berlin's reveal: %d photos, want the result", got)
+	}
+}
+
+// Without the right to pin, the admins hear it once, in the post: a failed
+// edit is left to the redraw, a flood wait asks nothing, and once the post
+// has said it the next days do not.
+func TestPinRequestComesOnce(t *testing.T) {
+	store, pool := testDB(t)
+	ctx := context.Background()
+	images := t.TempDir()
+	for _, k := range []string{"k1", "k2", "k3", "k4"} {
+		if err := os.WriteFile(filepath.Join(images, k), []byte("jpeg"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+	                                       country_iso, continent, difficulty, reviewed_at)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now()),
+	                      ('approved', 'mapillary', 'm2', 'CC-BY-SA-4.0', 'photo', 50.45, 30.52, 'k2', 'UA', 'europe', 2, now()),
+	                      ('approved', 'mapillary', 'm3', 'CC-BY-SA-4.0', 'photo', 48.85, 2.35, 'k3', 'FR', 'europe', 2, now()),
+	                      ('approved', 'mapillary', 'm4', 'CC-BY-SA-4.0', 'photo', 52.52, 13.40, 'k4', 'DE', 'europe', 2, now())`)
+	if err := store.Touch(ctx, tg.User{ID: player, FirstName: "Pin", LanguageCode: "en"}, &tg.Chat{ID: group, Type: "supergroup", Title: "Maps"}); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.chat_settings (chat_id, kind, timezone) VALUES ($1, 'group', 'Europe/Kyiv')`, group)
+	zones, _ := round.LoadZones()
+	countries, _ := geo.World()
+	kyiv, _ := time.LoadLocation("Europe/Kyiv")
+	noRight := &tg.APIError{StatusCode: 400, ErrorCode: 400, Description: "Bad Request: not enough rights to manage pinned messages in the chat"}
+	fake := &fakeTG{fail: map[int64]error{}, failKind: map[string]error{"pin": noRight}}
+	var clock time.Time
+	s := &Scheduler{Store: store, TG: fake, Payloads: auth.NewSigner("123:abc"), Zones: zones, Countries: countries,
+		ImagesDir: images, Username: "maplyin_bot", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now: func() time.Time { return clock }}
+	morning := func(day int) {
+		t.Helper()
+		clock = time.Date(2026, 11, day, 8, 55, 0, 0, kyiv)
+		for range 12 {
+			s.Step(ctx)
+			clock = clock.Add(time.Minute)
+		}
+	}
+	ask := i18n.T("en", "group.pin_rights")
+	// The morning posts; a day's result going out late the next morning is not one.
+	posts := func() int {
+		n := 0
+		for _, e := range fake.log {
+			if e.chatID == group && e.kind == "photo" && strings.Contains(e.text, i18n.T("en", "post.hint")) {
+				n++
+			}
+		}
+		return n
+	}
+	asked := func() int {
+		n := 0
+		for _, e := range fake.log {
+			if e.chatID == group && (e.kind == "edit" || e.kind == "photo") && strings.Contains(e.text, ask) {
+				n++
+			}
+		}
+		return n
+	}
+
+	// Day one: Telegram floods; that is not the admins' to fix.
+	fake.failKind["pin"] = &tg.APIError{StatusCode: 429, ErrorCode: 429, Description: "Too Many Requests: retry after 5", RetryAfter: 5 * time.Second}
+	morning(2)
+	if posts() != 1 || asked() != 0 {
+		t.Fatalf("day one: %d posts, asked %d times", posts(), asked())
+	}
+
+	// Day two: no right, and the edit fails; the redraw puts the request in.
+	fake.failKind["pin"] = noRight
+	fake.failKind["edit"] = fmt.Errorf("telegram: 502 Bad Gateway")
+	clock = time.Date(2026, 11, 3, 8, 55, 0, 0, kyiv)
+	for range 6 {
+		s.Step(ctx)
+		clock = clock.Add(time.Minute)
+	}
+	if posts() != 2 || asked() != 0 {
+		t.Fatalf("day two before the redraw: %d posts, asked %d times", posts(), asked())
+	}
+	delete(fake.failKind, "edit")
+	for range 6 {
+		s.Step(ctx)
+		clock = clock.Add(time.Minute)
+	}
+	if asked() != 1 {
+		t.Fatalf("day two: the redraw did not ask, log %+v", fake.log)
+	}
+
+	// Day three: the redraw asked but did not mark it, so the post asks again,
+	// and this time it is marked.
+	morning(4)
+	if asked() != 2 {
+		t.Fatalf("day three: asked %d times", asked())
+	}
+	// Day four: heard already.
+	morning(5)
+	if posts() != 4 || asked() != 2 {
+		t.Fatalf("day four: %d posts, asked %d times", posts(), asked())
 	}
 }

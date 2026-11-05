@@ -530,3 +530,12 @@ func TestPrepareScoreSetsDistanceAndPointsApart(t *testing.T) {
 		t.Fatal("the score share names the place")
 	}
 }
+
+// A long fact is cut at a word, so the head leaves room in a caption.
+func TestQuotedClipsALongFact(t *testing.T) {
+	long := strings.Repeat("слово ", 300)
+	head := Quoted("ru", 3, db.Answer{Fact: map[string]string{"ru": long}})
+	if n := len([]rune(head)); n > factMax+80 || !strings.Contains(head, "слово…</i>") {
+		t.Fatalf("head is %d characters: %q", n, head[len(head)-60:])
+	}
+}

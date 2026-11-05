@@ -5,15 +5,15 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/FreshLabDev/tg"
 
 	"github.com/FreshLabDev/maply/internal/round"
 )
@@ -174,34 +174,68 @@ func TestPayloadOutsideTheEpochIsRefused(t *testing.T) {
 
 type fakeMembers struct {
 	status map[int64]string
+	gone   map[int64]bool // restricted and no longer in the group
 	calls  int
 	err    error
 }
 
-func (f *fakeMembers) GetChatMember(_ context.Context, _ int64, userID int64) (tg.ChatMember, error) {
+func (f *fakeMembers) CallGet(_ context.Context, method string, values url.Values, out any) error {
 	f.calls++
 	if f.err != nil {
-		return tg.ChatMember{}, f.err
+		return f.err
 	}
-	return tg.ChatMember{Status: f.status[userID]}, nil
+	userID, _ := strconv.ParseInt(values.Get("user_id"), 10, 64)
+	if method != "getChatMember" || values.Get("chat_id") != "-1001" {
+		return fmt.Errorf("unexpected %s %v", method, values)
+	}
+	// The answer as Telegram sends it, through the same decoding.
+	member := map[string]any{"status": f.status[userID]}
+	if f.status[userID] == "restricted" {
+		member["is_member"] = !f.gone[userID]
+	}
+	raw, _ := json.Marshal(map[string]any{"ok": true, "result": member})
+	return json.Unmarshal(raw, out)
 }
 
 func TestMembersAreCachedForTheDay(t *testing.T) {
 	ctx := context.Background()
-	fake := &fakeMembers{status: map[int64]string{1: "member", 2: "left", 3: "restricted", 4: "kicked"}}
+	fake := &fakeMembers{
+		status: map[int64]string{1: "member", 2: "left", 3: "restricted", 4: "kicked", 5: "restricted"},
+		gone:   map[int64]bool{5: true},
+	}
 	m := NewMembers(fake)
+	clock := time.Date(2026, time.November, 2, 9, 0, 0, 0, time.UTC)
+	m.Now = func() time.Time { return clock }
 	day := round.NewDate(2026, time.November, 2)
-	for user, want := range map[int64]bool{1: true, 2: false, 3: true, 4: false} {
+	for user, want := range map[int64]bool{1: true, 2: false, 3: true, 4: false, 5: false} {
 		got, err := m.IsMember(ctx, day, -1001, user)
 		if err != nil || got != want {
 			t.Fatalf("IsMember(%d) = %v, %v; want %v", user, got, err, want)
 		}
 	}
-	if _, err := m.IsMember(ctx, day, -1001, 1); err != nil || fake.calls != 4 {
+	if _, err := m.IsMember(ctx, day, -1001, 1); err != nil || fake.calls != 5 {
 		t.Fatalf("second ask on the same day called Telegram again: %d calls", fake.calls)
 	}
-	if _, err := m.IsMember(ctx, day.AddDays(1), -1001, 1); err != nil || fake.calls != 5 {
+	// A refusal stands for a minute: someone who joins later plays that day.
+	fake.status[2] = "member"
+	if ok, _ := m.IsMember(ctx, day, -1001, 2); ok || fake.calls != 5 {
+		t.Fatalf("a refusal was asked again at once: %v, %d calls", ok, fake.calls)
+	}
+	clock = clock.Add(2 * time.Minute)
+	if ok, _ := m.IsMember(ctx, day, -1001, 2); !ok || fake.calls != 6 {
+		t.Fatalf("a refusal outlived its minute: %v, %d calls", ok, fake.calls)
+	}
+	if _, err := m.IsMember(ctx, day.AddDays(1), -1001, 1); err != nil || fake.calls != 7 {
 		t.Fatalf("a new day reused yesterday's answer: %d calls", fake.calls)
+	}
+	// Around midnight UTC some groups are on the new date and some on the
+	// old: asking for both does not empty the other's answers.
+	for range 3 {
+		m.IsMember(ctx, day, -1001, 1)
+		m.IsMember(ctx, day.AddDays(1), -1001, 1)
+	}
+	if fake.calls != 7 {
+		t.Fatalf("two dates in turn called Telegram again: %d calls", fake.calls)
 	}
 
 	fake.err = errors.New("telegram down")

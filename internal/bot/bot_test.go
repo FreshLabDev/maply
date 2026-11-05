@@ -131,6 +131,9 @@ func (f *fakeStore) RoundOn(_ context.Context, d round.Date) (db.Round, bool, er
 	return db.Round{Date: d, DayNo: 1, PlaceID: 1}, f.rounds[d.String()], nil
 }
 func (f *fakeStore) Contexts(context.Context, int64) ([]db.Context, error) { return nil, nil }
+func (f *fakeStore) Deadline(_ context.Context, _ round.Zones, _ int64, d round.Date, own *time.Location) (time.Time, error) {
+	return d.Reveal(own), nil
+}
 func (f *fakeStore) InsertGuess(_ context.Context, g db.NewGuess) error {
 	for _, old := range f.guesses {
 		if old.UserID == g.UserID && old.Date.String() == g.Date.String() {

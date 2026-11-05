@@ -11,6 +11,158 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+Fixes from two reviews on 4 November: one name could take the whole
+service down, several paths let a player see the place and still answer,
+the world's names came out too early, and the site showed an
+empty table to players who had answered. The Mini App and the texts changed
+too.
+
+For the operator:
+
+- Migration 013 adds `chat_settings.zone_auto` and `left_at`,
+  `chat_round.result_text` and `result_world`, `site_guess.late`, three
+  columns at the end of the `day_score` view and a new view `day_rank`.
+- The deploy also needs the new `deploy/ws04/compose.yaml` on the host: logs
+  move to the host's journal.
+- Rolling back to alpha.13 works on the migrated database. One difference:
+  alpha.13 does not know `zone_auto`, so a DM zone stored automatically
+  counts there as picked by hand, and the phone's zone no longer replaces it.
+
+### Fixed
+
+- A name starting with a skin tone, a joiner or a variation selector crashed
+  the whole service, bot, scheduler and API, every minute while profiles
+  were drawn. Such names are drawn now, and a panic while drawing, in a
+  request or in a job costs that one picture, request or job.
+- Moving a chat's zone west in the middle of the day could send the place
+  while answers in the new zone were still open. The result job checks the
+  reveal in the chat's current zone and moves itself to it.
+- A DM without a picked zone followed the language, so switching the
+  language after a group's reveal could reopen the day. The zone is stored
+  the first time it is used; the phone's zone may still replace it once.
+- The site told players who had answered that they had not: its world table
+  was empty. The table is filled, a guest without a name reads "Guest", and
+  an answer kept only in the browser shows as your row without a rank.
+- When the answer window closed on a pin that was placed but not sent, the
+  app said "Answer accepted". It now says answers are closed and removes the
+  pin.
+- In the world table every group's names opened at your chat's reveal.
+  Now only your group's do; everyone else's open when the day is over in
+  every zone.
+- The pin jumped to the top corner of the map for a moment when dropped.
+- The mini globe grew with the pin's latitude: 1.4 times for Romania, almost
+  3 times for Tromsø.
+- The place and your pin could end up under the table. The camera follows
+  when the table grows; on short screens the margins shrink together and the
+  place card starts folded. The opening frame covers the place, your pin and
+  the answers near them, not every answer in the world.
+- Telegram asked whether to discard changes when closing the result screen.
+- One hung request stopped the live table until the app was reopened.
+  Requests give up after 10 seconds; a server that keeps failing shows one
+  message and is asked less and less often, up to once a minute.
+- "Everyone answered, the pins are 0 km apart" came with one answer.
+- The morning edit of a group's result rebuilt the whole caption with that
+  morning's members and language. It changes the world line only.
+- In UTC+3 in winter the morning look back at yesterday could come before
+  the last answers were scored.
+- A failing edit of the pinned post was retried every 5 seconds until the
+  evening. It backs off, waits as long as Telegram asks, and leaves a
+  deleted post alone.
+- A long fact could push the result caption over Telegram's limit.
+- Two answers on the same spot made one marker.
+- The bar tooltip stayed over someone else's row after a new answer moved
+  the table, "N more" counted five rows when the table was folded to one,
+  and the fold button showed when you had no row.
+- The site wrote "at 06:30, " with nothing after the comma for a browser in
+  a zone maply does not name.
+- A group that removed maply after its reveal stopped counting for its
+  members that day, so they could answer from a DM in a later zone after
+  seeing the place. Such a group now closes their day as before; one removed
+  before its reveal does not.
+- Someone who opened a group's result without answering could still answer
+  from a DM in a later zone. Opening a result now counts as being in that
+  group.
+- A site answer sent after the first reveal of the day, when the place was
+  already out in Telegram, could take first place in the world. It is still
+  scored, but it cannot be first.
+- The world picture in a group's result named the world's top three and
+  showed their faces before the day was over everywhere. Until then the
+  podium shows distances only.
+- Someone Telegram had restricted and who then left a group still counted
+  as its member. A refused membership check is kept for a minute, so a person
+  who has just joined gets in quickly.
+- A DM whose own day had ended at midnight lost the result of the day one of
+  the person's groups was still playing. The open app keeps its day.
+- Your place on the profile and in the world could differ on equal points:
+  the two broke ties in different orders.
+- For a place near the 180th meridian the line from your pin and the opening
+  frame went the long way round the world.
+- After a tap on a group of markers, the next update flew the map back.
+- A reply cut off in the middle was taken as a result; it now counts as a
+  failed request and is asked again. Coming back to the app asks at once,
+  even after a run of failures.
+- A long tooltip over the bars ran off a narrow screen; it wraps now.
+- A slow reply in the days sheet could replace a day opened after it.
+- The days sheet did not take the focus. It does now, Escape closes it, and
+  the focus goes back to where it was; the folded answer button is out of
+  the tab order.
+- A database error while reading a chat's zone was taken for "no zone", and
+  one chat whose zone could not be stored stopped the day's planning for
+  every chat.
+
+### Changed
+
+- Posts, teases, the home panel and the reply to a sent location name the
+  zone: "Results at 20:00 (Kyiv)".
+- A group's first post has two lines of rules in place of the look back at
+  yesterday. When maply may not pin, the request goes to the admins inside
+  that post instead of a fourth message.
+- The world place reads "so far" until the day is over in every zone.
+- Numbers in the Mini App follow the language, as in the bot ("3,500" in
+  English, "3 500" in Russian and Polish); distances under a kilometre are in
+  metres. Arabic keeps Western digits in the bot and the app, as its places
+  and times already had.
+- In Arabic the Mini App reads right to left: the table, the plates over
+  the map and the arrows are mirrored.
+- Long button labels take two lines instead of losing their end.
+- The name column in the table grows with the screen.
+- Your own face shows your initial instead of repeating "you".
+- The sheet with every answer opens on your row, marks where ranks skip,
+  and says "Top 200 of 1,229" when that is all it has.
+- The (i) card explains the group mark and points at its button.
+- Markers on the back of the globe hide; long names on the map are cut.
+- New texts for a server that is down, a server error, a bad request and a
+  group maply has left. Reworded: no photo today, the zone change refusal,
+  the DM settings hint, the world tease (it says "worldwide" now), the empty
+  waiting tease, the first toast after a pin, the rules in Chinese. The line
+  about your group under a DM result ("In “Team”: place 2 of 5") says
+  "place" in nine more languages, and Belarusian was read against Russian.
+- The bot's log goes to the host's journal and survives deploys.
+- After the reveal, the result in the Mini App asks once a minute until the
+  day has closed everywhere, so the world's names appear without reopening
+  the app.
+
+### Security
+
+- Bot posts call a site player "Guest": a name typed on the site is not
+  checked and could have said anything.
+- The site's endpoints that write take only JSON from maply's own pages, so
+  another site cannot post an answer or a name for a visitor.
+- A row's key depends on the chat it is shown in, so one person's rows cannot
+  be matched between a group, a DM and the site.
+- The client error log drops query strings, which could carry the Telegram
+  launch data, and takes at most 5 reports a minute from one address and 30
+  in all.
+
+### Performance
+
+- A poll sends the version it has; when nothing changed the answer is a few
+  bytes, worked out from two counts before any table is read. Polls no
+  longer write to the shared core database.
+- The table draws only the rows that show, markers are not laid out while
+  the photo is in front, and the compass tape is rebuilt only when the
+  width changes.
+
 ## v0.0.1-alpha.13 - 2026-11-04
 
 The table under the result is the day's world ranking, in a group and in a

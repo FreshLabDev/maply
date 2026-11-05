@@ -15,6 +15,7 @@ import (
 
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/FreshLabDev/maply/internal/i18n"
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/scoring"
 )
@@ -91,6 +92,11 @@ func TestLookBackComesOnceTheDayAfter(t *testing.T) {
 	if late, _ := s.lateLookBack(ctx, "en", d, dm, db.ChatRound{}); !strings.Contains(late, "Your place in the world: 2 of 2") {
 		t.Errorf("Tokyo result look back = %q", late)
 	}
+	// A post that carried only the request for the right to pin had no look back either.
+	pinOnly := db.ChatRound{Yesterday: i18n.T("en", "group.pin_rights")}
+	if late, _ := s.lateLookBack(ctx, "en", d, dm, pinOnly); !strings.Contains(late, "Your place in the world: 2 of 2") {
+		t.Errorf("look back after a pin request = %q", late)
+	}
 }
 
 // A DM result tells the person about their own day: where the points came
@@ -134,7 +140,7 @@ func TestOwnLinesTellThePersonTheirDay(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := strings.Join(lines, "\n")
-	for _, want := range []string{"Distance: <b>14 m</b>", "3,500 for the distance", "In Café &lt;3: place 1 of 2."} {
+	for _, want := range []string{"Distance: <b>14 m</b>", "3,500 for the distance", "In “Café &lt;3”: place 1 of 2."} {
 		if !strings.Contains(text, want) {
 			t.Errorf("own lines %q lack %q", text, want)
 		}

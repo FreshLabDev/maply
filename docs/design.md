@@ -21,7 +21,9 @@ The reveal is 20:00 in the chat's own time zone. A group admin picks it in the s
 | zh | `Asia/Shanghai` |
 | ja | `Asia/Tokyo` |
 
-A group's zone is fixed in `chat_settings` the first time maply is set up there, so a later change of the group's language does not move its reveal. The picker offers sixteen zones from Los Angeles to Sydney; a zone outside the list is never stored.
+A group's zone is fixed in `chat_settings` the first time maply is set up there, so a later change of the group's language does not move its reveal. A DM's is fixed the same way the first time the person opens maply or the day is planned, marked as automatic: the phone's zone may replace it once, and a zone the person picked never moves. The picker offers sixteen zones from Los Angeles to Sydney; a zone outside the list is never stored.
+
+Posts and teases write the reveal with the chat's zone, "Results at 20:00 (Kyiv)", so a reader in Moscow does not take it for their own 20:00.
 
 Zones come from tzdata and offsets are not hard-coded: Ukraine's daylight saving rules have been changed by law. In winter Kyiv is an hour behind Moscow and Minsk, and the game accounts for that (see "Anti-cheat").
 
@@ -35,7 +37,7 @@ Zones come from tzdata and offsets are not hard-coded: Ukraine's daylight saving
 
 A group can move the morning post to another time. The answer reveal time is fixed: anti-cheat depends on it.
 
-The bot writes at most three messages a day to a group: the morning post, the intrigue and the result. Edits to the pin and to the result do not count as messages.
+The bot writes at most three messages a day to a group: the morning post, the intrigue and the result. Edits to the pin and to the result do not count as messages. A group's first post carries two lines of rules in place of the look back at yesterday. When maply may not pin, the admins' note goes into that day's post as an edit, once.
 
 ## How players answer
 
@@ -73,10 +75,10 @@ Whoever answered before the intrigue and without hints gets a "clean" mark and +
 ## Anti-cheat
 
 1. **One answer per person per day.** The answer is shared across the DM, all groups and the site (when signed in through Telegram). A person's pin appears on the maps of all their groups.
-2. **The answer window closes at the earliest reveal.** For each person, accepting answers ends at the earliest reveal among their contexts: the DM and all groups where the bot has seen them (presence in `core`). Example: a person in a Ukrainian group who is also in a Russian one must answer before 20:00 Moscow time in winter, not Kyiv time.
-3. **Your answer opens the place, the reveal opens the names.** In Telegram an answer is scored the moment it comes in. The person sees the place, their distance and their score right away, and the world's table without names, updating live: every answer scored so far today, ranked as the world ranks them, with distance, points and the bonuses in them (speed included, so the order matches the world place), and a small group mark by the face of the chat's own players. The map shows the chat's answers as points. The server strips names, photos, IDs and answer times; the client never gets them. This is light hiding to keep the evening's intrigue, not a privacy promise. Folded, the table keeps only your row; the choice is remembered. Names appear at the chat's reveal (20:00 in its zone). In a DM that is the latest reveal among the person's contexts. Before the reveal, sharing sends the line "maply #142 · 312 km · 4,057" with no picture.
+2. **The answer window closes at the earliest reveal.** For each person, accepting answers ends at the earliest reveal among their contexts: the DM and all groups where the bot has seen them (presence in `core`). Example: a person in a Ukrainian group who is also in a Russian one must answer before 20:00 Moscow time in winter, not Kyiv time. A group that removed maply still counts that day if it did so after its reveal: its members saw the place there. Opening a group's result, answered or not, adds the person to that group's presence, so someone who looked at the place in a group cannot then answer from a DM in a later zone.
+3. **Your answer opens the place, the reveal opens the names.** In Telegram an answer is scored the moment it comes in. The person sees the place, their distance and their score right away, and the world's table without names, updating live: every answer scored so far today, ranked as the world ranks them, with distance, points and the bonuses in them (speed included, so the order matches the world place), and a small group mark by the face of the chat's own players. The map shows the chat's answers as points. The server strips names, photos, IDs and answer times; the client never gets them. This is light hiding to keep the evening's intrigue, not a privacy promise. Folded, the table keeps only your row; the choice is remembered. Names appear at the chat's reveal (20:00 in its zone). In a DM that is the latest reveal among the person's contexts. In the world's table only the chat's own players are named then; everyone else stays unnamed until the day has closed in every zone, so a group in Tokyo does not learn who is who in a Kyiv group still guessing. Until then the world place reads "so far". Before the reveal, sharing sends the line "maply #142 · 312 km · 4,057" with no picture. A row's key depends on the chat it is shown in, so one person's rows cannot be matched between a group, a DM and the site.
 4. **Nobody sees the place without answering.** Before the reveal, `/api/result` and `/api/share` answer someone who has not answered with 403 `not_answered` and nothing else.
-5. **The site does not spoil.** Today's place on the site is revealed only after the latest reveal across all languages, and the site shows no one else's answers before then: a guest could answer at random, look where the dots cluster, then answer precisely in Telegram.
+5. **The site does not spoil.** Today's place on the site is revealed only after the latest reveal across all languages, and the site shows no one else's answers before then: a guest could answer at random, look where the dots cluster, then answer precisely in Telegram. The reverse is closed too: a site answer sent after the day's first reveal is marked late, scored, but never first in the world. A name typed on the site is not checked, so bot posts call such a player "Guest".
 6. **The source does not leak.** The photo is re-uploaded under a random name and without EXIF. Neither Mapillary IDs nor Panoramax links go out: given a Mapillary ID, the API immediately returns coordinates, and Panoramax HD frames contain GPS in EXIF (checked). Panoramas are shown by our own viewer (Photo Sphere Viewer), not MapillaryJS.
 7. **No defense against image search.** Google Lens finds streets poorly, and the rest relies on honor, as in Wordle. A leak through friends from another chat cannot be closed either.
 
@@ -93,7 +95,7 @@ At 20:00 the group gets one message:
 
 Everyone who answered a day stands in one list, whether they played in a group, in a DM or on the site. Groups are not ranked against each other: the owner decided on 23 October that groups will compare by forwarding their results, and that the day's statistics matter more.
 
-A day is final only after the last zone's reveal, 20:00 in Los Angeles, which is 06:00 in Kyiv. Before that the world is shown only as "so far": on the live screen after answering ("Place in the world: 12 of 120", with everyone's points as grey dots) and in the group's 20:00 result, whose world line is edited when the day closes. The day after:
+A day is final only after the last zone's reveal, 20:00 in Los Angeles, which is 06:00 in Kyiv. Before that the world is shown only as "so far": on the live screen after answering ("Place in the world so far: 12 of 120", with everyone's points as grey dots) and in the group's 20:00 result, whose world line is edited when the day closes. The day after:
 
 - the morning post carries yesterday's lines under a heading: first place with the distance, then the median distance and the share who found the country;
 - in a DM it adds the person's place: "Your place in the world: 12 of 348, ahead of 97% of players";
@@ -111,7 +113,7 @@ The posts are short seamless loops, sent as MP4 without sound, which Telegram pl
 - morning: the logo's pin lands on its globe, the day's panorama opens around it as a little planet, unrolls into the street, pans, and rolls back into the globe;
 - intrigue: the time there on a dial of the day, dark or light as it is there, with the weather and the dots left until the answer;
 - the group's result: the camera flies to the group's pins, the place comes out with a ripple, dashed lines run to every pin along the great circle, each pin gets a chip with the name and distance, and the three closest stand on a podium. When the pins are spread over the world, the view centres on the place, a pin round the globe stands where its line goes over the edge, and the globe turns east and west to show them;
-- the world: everyone's pins rain onto one globe and take the colour of how close they came, and the world's first three stand on a podium. It is the same picture in every chat; a person's own place goes in the caption.
+- the world: everyone's pins rain onto one globe and take the colour of how close they came, and the world's first three stand on a podium. It is the same picture in every chat; a person's own place goes in the caption. Before the day has closed in every zone the podium shows distances only, with no names or faces.
 
 They were designed in a browser canvas; `internal/anim` draws the same frames in Go on the CPU, with no browser or GPU:
 
@@ -155,15 +157,15 @@ One message at a random moment of the window. Rules:
 - An intrigue never lies. Every message is a real hint or real statistics.
 - The type changes every day and does not repeat two days in a row.
 - Material for place-bound types is prepared during place curation and goes through the same check.
-- If everyone in the group has answered, there is only one type: "everyone answered, spread 6,000 km, waiting for 20:00".
+- If everyone in the group has answered, and there are at least two answers, there is only one type: "everyone answered, spread 6,000 km, waiting for 20:00".
 
 | Type | Example | Source |
 |:--|:--|:--|
-| It is now there | "It is 02:14 at night there and +27. Think about it." | Open-Meteo (free for non-commercial use) and the point's time zone |
+| It is now there | "At the photo's spot it is 02:14 now and 27 °C." | Open-Meteo (free for non-commercial use) and the point's time zone |
 | Voice of the place | A voice message: how locals say "good morning" | TTS in the place's language, prepared during curation |
 | Detail | A crop from the photo: "Look closely at this sign" | A crop marked during curation |
 | Chat spread | "Your answers are spread over 11,000 km. Two are on different continents" | The chat's answers |
-| World against you | "64% of players bet on Asia. You are in the minority so far" | All answers of the day |
+| World | "Most pins worldwide so far: Asia (64%)" | All answers of the day |
 | Rival | "'Workhorses' have already scored 18,400. You have 9,100, and four are silent" | The rival chat from `/rival` |
 | Streak | "@masha, 11 days in a row. You have not answered yet today" | Streaks of 5 days or more, can be turned off |
 

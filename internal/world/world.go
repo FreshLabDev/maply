@@ -36,7 +36,7 @@ import (
 const redrawEvery = 2 * time.Minute
 
 // renderer is bumped when the drawing changes, so kept pictures go stale.
-const renderer = "world-1"
+const renderer = "world-2"
 
 type Store interface {
 	World(ctx context.Context, d round.Date) (db.World, error)
@@ -210,7 +210,11 @@ func (s *Service) Card(ctx context.Context, d round.Date, lang string, need int6
 		return Card{}, err
 	}
 	start := time.Now()
-	mp4, err := s.render(ctx, Scene(lang, rd.DayNo, answer, w, pins, s.faces(ctx, w)))
+	var faces map[int64]*anim.Face
+	if final {
+		faces = s.faces(ctx, w)
+	}
+	mp4, err := s.render(ctx, Scene(lang, rd.DayNo, answer, w, pins, faces, final))
 	if err != nil {
 		return Card{}, err
 	}
@@ -286,8 +290,10 @@ func fingerprint(w db.World, pins []db.WorldPin, final bool) string {
 }
 
 // Scene is the world post of the day in lang: the pins in the order they
-// came, coloured by how close, and the first three named.
-func Scene(lang string, dayNo int, answer db.Answer, w db.World, pins []db.WorldPin, faces map[int64]*anim.Face) anim.Scene {
+// came, coloured by how close, and the first three. They are named once the
+// day is final; before that their chats may still be answering, and the
+// steps show only the distance and the points.
+func Scene(lang string, dayNo int, answer db.Answer, w db.World, pins []db.WorldPin, faces map[int64]*anim.Face, final bool) anim.Scene {
 	guesses := make([]anim.Guess, len(pins))
 	for i, p := range pins {
 		guesses[i] = anim.Guess{Lat: p.Lat, Lon: p.Lon, Km: p.Km}
@@ -311,8 +317,14 @@ func Scene(lang string, dayNo int, answer db.Answer, w db.World, pins []db.World
 		if i == 3 {
 			break
 		}
+		if !final {
+			top[i] = &anim.Winner{Name: "•••", Km: e.Km, Points: float64(e.Points)}
+			continue
+		}
+		// A site name is anything typed into a browser; the picture goes to
+		// every DM, so the site is a guest there.
 		name := e.Name
-		if name == "" && e.Site() {
+		if e.Site() {
 			name = i18n.T(lang, "app.guest")
 		}
 		top[i] = &anim.Winner{Name: anim.Name(name), Km: e.Km, Points: float64(e.Points)}

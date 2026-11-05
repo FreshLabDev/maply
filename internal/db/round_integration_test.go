@@ -117,7 +117,7 @@ func TestDeadlineAcrossChats(t *testing.T) {
 	}
 
 	winter := round.NewDate(2026, time.December, 10)
-	got, err := store.Deadline(ctx, zones, person.ID, winter)
+	got, err := store.Deadline(ctx, zones, person.ID, winter, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,17 +125,53 @@ func TestDeadlineAcrossChats(t *testing.T) {
 		t.Fatalf("deadline = %s, want %s (20:00 Moscow)", got.UTC(), want)
 	}
 
-	exec(t, store, `UPDATE maply.chat_settings SET active = false WHERE chat_id = $1`, moscowGroup.ID)
-	got, err = store.Deadline(ctx, zones, person.ID, winter)
+	// maply left Moscow before its reveal: the group no longer counts.
+	if err := store.LeaveChat(ctx, moscowGroup.ID); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, store, `UPDATE maply.chat_settings SET left_at = '2026-12-10 16:00Z' WHERE chat_id = $1`, moscowGroup.ID)
+	got, err = store.Deadline(ctx, zones, person.ID, winter, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := time.Date(2026, time.December, 10, 18, 0, 0, 0, time.UTC); !got.Equal(want) {
 		t.Fatalf("deadline after leaving Moscow = %s, want %s (20:00 Kyiv)", got.UTC(), want)
 	}
+	if contexts, _ := store.Contexts(ctx, person.ID); len(contexts) != 2 {
+		t.Fatalf("contexts after leaving Moscow = %+v", contexts)
+	}
+
+	// maply left after Moscow's result: the place may have been seen there,
+	// so the window stays closed at Moscow's reveal.
+	exec(t, store, `UPDATE maply.chat_settings SET left_at = '2026-12-10 17:05Z' WHERE chat_id = $1`, moscowGroup.ID)
+	got, err = store.Deadline(ctx, zones, person.ID, winter, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, time.December, 10, 17, 0, 0, 0, time.UTC); !got.Equal(want) {
+		t.Fatalf("deadline after maply left Moscow past its reveal = %s, want %s", got.UTC(), want)
+	}
+	// Back in the group, it counts as any other, and leaving again times anew.
+	if err := store.ReturnChat(ctx, moscowGroup.ID); err != nil {
+		t.Fatal(err)
+	}
+	var left *time.Time
+	if err := store.pool.QueryRow(ctx, `SELECT left_at FROM maply.chat_settings WHERE chat_id = $1`, moscowGroup.ID).Scan(&left); err != nil || left != nil {
+		t.Fatalf("left_at after return = %v, %v", left, err)
+	}
+
+	// The chat answering counts even before core has it.
+	tokyo, _ := time.LoadLocation("Asia/Tokyo")
+	got, err = store.Deadline(ctx, zones, person.ID, winter, tokyo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, time.December, 10, 11, 0, 0, 0, time.UTC); !got.Equal(want) {
+		t.Fatalf("deadline with Tokyo answering = %s, want %s", got.UTC(), want)
+	}
 
 	// Someone maply has never seen still gets a window: the default zone's.
-	got, err = store.Deadline(ctx, zones, 99999, winter)
+	got, err = store.Deadline(ctx, zones, 99999, winter, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

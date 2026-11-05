@@ -46,11 +46,15 @@ services:
       timeout: 5s
       retries: 5
       start_period: 25s
+    # The bot logs to the host's journal, which WS04 keeps on disk: a deploy
+    # recreates the container, and with json-file its log went with it. The
+    # current container's log is still `docker logs maply-bot`; every
+    # container's, before a deploy too, is
+    # `journalctl CONTAINER_NAME=maply-bot --since -2d`.
     logging:
-      driver: json-file
+      driver: journald
       options:
-        max-size: "10m"
-        max-file: "3"
+        tag: maply-bot
 
   # Draws the result card: opens http://maply-bot:8080/card/result/... and takes
   # a 1280x1280 screenshot, asked over the DevTools port by the bot. Pinned by

@@ -4,6 +4,7 @@ package bot
 import (
 	"context"
 	"log/slog"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 
@@ -39,6 +40,7 @@ type Store interface {
 
 	RoundOn(ctx context.Context, d round.Date) (db.Round, bool, error)
 	Contexts(ctx context.Context, userID int64) ([]db.Context, error)
+	Deadline(ctx context.Context, zones round.Zones, userID int64, d round.Date, own *time.Location) (time.Time, error)
 	InsertGuess(ctx context.Context, g db.NewGuess) error
 }
 
@@ -181,6 +183,12 @@ func (b *Bot) initialize(ctx context.Context) bool {
 }
 
 func (b *Bot) handle(ctx context.Context, u tg.Update) {
+	// One update that panics is dropped; the bot goes on with the next.
+	defer func() {
+		if p := recover(); p != nil {
+			b.log.Error("update panicked", "update", u.UpdateID, "panic", p, "stack", string(debug.Stack()))
+		}
+	}()
 	var (
 		user *tg.User
 		chat *tg.Chat

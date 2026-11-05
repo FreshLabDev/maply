@@ -191,3 +191,69 @@ func TestCleanName(t *testing.T) {
 		}
 	}
 }
+
+// A site answer given after the day's first reveal may have been looked up,
+// and a new browser is a new player: it does not take the first place. It
+// still ranks second when it scored best, in every list that ranks the day.
+func TestALateSiteAnswerIsNotFirst(t *testing.T) {
+	store := testStore(t)
+	seedRound(t, store)
+	ctx := context.Background()
+	d := round.NewDate(2026, 11, 1)
+	if err := store.Touch(ctx, tg.User{ID: 8, FirstName: "Ana"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	early := time.Date(2026, 11, 1, 8, 0, 0, 0, time.UTC)
+	closes := time.Date(2026, 11, 1, 18, 0, 0, 0, time.UTC)
+	if err := store.InsertGuess(ctx, NewGuess{Date: d, UserID: 8, Context: "dm", Pin: geo.Point{Lat: 50, Lon: 30}, AnsweredAt: closes.Add(-time.Minute), Deadline: closes}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{sitePlayer, otherSitePlayer} {
+		if err := store.SitePlayer(ctx, p, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The exact spot, after Sydney's 20:00.
+	if err := store.InsertSiteGuess(ctx, NewSiteGuess{Date: d, Player: sitePlayer, Pin: geo.Point{Lat: 50.45, Lon: 30.52}, AnsweredAt: early.Add(2 * time.Hour), Deadline: closes, Late: true}); err != nil {
+		t.Fatal(err)
+	}
+	// Far off, in the morning.
+	if err := store.InsertSiteGuess(ctx, NewSiteGuess{Date: d, Player: otherSitePlayer, Pin: geo.Point{Lat: 40, Lon: -74}, AnsweredAt: early, Deadline: closes}); err != nil {
+		t.Fatal(err)
+	}
+	kyiv := scoring.Place{Point: geo.Point{Lat: 50.45, Lon: 30.52}, Country: "UA", Continent: "europe"}
+	if _, err := store.ScoreDue(ctx, d, closes, func(p geo.Point) scoring.Score { return scoring.Judge(p, kyiv, nil) }); err != nil {
+		t.Fatal(err)
+	}
+	w, err := store.World(ctx, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.RankOf(8) != 1 || w.PlaceOf(sitePlayer) != 2 || w.PlaceOf(otherSitePlayer) != 3 {
+		t.Fatalf("ranks = %+v", w.Entries)
+	}
+	if w.Entries[1].Points <= w.Entries[0].Points {
+		t.Fatalf("the late answer did not score best: %+v", w.Entries)
+	}
+	pins, err := store.WorldPins(ctx, d)
+	if err != nil || len(pins) != 3 || pins[0].Km != w.Entries[0].Km || pins[1].Km != w.Entries[1].Km {
+		t.Fatalf("pins = %+v, %v", pins, err)
+	}
+	days, err := store.Days(ctx, d, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mine, err := store.SiteDays(ctx, sitePlayer, days); err != nil || mine[d].Rank != 2 {
+		t.Fatalf("site day = %+v, %v", mine, err)
+	}
+	if mine, err := store.MyDays(ctx, 8, days); err != nil || mine[d].Rank != 1 {
+		t.Fatalf("Ana's day = %+v, %v", mine, err)
+	}
+
+	// With nothing in time, the late answer is first all the same.
+	exec(t, store, `DELETE FROM maply.guess`)
+	exec(t, store, `DELETE FROM maply.site_guess WHERE player = $1`, otherSitePlayer)
+	if w, err := store.World(ctx, d); err != nil || w.PlaceOf(sitePlayer) != 1 {
+		t.Fatalf("alone = %+v, %v", w.Entries, err)
+	}
+}

@@ -162,19 +162,19 @@ type part struct {
 }
 
 // split cuts text where it passes between the face and its fallback. The
-// caller holds f.mu. What
-// glues an emoji together (a joiner, a variation selector, a skin tone, a
-// keycap, a flag's tag) stays with the letter before it, so a sequence like
-// a family or a flag is shaped whole.
+// caller holds f.mu. What glues an emoji together (a joiner, a variation
+// selector, a skin tone, a keycap, a flag's tag) stays with the letter before
+// it, so a sequence like a family or a flag is shaped whole. One with no
+// letter before it is drawn from whichever face has it.
 func (f *Font) split(text []rune) []part {
 	var parts []part
 	for i, r := range text {
 		face := f
-		if f.fallback != nil && (sticks(r) && len(parts) > 0 || !f.hasLocked(r) && f.fallback.has(r)) {
+		switch {
+		case sticks(r) && len(parts) > 0:
+			face = parts[len(parts)-1].face
+		case f.fallback != nil && !f.hasLocked(r) && f.fallback.has(r):
 			face = f.fallback
-			if sticks(r) {
-				face = parts[len(parts)-1].face
-			}
 		}
 		if n := len(parts); n > 0 && parts[n-1].face == face {
 			parts[n-1].end = i + 1
@@ -372,6 +372,9 @@ func Name(first string) string {
 		return -1
 	}, strings.TrimSpace(first))
 	name = strings.Join(strings.Fields(name), " ")
+	// A joiner or a skin tone left at the front, with the letter it modified
+	// dropped, has nothing to stick to.
+	name = strings.TrimLeftFunc(name, sticks)
 	if r := []rune(name); len(r) > 16 {
 		name = string(r[:15]) + "…"
 	}

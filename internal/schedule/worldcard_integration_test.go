@@ -83,7 +83,7 @@ func TestDMResultIsTheWorld(t *testing.T) {
 	if b := res.buttons[0][0]; b.CallbackData != "wr:"+d.String() || b.Text != "Refresh" {
 		t.Errorf("first button = %+v, want Refresh", b)
 	}
-	for _, want := range []string{"Place in the world: 1 of 1.", "<i>Other time zones are still answering", "tomorrow at"} {
+	for _, want := range []string{"Place in the world so far: 1 of 1.", "<i>Other time zones are still answering", "tomorrow at"} {
 		if !strings.Contains(res.text, want) {
 			t.Errorf("caption %q lacks %q", res.text, want)
 		}
@@ -113,7 +113,7 @@ func TestDMResultIsTheWorld(t *testing.T) {
 	}
 	waitFor(t, func() bool { return fake.count("edit_animation", alone) == 1 })
 	edit := fake.last("edit_animation", alone)
-	if !strings.Contains(edit.text, "Place in the world: 2 of 2.") || edit.buttons[0][0].CallbackData == "" {
+	if !strings.Contains(edit.text, "Place in the world so far: 2 of 2.") || edit.buttons[0][0].CallbackData == "" {
 		t.Errorf("refreshed result = %+v", edit)
 	}
 	waitFor(t, func() bool {

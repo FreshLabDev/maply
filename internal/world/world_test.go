@@ -108,7 +108,7 @@ func TestScenePinsRainInTheOrderTheyCame(t *testing.T) {
 	store.answer(3, "Cy", 300, at.Add(time.Hour))
 	store.answer(4, "Di", 3000, at.Add(30*time.Minute))
 	a, _ := store.Answer(context.Background(), 1)
-	w := Scene("en", 3, a, store.world, store.pins, nil).(*anim.World)
+	w := Scene("en", 3, a, store.world, store.pins, nil, true).(*anim.World)
 	if w.Guesses[0].At != 1 || w.Guesses[1].At != 0 {
 		t.Errorf("times = %v %v", w.Guesses[0].At, w.Guesses[1].At)
 	}

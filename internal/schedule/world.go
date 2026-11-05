@@ -31,10 +31,11 @@ const (
 	worldAheadFrom = 10
 )
 
-// entryName is how the ranking names someone: the first name, the site's
-// own name, or "Guest".
+// entryName is how a post names someone in the ranking: the first name, or
+// "Guest" for the site. A site name is anything typed into a browser, so it
+// stays on the site and in the Mini App, not in every chat's post.
 func entryName(lang string, e db.Entry) string {
-	if e.Name == "" && e.Site() {
+	if e.Site() {
 		return html.EscapeString(i18n.T(lang, "app.guest"))
 	}
 	return displayName(e.Name)
@@ -57,6 +58,11 @@ func betterPct(rank, n int) int {
 // who came first, how close the day came, and the person's place for a DM.
 // Empty when nobody was scored.
 func (s *Scheduler) lookBack(ctx context.Context, lang string, d round.Date, c db.Chat) (string, error) {
+	// The morning post can come before the world job has run: a site answer
+	// waits for its deadline to be scored, and would be left out of the day.
+	if err := s.scoreClosed(ctx, d); err != nil {
+		return "", err
+	}
 	w, err := s.Store.World(ctx, d)
 	if err != nil || w.Players() == 0 {
 		return "", err
@@ -95,8 +101,23 @@ func (s *Scheduler) yesterday(ctx context.Context, lang string, d round.Date, c 
 // lateLookBack is yesterday's look back for a result whose morning post went
 // out without it.
 func (s *Scheduler) lateLookBack(ctx context.Context, lang string, d round.Date, c db.Chat, cr db.ChatRound) (string, error) {
-	if cr.Yesterday != "" {
+	// The post's quote may hold only the request for the right to pin, which
+	// is no look back.
+	if cr.Yesterday != "" && cr.Yesterday != i18n.T(lang, "group.pin_rights") {
 		return "", nil
 	}
 	return s.yesterday(ctx, lang, d, c)
+}
+
+// scoreClosed scores what is left of d once it has closed everywhere.
+func (s *Scheduler) scoreClosed(ctx context.Context, d round.Date) error {
+	rd, ok, err := s.Store.RoundOn(ctx, d)
+	if err != nil || !ok {
+		return err
+	}
+	answer, err := s.Store.Answer(ctx, rd.PlaceID)
+	if err != nil {
+		return err
+	}
+	return s.scoreDue(ctx, d, answer)
 }

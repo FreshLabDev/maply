@@ -66,7 +66,7 @@ func TestAnsweredBlockHidesWhoIsWho(t *testing.T) {
 	if !strings.Contains(block, "+") {
 		t.Fatalf("long names = %q", block)
 	}
-	if post := postCaption("ru", 3, strings.Repeat("вчера ", 100), block, true); visibleLen(post) > captionLimit || !strings.Contains(post, "Расстояния") || !strings.Contains(block, "100 км · 101 км") {
+	if post := postCaption("ru", 3, "20:00 (Киев)", strings.Repeat("вчера ", 100), block, true); visibleLen(post) > captionLimit || !strings.Contains(post, "Расстояния") || !strings.Contains(block, "100 км · 101 км") {
 		t.Fatalf("post is %d long: %q", visibleLen(post), post)
 	}
 	// Many distances stop by length too, with how many are left.
@@ -83,11 +83,11 @@ func TestAnsweredBlockHidesWhoIsWho(t *testing.T) {
 }
 
 func TestPostCaptionSetsYesterdayApart(t *testing.T) {
-	got := postCaption("ru", 42, "Вчера первое место в мире: Ким, 12 км.", "<b>Ответили · 1</b>\nАня", true)
+	got := postCaption("ru", 42, "20:00 (Киев)", "Вчера первое место в мире: Ким, 12 км.", "<b>Ответили · 1</b>\nАня", true)
 	if !strings.HasPrefix(got, "<b>maply #42</b> · ") || !strings.Contains(got, "\n\n<b>Ответили · 1</b>\nАня\n\n<blockquote>Вчера") || !strings.HasSuffix(got, "</blockquote>") {
 		t.Fatalf("post = %q", got)
 	}
-	if dm := postCaption("ru", 42, "", "", false); strings.Contains(dm, "\n\n") {
+	if dm := postCaption("ru", 42, "20:00 (Киев)", "", "", false); strings.Contains(dm, "\n\n") {
 		t.Fatalf("dm post = %q", dm)
 	}
 }
@@ -105,7 +105,7 @@ func TestTableEscapesNamesAndShowsMedalsAndStreaks(t *testing.T) {
 func TestWorldGroupLine(t *testing.T) {
 	w := db.World{Entries: []db.Entry{{UserID: 9, Name: "Kim", Km: 12, Rank: 1}, {UserID: 2, Rank: 2}, {UserID: 7, Rank: 3}, {UserID: 1, Rank: 4}}}
 	guesses := []db.Guess{scored(1, "Аня", 300, 2000), scored(2, "Боря", 50, 3000), {UserID: 3, FirstName: "Вика"}}
-	if got := worldGroupLine("ru", w, guesses, false); got != "<b>🌍 Места в мире из 4</b>\nБоря #2 · Аня #4" {
+	if got := worldGroupLine("ru", w, guesses, false); got != "<b>🌍 Места в мире пока, из 4</b>\nБоря #2 · Аня #4" {
 		t.Fatalf("now = %q", got)
 	}
 	if got := worldGroupLine("ru", w, guesses, true); got != "<b>🌍 Итоговые места в мире из 4</b>\nБоря #2 · Аня #4\nПервое место в мире: Kim, 12 км." {
@@ -116,6 +116,16 @@ func TestWorldGroupLine(t *testing.T) {
 	}
 	if got := worldGroupLine("ru", db.World{}, guesses, false); got != "" {
 		t.Fatalf("empty world = %q", got)
+	}
+	// What gives way in a full caption is the world's first, not the places.
+	line, first := worldGroupParts("ru", w, guesses, true)
+	if line != "<b>🌍 Итоговые места в мире из 4</b>\nБоря #2 · Аня #4" || first != "Первое место в мире: Kim, 12 км." {
+		t.Fatalf("parts = %q, %q", line, first)
+	}
+	// A site player is a guest in a post, whatever name the browser gave.
+	site := db.World{Entries: []db.Entry{{Player: "p", Name: "t.me/spam", Km: 1, Rank: 1}, {UserID: 2, Rank: 2}}}
+	if _, first := worldGroupParts("ru", site, guesses, true); first != "Первое место в мире: Гость, 1,0 км." {
+		t.Fatalf("site first = %q", first)
 	}
 }
 

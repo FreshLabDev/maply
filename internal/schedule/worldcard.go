@@ -5,6 +5,7 @@ package schedule
 import (
 	"context"
 	"errors"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -141,6 +142,11 @@ func (s *Scheduler) RefreshWorld(ctx context.Context, chatID, msgID int64, d rou
 	}
 	go func() {
 		defer s.refreshing.done(chatID)
+		defer func() {
+			if p := recover(); p != nil {
+				s.Log.Error("world refresh panicked", "chat", chatID, "panic", p, "stack", string(debug.Stack()))
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), worldWait)
 		defer cancel()
 		if err := s.putWorld(ctx, c, rd, cr, answer, msgID); err != nil {
@@ -330,15 +336,18 @@ func (s *Scheduler) finalGroups(ctx context.Context, d round.Date, rd db.Round, 
 		if err != nil {
 			return err
 		}
-		gr, err := s.groupCaption(ctx, c, rd, cr, answer, lang, true)
+		caption, err := s.finalCaption(ctx, c, rd, cr, answer, lang)
 		if err != nil {
 			return err
+		}
+		if caption == "" {
+			continue
 		}
 		markup, err := s.playMarkup(c, d, lang, "btn.result")
 		if err != nil {
 			return err
 		}
-		if err := s.TG.EditCaption(ctx, c.ID, r.MsgID, gr.caption, markup); err != nil && !tg.IsMessageNotModified(err) {
+		if err := s.TG.EditCaption(ctx, c.ID, r.MsgID, caption, markup); err != nil && !tg.IsMessageNotModified(err) {
 			s.Log.Warn("final world line not put", "chat", c.ID, "date", d, "error", err)
 			continue
 		}
@@ -348,6 +357,45 @@ func (s *Scheduler) finalGroups(ctx context.Context, d round.Date, rd db.Round, 
 		s.Log.Info("final world lines put", "date", d, "results", len(results), "updated", done)
 	}
 	return nil
+}
+
+// finalCaption is a group's result with the closed day's world line. The
+// caption that went out at 20:00 keeps everything else as it was: the table
+// and the count are the evening's, whoever has left the group since. A result
+// kept from before that was stored is built again. Empty when there is no
+// world line to make final.
+func (s *Scheduler) finalCaption(ctx context.Context, c db.Chat, rd db.Round, cr db.ChatRound, answer db.Answer, lang string) (string, error) {
+	if cr.ResultText == "" {
+		gr, err := s.groupCaption(ctx, c, rd, cr, answer, lang, true)
+		return gr.caption, err
+	}
+	if cr.ResultWorld == "" || !strings.Contains(cr.ResultText, cr.ResultWorld) {
+		return "", nil
+	}
+	guesses, err := s.Store.ChatGuesses(ctx, rd.Date, c.ID)
+	if err != nil {
+		return "", err
+	}
+	w, err := s.Store.World(ctx, rd.Date)
+	if err != nil {
+		return "", err
+	}
+	line, first := worldGroupParts(lang, w, guesses, true)
+	if line == "" {
+		return "", nil
+	}
+	caption := strings.Replace(cr.ResultText, cr.ResultWorld, line, 1)
+	if first != "" {
+		// The world's first only when there is room for it: the group's
+		// places are what the line is for.
+		if full := strings.Replace(cr.ResultText, cr.ResultWorld, line+"\n"+first, 1); visibleLen(full) <= captionLimit {
+			caption = full
+		}
+	}
+	if visibleLen(caption) > captionLimit {
+		return "", nil
+	}
+	return caption, nil
 }
 
 // finalDMs puts the final world picture in every DM result.

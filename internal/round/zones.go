@@ -131,6 +131,18 @@ func (z Zones) With(name string, loc *time.Location) Zones {
 	return out
 }
 
+// FirstReveal is when d's place is first out, in the zone where 20:00 comes
+// earliest.
+func (z Zones) FirstReveal(d Date) time.Time {
+	var first time.Time
+	for _, loc := range z.locs {
+		if r := d.Reveal(loc); first.IsZero() || r.Before(first) {
+			first = r
+		}
+	}
+	return first
+}
+
 // LastReveal is when d's place is out in every zone maply offers. Until then
 // someone may still be answering d, so the day's world ranking is not final.
 func (z Zones) LastReveal(d Date) time.Time {

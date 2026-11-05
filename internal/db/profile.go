@@ -92,14 +92,10 @@ func (s *Store) ProfileOf(ctx context.Context, userID int64, today round.Date, n
 	if err != nil {
 		return Profile{}, fmt.Errorf("rounds to %s: %w", today, err)
 	}
-	// The same order as the days page: more points, then the earlier answer.
+	// The same order as the world post and the days page.
 	rows, err = s.pool.Query(ctx, `
-		SELECT date, rank, n FROM (
-		  SELECT date, user_id,
-		         row_number() OVER (PARTITION BY date ORDER BY points DESC, answered_at, km, user_id, player) AS rank,
-		         count(*) OVER (PARTITION BY date) AS n
-		    FROM day_score WHERE date <= $2) r
-		 WHERE user_id = $1
+		SELECT date, rank, n FROM day_rank
+		 WHERE date <= $2 AND user_id = $1
 		 ORDER BY date`, userID, today.Time())
 	if err != nil {
 		return Profile{}, fmt.Errorf("world places of %d: %w", userID, err)

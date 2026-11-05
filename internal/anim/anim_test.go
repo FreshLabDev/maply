@@ -6,8 +6,10 @@ import (
 	"context"
 	"image"
 	"image/color"
+	"io"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/go-text/typesetting/language"
@@ -272,10 +274,42 @@ func TestNameKeepsWhatTheFacesWrite(t *testing.T) {
 		"李雷 🇩🇪":                      "🇩🇪",
 		"":                           "?",
 		"Christopher-Alexander Long": "Christopher-Ale…",
+		"\U0001F3FBBob":              "Bob",
+		"\u200DBob":                  "Bob",
+		"李\u200DBob":                 "Bob",
+		"\uFE0F":                     "?",
 	} {
 		if got := Name(in); got != want {
 			t.Errorf("Name(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A joiner, a variation selector or a skin tone with nothing before it is
+// shaped on its own instead of sticking to a letter that is not there.
+func TestLeadingModifierIsShaped(t *testing.T) {
+	for _, s := range []string{"\U0001F3FBBob", "\u200DBob", "\uFE0F", "\u20E3", "a\u200D\U0001F3FB"} {
+		for _, f := range []*Font{Display, Body, BodyMedium} {
+			f.Layout(s, 40, ShapingLang("en"))
+		}
+	}
+}
+
+// A frame that panics fails the loop with an error.
+func TestPanickingFrameIsAnError(t *testing.T) {
+	_, err := frames(context.Background(), panicky{}, 2, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "draw frame") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+type panicky struct{}
+
+func (panicky) Size() (int, int)  { return 4, 4 }
+func (panicky) Duration() float64 { return 1 }
+func (panicky) Draw(c *Canvas, t float64) {
+	if t > 0.2 {
+		panic("bad frame")
 	}
 }
 

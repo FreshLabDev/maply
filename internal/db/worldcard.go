@@ -24,13 +24,7 @@ type WorldPin struct {
 // first, in the order World ranks them.
 func (s *Store) WorldPins(ctx context.Context, d round.Date) ([]WorldPin, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT lat, lon, km, answered_at FROM (
-		  SELECT lat, lon, km, answered_at, pts_km + pts_bonus + COALESCE(pts_speed, 0) AS points, user_id, NULL::uuid AS player
-		    FROM guess WHERE date = $1 AND km IS NOT NULL AND pts_km IS NOT NULL AND pts_bonus IS NOT NULL
-		  UNION ALL
-		  SELECT lat, lon, km, answered_at, pts_km + pts_bonus, NULL, player
-		    FROM site_guess WHERE date = $1 AND km IS NOT NULL AND pts_km IS NOT NULL AND pts_bonus IS NOT NULL) a
-		 ORDER BY points DESC, answered_at, km, user_id, player`, d.Time())
+		SELECT lat, lon, km, answered_at FROM day_rank WHERE date = $1 ORDER BY rank`, d.Time())
 	if err != nil {
 		return nil, fmt.Errorf("world pins %s: %w", d, err)
 	}

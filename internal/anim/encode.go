@@ -97,11 +97,23 @@ func frames(ctx context.Context, s Scene, workers int, w io.Writer) (Stats, erro
 	slots := make(chan struct{}, 2*workers)
 	var drawn time.Duration
 	var mu sync.Mutex
+	var failed error // a frame that panicked, guarded by mu
 	var wg sync.WaitGroup
 	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// A frame that panics fails this loop, not the whole process.
+			defer func() {
+				if p := recover(); p != nil {
+					mu.Lock()
+					if failed == nil {
+						failed = fmt.Errorf("draw frame: %v", p)
+					}
+					mu.Unlock()
+					cancel()
+				}
+			}()
 			c := NewCanvas(width, height)
 			for i := range jobs {
 				t0 := time.Now()
@@ -150,6 +162,11 @@ func frames(ctx context.Context, s Scene, workers int, w io.Writer) (Stats, erro
 			next++
 		}
 	}
+	mu.Lock()
+	if failed != nil {
+		err = failed
+	}
+	mu.Unlock()
 	if err == nil && next != n {
 		err = errors.Join(ctx.Err(), fmt.Errorf("wrote %d of %d frames", next, n))
 	}

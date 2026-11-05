@@ -51,7 +51,7 @@ func (b *Bot) onLocation(ctx context.Context, m *tg.Message, p geo.Point) error 
 	now := b.opts.Now()
 	d := round.DateIn(now, loc)
 	reply := func(key string) error {
-		_, err := b.tg.SendText(ctx, m.Chat.ID, i18n.T(lang, key, "time", revealTime()), nil)
+		_, err := b.tg.SendText(ctx, m.Chat.ID, i18n.T(lang, key, "time", i18n.At(lang, revealTime(), round.Name(zone, raw))), nil)
 		return err
 	}
 	if _, ok, err := b.store.RoundOn(ctx, d); err != nil {
@@ -81,13 +81,5 @@ func (b *Bot) onLocation(ctx context.Context, m *tg.Message, p geo.Point) error 
 // deadline is the earliest reveal among the DM and the person's groups, as
 // /api/guess counts it.
 func (b *Bot) deadline(ctx context.Context, userID int64, d round.Date, own *time.Location) (time.Time, error) {
-	contexts, err := b.store.Contexts(ctx, userID)
-	if err != nil {
-		return time.Time{}, err
-	}
-	locs := []*time.Location{own}
-	for _, c := range contexts {
-		locs = append(locs, b.opts.Zones.For(c.Zone, c.Lang))
-	}
-	return round.Deadline(d, locs)
+	return b.store.Deadline(ctx, b.opts.Zones, userID, d, own)
 }

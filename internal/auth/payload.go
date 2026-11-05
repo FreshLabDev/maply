@@ -52,6 +52,10 @@ func NewSigner(botToken string) *Signer {
 	return &Signer{key: mac([]byte("maply-startapp-v1"), []byte(botToken))}
 }
 
+// Key is a secret for another use, derived from the signer's own, so it
+// stays the same across restarts without being stored anywhere.
+func (s *Signer) Key(label string) []byte { return mac(s.key, []byte(label)) }
+
 // Sign makes the startapp payload of a group post.
 func (s *Signer) Sign(p Payload) (string, error) { return s.sign(payloadVersion, p) }
 

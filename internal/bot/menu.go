@@ -185,12 +185,13 @@ func (v view) closeButton() telegram.Button {
 	return b
 }
 
-// home is two screens. The direct chat gets every tab: there the panel is the
+// home is two screens, with the reveal in the chat's zone (one of
+// round.ZoneChoices). The direct chat gets every tab: there the panel is the
 // whole bot. A group gets what a group acts on, and Settings only for an
 // admin, who is the only one who can change them.
-func (v view) home(appURL string, admin bool) (string, telegram.Markup) {
+func (v view) home(appURL string, admin bool, zone string) (string, telegram.Markup) {
 	if v.sc == scopeGroup {
-		text := panel(productName, "", v.t("home.hint"), quote(v.t("home.group", "time", revealTime())))
+		text := panel(productName, "", v.t("home.hint"), quote(v.t("home.group", "time", i18n.At(v.lang, revealTime(), zone))))
 		var rows telegram.Markup
 		if admin {
 			rows = append(rows, []telegram.Button{v.button("btn.settings", actSettings)})
@@ -202,7 +203,7 @@ func (v view) home(appURL string, admin bool) (string, telegram.Markup) {
 		)
 		return text, rows
 	}
-	text := panel(productName, "", v.t("home.hint"), quote(v.t("home.body", "time", revealTime())))
+	text := panel(productName, "", v.t("home.hint"), quote(v.t("home.body", "time", i18n.At(v.lang, revealTime(), zone))))
 	var rows telegram.Markup
 	if appURL != "" {
 		// Playing is what the panel is opened for, so it is the one

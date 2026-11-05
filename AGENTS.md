@@ -48,7 +48,16 @@ player, and production-minded.
   offset.
 - A group gets at most three messages a day: the 07:00 post, one intrigue
   between 16:00 and 18:00, and the 20:00 result. Edits to the pinned post do not
-  count. Do not add a fourth.
+  count. Do not add a fourth: the rules in a group's first post and the
+  admins' note when maply may not pin go into the post itself.
+- Posts write the reveal with the chat's zone, "20:00 (Kyiv)". A chat's zone is
+  stored the first time maply needs it (`FixZone`), so a later change of
+  language cannot move a reveal. A DM's stored this way is marked automatic
+  and the phone's zone may replace it; a zone someone picked never moves.
+- Before the chat's reveal the API sends nobody else's name, photo, id or
+  answer time. In the world's table the chat's own players are named at its
+  reveal, everyone else once the day has closed in every zone, so a group in
+  Tokyo does not learn who is who in a Kyiv group still guessing.
 - An intrigue never lies. Every one is a real hint or a real statistic.
 - One answer per person per day, shared across DMs, groups and the site when
   signed in through Telegram. An answer cannot be changed after it is sent.
@@ -74,7 +83,10 @@ These are the game. A change that weakens one is a breaking change, whatever
 the diff looks like.
 
 - A person's answer window closes at the earliest reveal among all of their
-  contexts: the DM and every group `core.presence` has seen them in.
+  contexts: the DM and every group `core.presence` has seen them in. A group
+  that removed maply after its reveal still counts that day
+  (`chat_settings.left_at`): its members saw the place there. Opening a
+  group's result puts the person in that group's presence, answered or not.
 - In Telegram (DM and group) a guess is scored the moment it comes in, and the
   person sees the place, their distance and their score right away. Before the
   chat's reveal they also see the world's table and the chat's pins, but
@@ -83,7 +95,9 @@ the diff looks like.
   photo, user ID or answer time. The server strips these; the client never
   receives them. This is light hiding for the evening's intrigue, not a
   privacy promise: the points include the speed bonus, which roughly dates an
-  answer.
+  answer. A row's key is keyed by the viewing chat, so the same person's rows
+  cannot be matched between a group, a DM and the site. The world picture's
+  podium has no names or faces until the day has closed in every zone.
 - Nobody sees the place without having answered. Before the reveal
   `/api/result` and `/api/share` answer a person with no answer `403
   not_answered`, and nothing else. This is the invariant that keeps the live
@@ -100,7 +114,13 @@ the diff looks like.
   resolves to coordinates through the public API, and Panoramax HD frames carry
   GPS in EXIF.
 - The site shows today's place only after the latest reveal across every
-  language.
+  language. A site answer sent after the day's first reveal is marked late
+  (`site_guess.late`): it is scored, but it cannot be first in the world
+  (`day_rank`), since the place was already out in Telegram.
+- A name typed on the site is not checked: bot posts call that player "Guest".
+  The site's write endpoints take only JSON from maply's own pages.
+- `/api/log` strips query strings, which can carry `initData`, and is rate
+  limited per address and in total.
 - The `startapp` payload is signed with HMAC; group membership is checked with
   `getChatMember`. `initData` is verified on every request that writes.
 

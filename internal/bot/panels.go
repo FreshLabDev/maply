@@ -103,6 +103,13 @@ func (b *Bot) sendHome(ctx context.Context, m *tg.Message) error {
 		return err
 	}
 	v := view{lang: i18n.Resolve(raw), owner: m.From.ID, sc: scopeOf(m.Chat)}
+	// The panel names the reveal in the chat's zone. A DM's is keyed by the
+	// person and follows their language until they pick one.
+	zone, err := b.store.ChatZone(ctx, m.Chat.ID)
+	if err != nil {
+		return err
+	}
+	zoneLang := raw
 	admin := false
 	if v.sc == scopeGroup {
 		chatLang, panelLang, err := b.groupLang(ctx, m.Chat.ID, raw)
@@ -111,19 +118,21 @@ func (b *Bot) sendHome(ctx context.Context, m *tg.Message) error {
 		}
 		v.lang = panelLang
 		// A group maply joined before it set zones up gets one now.
-		if zone, err := b.store.ChatZone(ctx, m.Chat.ID); err != nil {
-			return err
-		} else if zone == "" {
+		if zone == "" {
 			if err := b.adopt(ctx, m.Chat.ID, chatLang, raw); err != nil {
 				return err
 			}
+		}
+		zoneLang = chatLang
+		if zoneLang == "" {
+			zoneLang = raw
 		}
 		if admin, err = b.isAdmin(ctx, m.Chat.ID, m.From.ID); err != nil {
 			// The member's panel is the safe one to show.
 			b.log.Warn("admin check failed", "chat", m.Chat.ID, "error", err)
 		}
 	}
-	text, markup := v.home(b.opts.AppURL, admin)
+	text, markup := v.home(b.opts.AppURL, admin, round.Name(zone, zoneLang))
 	if _, err := b.tg.SendText(ctx, m.Chat.ID, text, markup); err != nil {
 		return fmt.Errorf("send home to %d: %w", m.Chat.ID, err)
 	}
@@ -256,7 +265,11 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, action, raw s
 
 	switch action {
 	case actHome:
-		return edit(v.home(b.opts.AppURL, admin))
+		zone, err := b.store.ChatZone(ctx, chat.ID)
+		if err != nil {
+			return "", err
+		}
+		return edit(v.home(b.opts.AppURL, admin, round.Name(zone, zoneLang)))
 	case actHelp:
 		return edit(v.help())
 	case actAbout:
