@@ -3,6 +3,7 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -231,9 +232,13 @@ func command(chat tg.Chat, from tg.User, text string) tg.Update {
 	return tg.Update{Message: &tg.Message{MessageID: 5, From: &from, Chat: chat, Text: text}}
 }
 
+// press is a tap on a panel's button: the message Telegram sends with it
+// carries that button.
 func press(chat tg.Chat, from tg.User, data string) tg.Update {
+	raw, _ := json.Marshal(map[string]any{"reply_markup": map[string]any{
+		"inline_keyboard": [][]map[string]string{{{"text": "x", "callback_data": data}}}}})
 	return tg.Update{Callback: &tg.CallbackQuery{ID: "q", From: from, Data: data,
-		Message: tg.Message{MessageID: 100, Chat: chat, Text: "maply"}}}
+		Message: tg.Message{MessageID: 100, Chat: chat, Text: "maply", Raw: raw}}}
 }
 
 var (
@@ -350,6 +355,14 @@ func TestCloseDeletesOnlyAGroupPanel(t *testing.T) {
 	b.handle(ctx, post)
 	if len(client.deleted) != 0 {
 		t.Fatal("a forged Close deleted the morning post")
+	}
+	// The intrigue is text with a Play button; a Close it does not carry
+	// is ignored too.
+	intrigue := press(group, member, cb(userID, "close"))
+	intrigue.Callback.Message.Raw = []byte(`{"reply_markup":{"inline_keyboard":[[{"text":"Play","url":"https://t.me/maplyin_bot/play"}]]}}`)
+	b.handle(ctx, intrigue)
+	if len(client.deleted) != 0 {
+		t.Fatal("a forged Close deleted the intrigue")
 	}
 	b.handle(ctx, press(group, member, cb(userID, "close")))
 	if len(client.deleted) != 1 || client.deleted[0] != 100 {

@@ -3,6 +3,7 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -148,6 +149,31 @@ func isPanel(m tg.Message) bool {
 	return m.MessageID != 0 && m.Chat.ID != 0 && m.Text != "" && len(m.Photo) == 0
 }
 
+// pressedHere reports whether the message carries the button pressed. The
+// message in a callback is Telegram's copy, so its buttons are the real
+// ones: a forged Close against the group's intrigue, or against a post sent
+// as text, names a button that is not there.
+func pressedHere(m tg.Message, data string) bool {
+	var raw struct {
+		ReplyMarkup struct {
+			InlineKeyboard [][]struct {
+				CallbackData string `json:"callback_data"`
+			} `json:"inline_keyboard"`
+		} `json:"reply_markup"`
+	}
+	if len(m.Raw) == 0 || json.Unmarshal(m.Raw, &raw) != nil {
+		return false
+	}
+	for _, row := range raw.ReplyMarkup.InlineKeyboard {
+		for _, b := range row {
+			if b.CallbackData == data {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
 	if d, ok := schedule.WorldCallback(cq.Data); ok {
 		return b.onRefreshWorld(ctx, cq, d)
@@ -165,7 +191,7 @@ func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
 	if cq.From.ID != owner {
 		return b.tg.AnswerCallbackQueryAlert(ctx, cq.ID, i18n.T(reader, "msg.not_yours"))
 	}
-	if !isPanel(cq.Message) && !b.isCard(cq.Message) {
+	if (!isPanel(cq.Message) && !b.isCard(cq.Message)) || !pressedHere(cq.Message, cq.Data) {
 		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
 	}
 	alert, err := b.runAction(ctx, cq, action, raw)

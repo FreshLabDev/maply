@@ -84,7 +84,7 @@ func TestBackFromThePictureSendsThePanelAgain(t *testing.T) {
 	ctx := context.Background()
 	b.handle(ctx, press(private(member), member, cb(userID, actStats)))
 	back := press(private(member), member, cb(userID, actHome))
-	back.Callback.Message = tg.Message{MessageID: 100, Chat: private(member), Caption: "stats", Document: &tg.Document{FileID: "kept"}}
+	back.Callback.Message = tg.Message{MessageID: 100, Chat: private(member), Caption: "stats", Document: &tg.Document{FileID: "kept"}, Raw: back.Callback.Message.Raw}
 	b.handle(ctx, back)
 	if len(client.sends) != 1 || len(client.deleted) != 1 || client.deleted[0] != 100 {
 		t.Fatalf("sends %+v, deleted %v", client.sends, client.deleted)
