@@ -282,7 +282,7 @@ func (s *Scheduler) worldWait(lang string, d round.Date, c db.Chat) string {
 	if round.DateIn(at, loc) != d {
 		key = "result.world_wait_tomorrow"
 	}
-	return i18n.T(lang, key, "time", at.Format("15:04"))
+	return i18n.T(lang, key, "time", i18n.At(lang, at.Format("15:04"), round.Name(c.Zone, c.Lang)))
 }
 
 // worldMarkup is the result's button and, until the day is final, Refresh.
