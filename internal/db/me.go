@@ -13,17 +13,25 @@ import (
 	"github.com/FreshLabDev/maply/internal/round"
 )
 
-// Who is whose profile it is: a Telegram person, or a site player known only
-// by the cookie. Exactly one is set.
+// Who is whose profile it is: a Telegram person, a site account without
+// Telegram over every site player it has taken in, or a site player known
+// only by the cookie. Exactly one is set.
 type Who struct {
-	UserID int64
-	Player string
+	UserID  int64
+	Account string
+	Player  string
 }
 
-// whereWho is the condition on a scored row's owner, and its argument.
+// where is the condition on a scored row's owner, and its argument. An
+// account may hold two rows of one day over everywhere, from two browsers
+// merged later: the queries keep the earliest, as the account's own answer
+// of an open day is.
 func (w Who) where(col string) (string, any) {
-	if w.UserID != 0 {
+	switch {
+	case w.UserID != 0:
 		return col + "user_id = $1", w.UserID
+	case w.Account != "":
+		return col + "player IN (SELECT id FROM site_player WHERE account_id = $1::uuid)", w.Account
 	}
 	return col + "player = $1::uuid", w.Player
 }
@@ -70,8 +78,9 @@ func (s *Store) PlayedDays(ctx context.Context, who Who, upTo round.Date) ([]Pla
 		   AND g.km IS NOT NULL AND g.pts_km IS NOT NULL AND g.pts_bonus IS NOT NULL
 		 ORDER BY g.date`
 	} else {
+		cond, _ := who.where("g.")
 		q = `
-		SELECT g.date, r.day_no, g.lat, g.lon, g.km,
+		SELECT DISTINCT ON (g.date) g.date, r.day_no, g.lat, g.lon, g.km,
 		       g.pts_km + g.pts_bonus, g.pts_km + g.pts_bonus, g.pts_bonus,
 		       COALESCE(p.continent, ''), COALESCE(p.country_iso, ''), p.city,
 		       COALESCE(dp.rank, 0), COALESCE(dp.n, 0)
@@ -79,9 +88,9 @@ func (s *Store) PlayedDays(ctx context.Context, who Who, upTo round.Date) ([]Pla
 		  JOIN round r ON r.date = g.date
 		  JOIN place p ON p.id = r.place_id
 		  LEFT JOIN day_place dp ON dp.player = g.player AND dp.date = g.date
-		 WHERE g.player = $1::uuid AND g.date <= $2
+		 WHERE ` + cond + ` AND g.date <= $2
 		   AND g.km IS NOT NULL AND g.pts_km IS NOT NULL AND g.pts_bonus IS NOT NULL
-		 ORDER BY g.date`
+		 ORDER BY g.date, g.answered_at, g.player`
 	}
 	_, arg := who.where("")
 	rows, err := s.pool.Query(ctx, q, arg, upTo.Time())
@@ -131,8 +140,9 @@ func (s *Store) Standings(ctx context.Context, who Who, dates []round.Date) ([]S
 	cond, arg := who.where("")
 	rows, err := s.pool.Query(ctx, `
 		WITH mine AS (
-		  SELECT date, points - pts_speed AS base FROM day_score
-		   WHERE `+cond+` AND date = ANY($2::date[]))
+		  SELECT DISTINCT ON (date) date, points - pts_speed AS base FROM day_score
+		   WHERE `+cond+` AND date = ANY($2::date[])
+		   ORDER BY date, answered_at, player)
 		SELECT m.date,
 		       count(*) FILTER (WHERE ds.points - ds.pts_speed < m.base),
 		       count(*) FILTER (WHERE ds.points - ds.pts_speed = m.base) - 1,
