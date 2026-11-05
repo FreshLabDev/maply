@@ -38,7 +38,8 @@ For the operator:
   alone, at twice the detail of the review sheets, close to what the game
   shows after `-sharpen`, and turns the verdicts into a review `choose.py`
   reads.
-- `harvest.py` passes over a soft panorama for another frame of the tile.
+- `harvest.py` passes over a soft panorama, or one under 2048 px wide, for
+  another frame of the tile.
   `pool.py` plans in more countries, with rules for their troubled borders,
   and `MAPLY_CAP` limits the entries a country gets.
 - `maply-places` writes `sharpen.csv`, the input of `-sharpen`, next to

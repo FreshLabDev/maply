@@ -36,6 +36,7 @@ AVOID = avoid.from_env()
 # Calibrated on batch-004: its kept panoramas measure 578 and up, and a
 # Gaussian blur of 1.5 px brings every frame tried below 280.
 MIN_SHARP = float(os.environ.get("MAPLY_MIN_SHARP", "350"))
+MIN_WIDTH = int(os.environ.get("MAPLY_MIN_WIDTH", "2048"))
 LAPLACE = ImageFilter.Kernel((3, 3), (0, 1, 0, 1, -4, 1, 0, 1, 0), scale=1, offset=128)
 
 def get(url, timeout=60):
@@ -124,6 +125,9 @@ def harvest(region):
             w, h = im.size
             pano = bool(meta.get("is_pano"))
             if pano and abs(w / h - 2) > 0.05:
+                continue
+            # A panorama under 2048 px wide is soft in the game, -sharpen or not.
+            if pano and w < MIN_WIDTH:
                 continue
             sharp = sharpness(im) if pano else None
             if pano and sharp < MIN_SHARP:
