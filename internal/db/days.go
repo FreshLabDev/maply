@@ -252,6 +252,8 @@ type ClosedDay struct {
 	Image   string
 	Kind    string
 	Heading *float64
+	// Yaw is the direction the strips face, nil until curation picked one.
+	Yaw *float64
 	// Pins are every scored answer's, without whose they are.
 	Pins [][2]float64
 	// Prev and Next are the numbers of the rounds before and after, 0 when
@@ -266,12 +268,13 @@ func (s *Store) ClosedDay(ctx context.Context, d round.Date, newest round.Date) 
 		c        ClosedDay
 		thumb    *string
 		heading  *float32
+		yaw      *float32
 		lat, lon []float64
 	)
 	// The pins go in the order the answers came, which says nothing about
 	// whose is whose next to the ranking's order by points.
 	err := s.pool.QueryRow(ctx, `
-		SELECT dt.key, p.image_key, p.kind, p.heading,
+		SELECT dt.key, p.image_key, p.kind, p.heading, p.thumb_yaw,
 		       COALESCE((SELECT max(day_no) FROM round WHERE date < r.date), 0),
 		       COALESCE((SELECT min(day_no) FROM round WHERE date > r.date AND date <= $2::date), 0),
 		       COALESCE(pins.lat, '{}'), COALESCE(pins.lon, '{}')
@@ -283,11 +286,15 @@ func (s *Store) ClosedDay(ctx context.Context, d round.Date, newest round.Date) 
 		           array_agg(ds.lon ORDER BY ds.answered_at, ds.user_id, ds.player) AS lon
 		      FROM day_score ds WHERE ds.date = r.date) pins ON true
 		 WHERE r.date = $1::date`, d.Time(), newest.Time()).
-		Scan(&thumb, &c.Image, &c.Kind, &heading, &c.Prev, &c.Next, &lat, &lon)
+		Scan(&thumb, &c.Image, &c.Kind, &heading, &yaw, &c.Prev, &c.Next, &lat, &lon)
 	if err != nil {
 		return ClosedDay{}, fmt.Errorf("closed day %s: %w", d, err)
 	}
 	c.Thumb = str(thumb)
+	if yaw != nil {
+		v := float64(*yaw)
+		c.Yaw = &v
+	}
 	if heading != nil {
 		h := float64(*heading)
 		c.Heading = &h

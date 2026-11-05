@@ -69,6 +69,51 @@ func TestPages(t *testing.T) {
 	}
 }
 
+// A page the meta hook knows carries its preview in the head, escaped, and
+// is otherwise the same app; one it does not know is the plain page.
+func TestPageMeta(t *testing.T) {
+	h, err := HandlerWithMeta(func(r *http.Request, p string) (Meta, bool) {
+		if p != "/days/14" {
+			return Meta{}, false
+		}
+		return Meta{Title: `maply #14 · "Bar" <b>`, Description: "a & b", URL: "https://maply.test/days/14",
+			Image: "https://maply.test/og/day/14-en.jpg", ImageW: 1200, ImageH: 630}, true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(target string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		return rec
+	}
+	index := serve(t, "/", nil)
+	if plain := get("/days/13"); plain.Body.String() != index.Body.String() || plain.Header().Get("Vary") != "" {
+		t.Fatalf("a page without a preview changed")
+	}
+	rec := get("/days/14")
+	body := rec.Body.String()
+	for _, want := range []string{
+		`<meta property="og:title" content="maply #14 · &#34;Bar&#34; &lt;b&gt;">`,
+		`<meta property="og:description" content="a &amp; b">`,
+		`<meta property="og:image" content="https://maply.test/og/day/14-en.jpg">`,
+		`<meta property="og:image:width" content="1200">`,
+		`<meta name="twitter:card" content="summary_large_image">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("no %s", want)
+		}
+	}
+	head, _, _ := strings.Cut(body, "</head>")
+	if !strings.Contains(head, "og:url") || strings.Contains(head, `"Bar"`) || rec.Header().Get("Content-Security-Policy") != CSP ||
+		rec.Header().Get("ETag") == index.Header().Get("ETag") || rec.Header().Get("Vary") != "Accept-Language" {
+		t.Fatalf("GET /days/14 = %d %v", rec.Code, rec.Header())
+	}
+	if strings.Replace(body, head, "", 1) != strings.Replace(index.Body.String(), strings.SplitN(index.Body.String(), "</head>", 2)[0], "", 1) {
+		t.Fatal("the page's body changed")
+	}
+}
+
 func TestUnknownPaths(t *testing.T) {
 	for _, p := range []string{"/nope.js", "/../web.go", "/app/index.html", "/vendor/", "/days/2026/11", "/me/x", "/party", "/p", "/play/x",
 		"/party/" + strings.Repeat("a", 65), "/days/a.b", "/days/app.js", "/dayss"} {

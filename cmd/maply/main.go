@@ -177,6 +177,7 @@ func run(log *slog.Logger) error {
 		Countries:   countries,
 		ImagesDir:   cfg.ImagesDir,
 		BotUsername: me.Username,
+		AppURL:      cfg.AppURL,
 		Avatars:     avatars,
 		Log:         log,
 	}
@@ -185,7 +186,8 @@ func run(log *slog.Logger) error {
 	}
 	game := gameAPI.Handler()
 
-	app, err := web.Handler()
+	// A closed day's page carries its preview for links shared to it.
+	app, err := web.HandlerWithMeta(gameAPI.PageMeta)
 	if err != nil {
 		return err
 	}
@@ -195,6 +197,7 @@ func run(log *slog.Logger) error {
 	mux.Handle("/api/", game)
 	mux.Handle("/img/", game)
 	mux.Handle("/thumb/", game)
+	mux.Handle("/og/", game)
 	if cards != nil {
 		// The card page is for the renderer, behind a signed link and the
 		// chat's reveal; the shared images are what Telegram fetches.

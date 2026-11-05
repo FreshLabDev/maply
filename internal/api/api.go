@@ -106,6 +106,9 @@ type Server struct {
 	ImagesDir string
 	// BotUsername is where the site sends a visitor to play in Telegram.
 	BotUsername string
+	// AppURL is the service's public address, which a link's preview names
+	// its picture by; empty leaves the days' pages without previews.
+	AppURL string
 	// Avatars gives the players' kept photos for the result's marks; nil
 	// keeps the letters.
 	Avatars Avatars
@@ -124,6 +127,8 @@ type Server struct {
 	// days' strips, of which a page of the list asks for thirty.
 	imgLimit   *limiter
 	thumbLimit *limiter
+	// ogLimit bounds the days' link pictures, which are drawn on demand.
+	ogLimit *limiter
 
 	// tied remembers who has been tied to which chat's reveal, so a result
 	// polled again does not write to core every time.
@@ -145,6 +150,12 @@ type Server struct {
 	// thumbs keeps the strips last served; they never change.
 	thumbsMu sync.Mutex
 	thumbs   map[string]db.Thumb
+
+	// ogs keeps the days' link pictures drawn; ogTurn lets one be drawn at
+	// a time.
+	ogMu   sync.Mutex
+	ogs    map[string][]byte
+	ogTurn chan struct{}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -164,6 +175,8 @@ func (s *Server) Handler() http.Handler {
 	// loop of fetches past it is all that reaches the bot.
 	s.imgLimit = newLimiter(120, time.Minute)
 	s.thumbLimit = newLimiter(600, time.Minute)
+	s.ogLimit = newLimiter(30, time.Minute)
+	s.ogTurn = make(chan struct{}, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/today", s.today)
 	mux.HandleFunc("POST /api/guess", s.guess)
@@ -178,6 +191,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/day", s.day)
 	mux.HandleFunc("GET /img/{key}", s.image)
 	mux.HandleFunc("GET /thumb/{name}", s.thumb)
+	mux.HandleFunc("GET /og/day/{name}", s.og)
 	return mux
 }
 

@@ -39,6 +39,15 @@ var (
 	Small = Size{220, 140, 65}
 	// Wide is the top of the day's page, 25–50 KB.
 	Wide = Size{800, 300, 62}
+	// Card is the picture of a link to a day's page, under its texts:
+	// Open Graph's 1.91:1, with more of the street than the strips have.
+	Card = Size{1200, 630, 82}
+)
+
+// The card's band: the street as one stands in it, about 75° across.
+const (
+	CardLow  = -14.0
+	CardHigh = 30.0
 )
 
 // Pano reports whether img is an equirectangular panorama, 2:1.
@@ -52,6 +61,11 @@ func Pano(img image.Image) bool {
 // sees it, straight lines staying straight; anything else is a photo and is
 // cropped, its bottom first, where the hood is.
 func Frame(img image.Image, yaw float64, size Size) *image.RGBA {
+	return View(img, yaw, Low, High, size)
+}
+
+// View is Frame with another band, low to high degrees of pitch.
+func View(img image.Image, yaw, low, high float64, size Size) *image.RGBA {
 	src := rgba(img)
 	if !Pano(src) {
 		return crop(src, size)
@@ -59,7 +73,7 @@ func Frame(img image.Image, yaw float64, size Size) *image.RGBA {
 	// Drawn at twice the size and brought down: the sampling is bilinear,
 	// and a strip seen whole wants the panorama's detail averaged, not
 	// picked.
-	big := project(src, yaw, Size{W: 2 * size.W, H: 2 * size.H})
+	big := project(src, yaw, low, high, Size{W: 2 * size.W, H: 2 * size.H})
 	out := image.NewRGBA(image.Rect(0, 0, size.W, size.H))
 	xdraw.CatmullRom.Scale(out, out.Rect, big, big.Rect, xdraw.Src, nil)
 	return out
@@ -86,14 +100,14 @@ func rgba(img image.Image) *image.RGBA {
 }
 
 // project renders a rectilinear view of the panorama src: the vertical
-// field is the band, its middle 7° up, and the horizontal one follows from
+// field is the band from low to high, and the horizontal one follows from
 // the size.
-func project(src *image.RGBA, yaw float64, size Size) *image.RGBA {
+func project(src *image.RGBA, yaw, low, high float64, size Size) *image.RGBA {
 	out := image.NewRGBA(image.Rect(0, 0, size.W, size.H))
 	sw, sh := src.Rect.Dx(), src.Rect.Dy()
-	t := math.Tan((High - Low) / 2 * math.Pi / 180)
+	t := math.Tan((high - low) / 2 * math.Pi / 180)
 	aspect := float64(size.W) / float64(size.H)
-	pitch := (High + Low) / 2 * math.Pi / 180
+	pitch := (high + low) / 2 * math.Pi / 180
 	sp, cp := math.Sincos(pitch)
 	yawR := yaw * math.Pi / 180
 	for j := 0; j < size.H; j++ {
@@ -176,7 +190,7 @@ func Pick(img image.Image) float64 {
 	n := 360 / pickStep
 	scores := make([]float64, n)
 	for k := range n {
-		scores[k] = score(project(src, float64(k*pickStep), Size{W: 132, H: 84}))
+		scores[k] = score(project(src, float64(k*pickStep), Low, High, Size{W: 132, H: 84}))
 	}
 	best, bestAt := -1.0, 0
 	for k := range n {
