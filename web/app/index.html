@@ -6,13 +6,13 @@
 <meta name="theme-color" content="#245A3C">
 <title>maply</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="vendor/maplibre-gl-5.6.0/maplibre-gl.css">
-<link rel="stylesheet" href="vendor/pannellum-2.5.6/pannellum.css">
-<link rel="stylesheet" href="fonts.css">
-<link rel="stylesheet" href="app.css">
-<link rel="stylesheet" href="days.css">
-<script defer src="vendor/maplibre-gl-5.6.0/maplibre-gl.js"></script>
-<script defer src="vendor/pannellum-2.5.6/pannellum.js"></script>
+<link rel="stylesheet" href="/vendor/maplibre-gl-5.6.0/maplibre-gl.css">
+<link rel="stylesheet" href="/vendor/pannellum-2.5.6/pannellum.css">
+<link rel="stylesheet" href="/fonts.css">
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/days.css">
+<script defer src="/vendor/maplibre-gl-5.6.0/maplibre-gl.js"></script>
+<script defer src="/vendor/pannellum-2.5.6/pannellum.js"></script>
 </head>
 <body>
 <header class="top">
@@ -43,14 +43,16 @@
   <span class="up" id="loadtext"></span>
 </div></div>
 <!-- The loading screen runs first; MapLibre, Pannellum and the app are deferred, so it turns while they load. -->
-<script src="land.js"></script>
-<script src="loader.js"></script>
-<script src="ready.js"></script>
+<script src="/land.js"></script>
+<script src="/loader.js"></script>
+<script src="/ready.js"></script>
 
-<script defer src="tg.js"></script>
-<script defer src="mapstyle.js"></script>
-<script defer src="map.js"></script>
-<script defer src="app.js"></script>
-<script defer src="days.js"></script>
+<!-- The router first: every screen's file registers itself with it, and app.js starts it. -->
+<script defer src="/router.js"></script>
+<script defer src="/tg.js"></script>
+<script defer src="/mapstyle.js"></script>
+<script defer src="/map.js"></script>
+<script defer src="/app.js"></script>
+<script defer src="/days.js"></script>
 </body>
 </html>

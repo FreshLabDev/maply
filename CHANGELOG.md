@@ -23,6 +23,12 @@ For the operator:
   or a guest who joins a game with friends from a link. `Touch` would count
   them as talking to maply in a DM, which closes their answer window by the
   DM's zone and puts them on the morning DM post.
+- The app's screens have addresses: the server answers `/days`, `/days/<day>`,
+  `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
+  the screen the address names. `/days` opens the days and `/days/<date>` a
+  closed day, so a day can be linked and Back in the browser closes it. An
+  address without a screen yet shows today. In Telegram the address changes
+  without adding history, so Back stays Telegram's.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

@@ -75,7 +75,7 @@ const lines = (key) => T(key).split("\n");
 const errorText = (e) => TX["error." + e.message] ? T("error." + e.message) : T("error.network");
 async function loadTexts(lang) {
   // Through get(), so a file that hangs gives up like any request rather than keep the loading screen up.
-  const d = await get("texts/" + lang + ".json").then(reply).catch(() => null) || await get("texts/en.json").then(reply);
+  const d = await get("/texts/" + lang + ".json").then(reply).catch(() => null) || await get("/texts/en.json").then(reply);
   LANG = d.lang; TX = d.t; ZONES = d.zone; textsLoaded = true;
   document.documentElement.lang = LANG;
   // Arabic reads right to left: rows, labels and numbers next to words follow it.
@@ -174,7 +174,7 @@ function retryLoading() {
 }
 $("loader").addEventListener("click", retryLoading);
 addEventListener("online", retryLoading);
-$("logo").addEventListener("click", () => openDays());
+$("logo").addEventListener("click", () => Router.go("/days"));
 
 /* ---------- Countdown ---------- */
 // Before the answer the timer runs to the deadline: the earliest reveal among the person's chats. After it, to the reveal
@@ -1130,7 +1130,7 @@ let SHARE_TX = null;
 function loadShareTexts() {
   const lang = TODAY && TODAY.share_lang;
   if (!lang || lang === LANG || (SHARE_TX && SHARE_TX.lang === lang)) return;
-  get("texts/" + lang + ".json").then(reply).then((d) => { if (d && d.lang === lang) SHARE_TX = d; }).catch(() => {});
+  get("/texts/" + lang + ".json").then(reply).then((d) => { if (d && d.lang === lang) SHARE_TX = d; }).catch(() => {});
 }
 // The same lines as the message the bot prepares: distance and points apart, so neither is read as the other.
 const shareLine = () => {
@@ -1183,14 +1183,14 @@ async function getJSON(path) {
 // The sheet is a dialog over the app: a screen reader announces its title and starts on its close button.
 // SHEET counts what the sheet shows: a reply that comes back after the sheet moved on or closed is dropped.
 let SHEET = 0, sheetFrom = null;
-function sheet(title, html, back) {
+function sheet(title, html, back, close) {
   const sh = $("sheet");
   // Closing gives the focus back to what opened the sheet.
   if (!sh.classList.contains("on")) sheetFrom = document.activeElement;
   SHEET++;
   sh.innerHTML = '<div class="sh-top"><button class="sh-b" id="shBack" aria-label="' + esc(T("aria_collapse")) + '">' + (back ? (fwd() === "→" ? "←" : "→") : "×") + '</button><b id="shTitle">' + title + '</b></div><div class="sh-body">' + html + '</div>';
   sh.dataset.kind = ""; sh.classList.add("on"); document.body.classList.add("is-sheet"); syncBack(); behindSheet(true);
-  $("shBack").onclick = back || closeDays;
+  $("shBack").onclick = back || close || closeDays;
   $("shBack").focus({ preventScroll: true });
   return SHEET;
 }
@@ -1206,6 +1206,9 @@ function closeDays() {
 }
 // Escape is the sheet's own back button: from a day to the days, from the days out.
 addEventListener("keydown", (e) => { if (e.key === "Escape" && $("sheet").classList.contains("on")) { e.preventDefault(); $("shBack").click(); } });
+// The game is the page under every other: today has nothing of its own to open or close. The days are days.js's.
+Router.screen("today", /^\/(?:index\.html)?$/, { open() {} });
+
 /* ---------- Start ---------- */
 // Opened inside Telegram without initData (a plain link in the in-app browser) there is nothing to play as.
 async function boot() {
@@ -1222,6 +1225,8 @@ async function boot() {
   if (TODAY.now) SKEW = Date.parse(TODAY.now) - Date.now();
   // The texts are asked for again when they did not come with the first try, even in the same language.
   if (TODAY.lang && (TODAY.lang !== LANG || !textsLoaded)) { await loadTexts(TODAY.lang).catch(() => {}); setCall(T("where"), T("drop_pin")); }
+  // The words are final now: the page the address names can open.
+  Router.start();
   loadShareTexts();
   $("day").textContent = "#" + TODAY.day;
   HEADING = TODAY.heading || 0;

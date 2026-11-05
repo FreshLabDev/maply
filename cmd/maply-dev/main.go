@@ -26,12 +26,15 @@ import (
 	"html/template"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -71,6 +74,13 @@ type Env struct {
 	// Handler is the whole site, /dev included: an extension can call the
 	// real API through it.
 	Handler http.Handler
+	// Addr is where the stand listens; Bot runs the bot and the scheduler on
+	// the fake Telegram.
+	Addr string
+	Bot  bool
+
+	ctx   context.Context
+	stops []func()
 }
 
 // Extension is a feature's part of the stand. Every field is optional.
@@ -82,6 +92,30 @@ type Extension struct {
 	Mount func(e *Env, mux *http.ServeMux)
 	// Panel is the extension's block on the /dev page.
 	Panel func(e *Env, r *http.Request) template.HTML
+	// Start runs once the stand listens, and again after /dev/fresh; what
+	// it returns stops it before the next wipe.
+	Start func(ctx context.Context, e *Env) (stop func(), err error)
+}
+
+func (e *Env) startExtensions() error {
+	for _, x := range extensions {
+		if x.Start == nil {
+			continue
+		}
+		stop, err := x.Start(e.ctx, e)
+		if err != nil {
+			return fmt.Errorf("start %s: %w", x.Name, err)
+		}
+		e.stops = append(e.stops, stop)
+	}
+	return nil
+}
+
+func (e *Env) stopExtensions() {
+	for i := len(e.stops) - 1; i >= 0; i-- {
+		e.stops[i]()
+	}
+	e.stops = nil
 }
 
 var extensions []Extension
@@ -120,15 +154,16 @@ func main() {
 	days := flag.Int("days", 30, "past days to seed")
 	fresh := flag.Bool("fresh", false, "wipe the stand's tables and seed again even when it has data")
 	state := flag.String("state", "", "the stand's own folder (default: the user cache folder)")
+	runBot := flag.Bool("bot", true, "run the bot and the scheduler on a fake Telegram, shown at /dev/tg")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	if err := run(logger, *dsn, *addr, *places, *state, *days, *fresh); err != nil {
+	if err := run(logger, *dsn, *addr, *places, *state, *days, *fresh, *runBot); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(logger *slog.Logger, dsn, addr, places, state string, days int, fresh bool) error {
+func run(logger *slog.Logger, dsn, addr, places, state string, days int, fresh, runBot bool) error {
 	if name := dbName(dsn); !strings.Contains(name, "test") {
 		return fmt.Errorf("refusing database %q: the stand wipes it, so its name must contain \"test\"", name)
 	}
@@ -139,7 +174,8 @@ func run(logger *slog.Logger, dsn, addr, places, state string, days int, fresh b
 		}
 		state = filepath.Join(cache, "maply-dev")
 	}
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	store, err := db.Connect(ctx, dsn)
 	if err != nil {
 		return err
@@ -182,6 +218,9 @@ func run(logger *slog.Logger, dsn, addr, places, state string, days int, fresh b
 		Players:   players,
 		Groups:    groups,
 		Days:      days,
+		Addr:      addr,
+		Bot:       runBot,
+		ctx:       ctx,
 	}
 	e.API = &api.Server{
 		Store:       store,
@@ -225,9 +264,26 @@ func run(logger *slog.Logger, dsn, addr, places, state string, days int, fresh b
 		logger.Info("stand kept as it was; -fresh seeds it again")
 	}
 
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ln) }()
 	logger.Info("maply-dev listening", "url", "http://"+addr+"/dev", "images", e.ImagesDir)
-	err = srv.ListenAndServe()
+	if err := e.startExtensions(); err != nil {
+		_ = srv.Close()
+		return err
+	}
+	select {
+	case err = <-served:
+	case <-ctx.Done():
+		shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err = srv.Shutdown(shut)
+	}
+	e.stopExtensions()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
