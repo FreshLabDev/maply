@@ -11,8 +11,18 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+For the operator:
+
+- Apply core migration 021 (`core.touch_person`) before deploying. The
+  service refuses to start without it and names the migration.
+
 ### Added
 
+- `Store.TouchPerson` records a person in core without a chat or presence,
+  for a person met outside the bot's chats: a website sign-in with Telegram
+  or a guest who joins a game with friends from a link. `Touch` would count
+  them as talking to maply in a DM, which closes their answer window by the
+  DM's zone and puts them on the morning DM post.
 - The curation scripts prepare the free game's pool. `maply-places -pool
   free` writes `pool = 'free'`, no facts and one city name, the English one
   where OSM has it. `-avoid` and `MAPLY_AVOID` keep a batch 10 km from every

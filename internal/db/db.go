@@ -57,6 +57,7 @@ func (s *Store) Ping(ctx context.Context) error {
 // service refuses to start instead.
 var coreNeeds = []struct{ fn, migration string }{
 	{"core.manual_language(core.pref_scope,bigint)", "core 020 (manual_language)"},
+	{"core.touch_person(text,bigint,text,text,text,text,boolean,timestamptz)", "core 021 (touch_person)"},
 }
 
 // CheckCore makes sure maply may call every core function it needs.
@@ -89,6 +90,19 @@ func (s *Store) Touch(ctx context.Context, user tg.User, chat *tg.Chat) error {
 		`SELECT core.touch($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 		"maply", user.ID, nullString(user.Username), nullString(user.FirstName),
 		nullString(user.LastName), nullString(user.LanguageCode), chatID, chatType, chatTitle, chatUname, user.IsBot)
+	return err
+}
+
+// TouchPerson records the person in core and nothing about where they were
+// seen. Use it for a person met outside the bot's chats: a website sign-in
+// with Telegram, or a guest who joins a game with friends from a link. Touch
+// would count them as talking to maply in a DM, which moves their answer
+// window and puts them on the morning DM post.
+func (s *Store) TouchPerson(ctx context.Context, user tg.User) error {
+	_, err := s.pool.Exec(ctx,
+		`SELECT core.touch_person($1,$2,$3,$4,$5,$6,$7)`,
+		"maply", user.ID, nullString(user.Username), nullString(user.FirstName),
+		nullString(user.LastName), nullString(user.LanguageCode), user.IsBot)
 	return err
 }
 

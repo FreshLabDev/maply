@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>maply · чаты стенда</title>
+<style>
+:root {
+  --bg: #e7ebf0; --panel: #ffffff; --line: #dfe3e8; --fg: #17212b; --muted: #707a85;
+  --accent: #3390ec; --accent-fg: #ffffff; --in: #ffffff; --out: #e3fee0; --chatbg: #c9d8c0;
+  --btn: rgba(255,255,255,.72); --btn-fg: #17212b; --hover: #f1f3f5; --sel: #3390ec; --sel-fg: #fff;
+  --quote: rgba(51,144,236,.12); --ok: #2e9e4f; --err: #d14343; --shadow: 0 1px 2px rgba(16,35,47,.15);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1621; --panel: #17212b; --line: #232e3c; --fg: #f5f5f5; --muted: #7f8b97;
+    --accent: #5288c1; --accent-fg: #fff; --in: #182533; --out: #2b5278; --chatbg: #0e1621;
+    --btn: rgba(24,37,51,.85); --btn-fg: #e9eef3; --hover: #202b36; --sel: #2b5278; --sel-fg: #fff;
+    --quote: rgba(82,136,193,.18); --shadow: 0 1px 2px rgba(0,0,0,.4);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+button, select, input, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
+.app { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: 100vh; }
+.side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.side header { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.side header b { font-size: 15px; }
+.side header small { color: var(--muted); }
+.side header a { font-size: 13px; }
+.list { overflow-y: auto; flex: 1; }
+.item { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 10px; padding: 8px 12px; cursor: pointer; align-items: center; }
+.item:hover { background: var(--hover); }
+.item.on { background: var(--sel); color: var(--sel-fg); }
+.item.on .sub { color: inherit; opacity: .8; }
+.ava { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; color: #fff; font-size: 16px; flex: none; }
+.ava.s { width: 32px; height: 32px; font-size: 13px; }
+.name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sep { padding: 8px 14px 4px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.calls { border-top: 1px solid var(--line); max-height: 32vh; overflow-y: auto; font: 12px/1.35 ui-monospace, Menlo, monospace; }
+.calls summary { padding: 8px 14px; cursor: pointer; font: 13px -apple-system, sans-serif; color: var(--muted); }
+.calls div { padding: 1px 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.calls .bad { color: var(--err); white-space: normal; }
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--chatbg); position: relative; }
+.top { background: var(--panel); border-bottom: 1px solid var(--line); padding: 8px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.top .t { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.top .t b { font-size: 15px; }
+.top .t small { color: var(--muted); }
+.top .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill { border: 1px solid var(--line); background: var(--panel); border-radius: 16px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
+.pill:hover { background: var(--hover); }
+.pin { background: var(--panel); border-bottom: 1px solid var(--line); padding: 6px 16px; display: flex; gap: 10px; cursor: pointer; align-items: center; }
+.pin::before { content: ""; width: 2px; align-self: stretch; background: var(--accent); border-radius: 2px; }
+.pin div { min-width: 0; }
+.pin b { color: var(--accent); font-size: 13px; display: block; }
+.pin span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.feed { flex: 1; overflow-y: auto; padding: 14px max(16px, 6%) 10px; display: flex; flex-direction: column; gap: 6px; }
+.empty { margin: auto; background: rgba(0,0,0,.18); color: #fff; padding: 6px 14px; border-radius: 14px; }
+.row { display: flex; gap: 8px; align-items: flex-end; max-width: 560px; }
+.row.out { align-self: flex-end; flex-direction: row-reverse; }
+.bubble { background: var(--in); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; min-width: 120px; max-width: 100%; }
+.row.out .bubble { background: var(--out); }
+.bubble.flash { outline: 2px solid var(--accent); }
+.who { font-weight: 600; font-size: 13px; color: var(--accent); padding: 6px 10px 0; }
+.via { color: var(--muted); font-weight: 400; }
+.media { display: block; width: 100%; max-height: 460px; object-fit: contain; background: rgba(0,0,0,.06); }
+.text { padding: 6px 10px 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.text blockquote { margin: 4px 0; padding: 2px 8px; border-left: 3px solid var(--accent); background: var(--quote); border-radius: 4px; white-space: pre-wrap; }
+.text pre, .text code { font: 13px ui-monospace, Menlo, monospace; }
+.text pre { margin: 4px 0; padding: 6px 8px; background: var(--quote); border-radius: 6px; white-space: pre-wrap; }
+.spoiler { background: var(--muted); color: transparent; border-radius: 3px; cursor: pointer; }
+.spoiler.open { background: transparent; color: inherit; }
+.meta { color: var(--muted); font-size: 11px; text-align: right; padding: 0 10px 5px; }
+.kb { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.kb .r { display: flex; gap: 4px; }
+.kb button { flex: 1; min-width: 0; border: 0; border-radius: 10px; padding: 8px 10px; background: var(--btn); color: var(--btn-fg); cursor: pointer; font-weight: 500; box-shadow: var(--shadow); backdrop-filter: blur(6px); }
+.kb button:hover { filter: brightness(1.05); }
+.kb button.primary { background: var(--accent); color: var(--accent-fg); }
+.kb button.success { background: var(--ok); color: #fff; }
+.kb button.danger { background: var(--err); color: #fff; }
+.kb button .k { opacity: .6; font-size: 11px; margin-left: 4px; }
+.loc { padding: 10px; font-size: 13px; }
+.bar { background: var(--panel); border-top: 1px solid var(--line); padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.bar .line { display: flex; gap: 8px; align-items: center; }
+.bar select { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 8px; }
+.bar input[type=text] { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--panel); border-radius: 18px; padding: 8px 14px; }
+.send { border: 0; background: var(--accent); color: var(--accent-fg); border-radius: 18px; padding: 8px 14px; cursor: pointer; font-weight: 600; }
+.menu { border: 0; background: var(--accent); color: var(--accent-fg); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-weight: 600; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chips button { border: 1px solid var(--line); background: var(--panel); border-radius: 14px; padding: 2px 10px; cursor: pointer; font-size: 13px; }
+.toasts { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; z-index: 20; pointer-events: none; }
+.toast { background: rgba(23,33,43,.92); color: #fff; padding: 8px 14px; border-radius: 10px; max-width: 420px; box-shadow: var(--shadow); }
+.sheet { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.phone { background: var(--panel); border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.4); }
+.phone .hd { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.phone .hd b { flex: 1; text-align: center; }
+.phone .hd button { border: 0; background: transparent; cursor: pointer; color: var(--accent); font-weight: 600; padding: 4px 6px; }
+.phone .hd select { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 2px 4px; font-size: 12px; }
+.phone iframe { border: 0; background: #fff; flex: 1; }
+.phone.full { width: 100vw !important; height: 100vh !important; border-radius: 0; }
+.pick { background: var(--panel); border-radius: 14px; width: min(380px, 92vw); max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; }
+.pick h3 { margin: 0; padding: 14px 16px 6px; font-size: 16px; }
+.pick p { margin: 0; padding: 0 16px 10px; color: var(--muted); white-space: pre-wrap; max-height: 120px; overflow: auto; }
+.pick .list { max-height: 50vh; }
+.pick footer { padding: 10px 16px; border-top: 1px solid var(--line); text-align: right; }
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .side { max-height: 34vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  .calls { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <header>
+      <b>Чаты стенда</b>
+      <small id="clock">…</small>
+      <a href="/dev">← страница стенда</a>
+    </header>
+    <div class="list" id="list"></div>
+    <details class="calls" id="callsBox"><summary>Вызовы Bot API</summary><div id="calls"></div></details>
+  </aside>
+  <main class="main">
+    <div class="top" id="top"></div>
+    <div id="pin"></div>
+    <div class="feed" id="feed"></div>
+    <div class="bar" id="bar"></div>
+    <div class="toasts" id="toasts"></div>
+  </main>
+</div>
+<div id="overlay"></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const COLORS = ["#e17076", "#7bc862", "#65aadd", "#a695e7", "#ee7aae", "#6ec9cb", "#faa774", "#3390ec"];
+const colorOf = (id) => COLORS[Math.abs(Number(id)) % COLORS.length];
+const avatar = (name, id, small) => `<span class="ava${small ? " s" : ""}" style="background:${colorOf(id)}">${esc([...(name || "?")][0].toUpperCase())}</span>`;
+
+let S = null, version = 0, chat = 0, seenToast = 0, stateFor = 0;
+const params = new URLSearchParams(location.search);
+chat = Number(params.get("chat")) || 0;
+let sender = Number(params.get("as")) || 0;
+let platform = localStorage.getItem("maply-dev-platform") || "ios";
+
+function playerById(id) { return S && S.players.find((p) => p.id === id); }
+function membersOf(c) { return (c && c.members) || []; }
+function currentChat() { return S && S.chats.find((c) => c.id === chat); }
+
+async function post(path, data) {
+  const body = new URLSearchParams();
+  for (const [k, v] of Object.entries(data)) body.set(k, v);
+  const r = await fetch(path, { method: "POST", body });
+  return r.json();
+}
+
+function act(res) {
+  if (!res) return;
+  if (res.error) toast("⚠️ " + res.error);
+  if (res.note) toast(res.note);
+  if (res.switch) select(res.switch);
+  if (res.open) openApp(res.open);
+  if (res.share) pickChat("Поделиться", res.share, (to) => post("/dev/tg/say", { chat: to, user: sender, text: res.share }).then(act));
+  if (res.external) window.open(res.external, "_blank", "noopener");
+}
+
+function toast(text) {
+  const el = document.createElement("div");
+  el.className = "toast"; el.textContent = text;
+  $("toasts").appendChild(el);
+  setTimeout(() => el.remove(), 4200);
+}
+
+function select(id) {
+  chat = id;
+  const c = currentChat();
+  const m = membersOf(c);
+  if (!m.includes(sender)) sender = m.find((x) => playerById(x) && playerById(x).owner) || m[0] || 0;
+  history.replaceState(null, "", "/dev/tg?chat=" + chat + "&as=" + sender);
+  version = 0; stateFor = 0;
+  refresh();
+}
+
+function renderList() {
+  const groups = S.chats.filter((c) => c.id < 0), dms = S.chats.filter((c) => c.id > 0);
+  const item = (c) => {
+    const title = c.id > 0 ? c.title + " · личка с ботом" : c.title;
+    return `<div class="item${c.id === chat ? " on" : ""}" data-chat="${c.id}">${avatar(c.title, c.id)}<div style="min-width:0"><div class="name">${esc(title)}</div><div class="sub">${esc(c.last || "нет сообщений")}</div></div></div>`;
+  };
+  $("list").innerHTML = `<div class="sep">Группы</div>${groups.map(item).join("")}<div class="sep">Лички</div>${dms.map(item).join("")}`;
+  $("clock").textContent = S.now + (S.shift && S.shift !== "0s" ? " · сдвиг " + S.shift : "") + (S.bot ? "" : " · бот выключен");
+}
+
+function renderCalls() {
+  const box = $("calls");
+  box.innerHTML = (S.calls || []).slice().reverse().map((c) => {
+    const t = new Date(c.at).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return `<div class="${c.error ? "bad" : ""}">${t} ${esc(c.method)}${c.chat ? " " + c.chat : ""}${c.error ? " → " + esc(c.error) : ""}</div>`;
+  }).join("");
+}
+
+function renderTop() {
+  const c = currentChat(), oc = S.chat;
+  if (!c || !oc) { $("top").innerHTML = ""; return; }
+  const who = membersOf(c).map((id) => playerById(id)).filter(Boolean);
+  const sub = c.id < 0 ? who.map((p) => p.name).join(", ") + " и бот" : "бот @maplyin_bot";
+  let acts = `<button class="pill" data-act="app">Открыть Mini App</button>`;
+  if (c.id < 0) acts += `<button class="pill" data-act="kick">Убрать бота</button><button class="pill" data-act="add">Добавить бота</button>`;
+  $("top").innerHTML = `${avatar(c.title, c.id, true)}<div class="t"><b>${esc(c.id > 0 ? c.title + " ↔ maply" : c.title)}</b><small>${esc(sub)}</small></div><div class="acts">${acts}</div>`;
+  const pins = oc.pinned_msgs || [];
+  $("pin").innerHTML = pins.length ? `<div class="pin" data-goto="${pins[0].id}"><div><b>Закреплённое${pins.length > 1 ? " · " + pins.length : ""}</b><span>${esc(plain(pins[0]))}</span></div></div>` : "";
+}
+
+function plain(m) {
+  const d = document.createElement("div"); d.innerHTML = m.html;
+  return (d.textContent || (m.media ? "медиа" : "")).replace(/\s+/g, " ");
+}
+
+function bubble(m) {
+  const out = !m.from_bot;
+  let media = "";
+  if (m.file_url && m.media === "animation") media = `<video class="media" src="${esc(m.file_url)}" autoplay loop muted playsinline></video>`;
+  else if (m.file_url) media = `<img class="media" src="${esc(m.file_url)}" alt="">`;
+  const loc = m.location ? `<div class="loc">📍 ${m.location.lat.toFixed(3)}, ${m.location.lon.toFixed(3)}</div>` : "";
+  const name = m.from_bot ? "maply" : m.from;
+  const via = m.via ? ` <span class="via">via @maplyin_bot</span>` : "";
+  const meta = `${m.pinned ? "📌 " : ""}${m.edits ? "изменено · " : ""}${esc(m.time)}`;
+  const text = m.html ? `<div class="text">${m.html}</div>` : "";
+  let kb = "";
+  if (m.buttons && m.buttons.length) {
+    kb = `<div class="kb">${m.buttons.map((row, r) => `<div class="r">${row.map((b, c) => {
+      const kind = b.data ? "" : b.web_app ? "Mini App" : "ссылка";
+      return `<button class="${esc(b.style || "")}" data-msg="${m.id}" data-row="${r}" data-col="${c}" title="${esc(b.data || b.web_app || b.url || "")}">${esc(b.text)}${kind ? `<span class="k">${kind}</span>` : ""}</button>`;
+    }).join("")}</div>`).join("")}</div>`;
+  }
+  const head = (chat < 0 || m.via) ? `<div class="who" style="color:${m.from_bot ? "var(--accent)" : colorOf(m.from_id)}">${esc(name)}${via}</div>` : "";
+  return `<div class="row${out ? " out" : ""}" id="m${m.id}">${chat < 0 ? avatar(name, m.from_id, true) : ""}<div style="min-width:0;max-width:100%"><div class="bubble">${head}${media}${loc}${text}<div class="meta">${meta}</div></div>${kb}</div></div>`;
+}
+
+function renderFeed() {
+  const feed = $("feed"), oc = S.chat;
+  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
+  if (!oc || !oc.msgs || !oc.msgs.length) {
+    feed.innerHTML = `<div class="empty">${chat ? "Сообщений нет. Бот пишет сюда сам по расписанию, или напишите ему." : "Выберите чат слева"}</div>`;
+    return;
+  }
+  feed.innerHTML = oc.msgs.map(bubble).join("");
+  if (atBottom || stateFor !== chat) feed.scrollTop = feed.scrollHeight;
+  stateFor = chat;
+}
+
+function renderBar() {
+  const c = currentChat(), oc = S.chat;
+  if (!c) { $("bar").innerHTML = ""; return; }
+  const ids = membersOf(c);
+  const opts = ids.map((id) => playerById(id)).filter(Boolean).map((p) => `<option value="${p.id}"${p.id === sender ? " selected" : ""}>${esc(p.name)}</option>`).join("");
+  const menu = oc && oc.menu ? `<button class="menu" data-act="menu">${esc(oc.menu.text || "Меню")}</button>` : "";
+  const cmds = (S.commands || []).map((c) => c.split(" ")[0]);
+  const chips = ["/start", ...cmds.filter((x) => x !== "/start")].map((x) => `<button data-cmd="${esc(x)}">${esc(x)}</button>`).join("");
+  const loc = c.id > 0 ? `<button data-act="loc" title="Геопозиция рядом с местом дня: ответ без Mini App. Число в поле сообщения: на столько км от места">📍 геопозиция</button>` : "";
+  const prev = $("text") ? $("text").value : "";
+  $("bar").innerHTML = `<div class="chips">${chips}${loc}<select id="platform" title="Платформа Mini App"><option value="ios">iOS</option><option value="android">Android</option><option value="tdesktop">Desktop</option><option value="macos">macOS</option><option value="weba">Web</option></select></div>
+  <div class="line">${c.id < 0 ? `<select id="sender" title="От кого">${opts}</select>` : `<span class="sub">от ${esc((playerById(sender) || {}).name || "")}</span>`}${menu}<input id="text" type="text" placeholder="Сообщение" autocomplete="off"><button class="send" data-act="send">Отправить</button></div>`;
+  $("text").value = prev;
+  $("platform").value = platform;
+}
+
+function render() {
+  renderList(); renderTop(); renderFeed(); renderBar(); renderCalls();
+  for (const t of S.toasts || []) {
+    if (t.seq <= seenToast) continue;
+    seenToast = t.seq;
+    const p = playerById(t.user);
+    if (t.alert) pickInfo((p ? p.name + " видит" : "Окно"), t.text);
+    else toast((p ? p.name + ": " : "") + t.text);
+  }
+}
+
+let polling = false;
+async function refresh() {
+  try {
+    const r = await fetch("/dev/tg/state?chat=" + chat + "&v=0");
+    S = await r.json(); version = S.version;
+    if (!seenToast && S.toasts && S.toasts.length) seenToast = S.toasts[S.toasts.length - 1].seq;
+    render();
+  } catch (e) { toast("Стенд не отвечает"); }
+  if (!polling) poll();
+}
+async function poll() {
+  polling = true;
+  for (;;) {
+    try {
+      const want = chat;
+      const r = await fetch("/dev/tg/state?chat=" + chat + "&v=" + version);
+      const st = await r.json();
+      if (want !== chat) continue;
+      S = st;
+      if (S.version !== version) { version = S.version; render(); }
+    } catch (e) { await new Promise((ok) => setTimeout(ok, 2000)); }
+  }
+}
+
+document.addEventListener("click", (e) => {
+  const it = e.target.closest("[data-chat]");
+  if (it) return select(Number(it.dataset.chat));
+  const btn = e.target.closest(".kb button");
+  if (btn) return post("/dev/tg/press", { chat, user: sender, msg: btn.dataset.msg, row: btn.dataset.row, col: btn.dataset.col, platform }).then(act);
+  const cmd = e.target.closest("[data-cmd]");
+  if (cmd) return post("/dev/tg/say", { chat, user: sender, text: cmd.dataset.cmd }).then(act);
+  const pin = e.target.closest("[data-goto]");
+  if (pin) { const el = $("m" + pin.dataset.goto); if (el) { el.scrollIntoView({ block: "center" }); const b = el.querySelector(".bubble"); b.classList.add("flash"); setTimeout(() => b.classList.remove("flash"), 1200); } return; }
+  const sp = e.target.closest(".spoiler");
+  if (sp) return sp.classList.add("open");
+  const a = e.target.closest(".text a");
+  if (a) { e.preventDefault(); return post("/dev/tg/link", { chat, user: sender, url: a.getAttribute("href"), platform }).then(act); }
+  const x = e.target.closest("[data-act]");
+  if (!x) return;
+  switch (x.dataset.act) {
+    case "send": return send();
+    case "app": case "menu": return post("/dev/tg/app", { chat, user: sender, platform }).then(act);
+    case "kick": return post("/dev/tg/member", { chat, user: sender, in: 0 }).then(act);
+    case "add": return post("/dev/tg/member", { chat, user: sender, in: 1 }).then(act);
+    case "loc": {
+      // A number typed in the message field is the distance in km; otherwise the player's usual one.
+      const v = $("text").value.trim(), km = /^\d+(\.\d+)?$/.test(v) ? v : "";
+      if (km) $("text").value = "";
+      return post("/dev/tg/location", { chat, user: sender, km }).then(act);
+    }
+  }
+});
+document.addEventListener("change", (e) => {
+  if (e.target.id === "sender") { sender = Number(e.target.value); history.replaceState(null, "", "/dev/tg?chat=" + chat + "&as=" + sender); }
+  if (e.target.id === "platform") { platform = e.target.value; localStorage.setItem("maply-dev-platform", platform); }
+});
+document.addEventListener("keydown", (e) => { if (e.target.id === "text" && e.key === "Enter") send(); });
+function send() {
+  const t = $("text"); const text = t.value.trim();
+  if (!text) return;
+  t.value = "";
+  post("/dev/tg/say", { chat, user: sender, text }).then(act);
+}
+
+// ---------- the Mini App sheet, speaking Telegram's iframe protocol ----------
+let frame = null, frameUser = 0;
+function openApp(src) {
+  frameUser = sender;
+  const desk = platform === "tdesktop" || platform === "macos" || platform === "weba";
+  const w = desk ? 480 : 390, h = desk ? 760 : 780;
+  const p = playerById(sender);
+  $("overlay").innerHTML = `<div class="sheet" id="sheet"><div class="phone" id="phone" style="width:min(${w}px,96vw);height:min(${h}px,94vh)">
+    <div class="hd"><button id="back" hidden>‹ Назад</button><button id="close">Закрыть</button><b>maply · ${esc(p ? p.name : "")}</b><button id="full" title="Полный экран">⤢</button><button id="tab" title="Открыть во вкладке">↗</button></div>
+    <iframe id="frame" src="${esc(src)}" allow="clipboard-write; fullscreen"></iframe></div></div>`;
+  frame = $("frame");
+  $("close").onclick = closeApp;
+  $("full").onclick = () => setFull(!$("phone").classList.contains("full"));
+  $("tab").onclick = () => window.open(src, "_blank");
+  $("back").onclick = () => toFrame("back_button_pressed");
+  $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeApp(); });
+}
+function closeApp() { $("overlay").innerHTML = ""; frame = null; }
+function setFull(on) {
+  const ph = $("phone"); if (!ph) return;
+  ph.classList.toggle("full", on);
+  toFrame("fullscreen_changed", { is_fullscreen: on });
+  sendViewport();
+}
+function toFrame(eventType, eventData) {
+  if (frame && frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify({ eventType, eventData }), "*");
+}
+function sendViewport() {
+  if (!frame) return;
+  toFrame("viewport_changed", { height: frame.clientHeight, width: frame.clientWidth, is_expanded: true, is_state_stable: true });
+}
+const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+const THEME = dark
+  ? { bg_color: "#17212b", text_color: "#f5f5f5", hint_color: "#708499", link_color: "#6ab3f3", button_color: "#5288c1", button_text_color: "#ffffff", secondary_bg_color: "#232e3c", header_bg_color: "#17212b", accent_text_color: "#6ab2f2", section_bg_color: "#17212b", section_header_text_color: "#6ab3f3", subtitle_text_color: "#708499", destructive_text_color: "#ec3942", bottom_bar_bg_color: "#17212b" }
+  : { bg_color: "#ffffff", text_color: "#000000", hint_color: "#999999", link_color: "#2481cc", button_color: "#2481cc", button_text_color: "#ffffff", secondary_bg_color: "#efeff3", header_bg_color: "#ffffff", accent_text_color: "#2481cc", section_bg_color: "#ffffff", section_header_text_color: "#6d6d72", subtitle_text_color: "#999999", destructive_text_color: "#ff3b30", bottom_bar_bg_color: "#ffffff" };
+window.addEventListener("message", (e) => {
+  if (!frame || e.source !== frame.contentWindow) return;
+  let m; try { m = JSON.parse(e.data); } catch (_) { return; }
+  const d = m.eventData || {};
+  switch (m.eventType) {
+    case "web_app_request_viewport": case "web_app_expand": return sendViewport();
+    case "web_app_request_theme": return toFrame("theme_changed", { theme_params: THEME });
+    case "web_app_request_safe_area": return toFrame("safe_area_changed", { top: 0, bottom: 0, left: 0, right: 0 });
+    case "web_app_request_content_safe_area": return toFrame("content_safe_area_changed", { top: 0, bottom: 0, left: 0, right: 0 });
+    case "web_app_close": return closeApp();
+    case "web_app_setup_back_button": { const b = $("back"); if (b) b.hidden = !d.is_visible; return; }
+    case "web_app_request_fullscreen": return setFull(true);
+    case "web_app_exit_fullscreen": return setFull(false);
+    case "web_app_open_link": return window.open(d.url, "_blank", "noopener");
+    case "web_app_open_tg_link": return post("/dev/tg/link", { chat, user: frameUser, url: "https://t.me" + d.path_full, platform }).then((res) => { if (res.open || res.switch) closeApp(); act(res); });
+    case "web_app_share_message": return shareMessage(d.msg_id);
+    case "web_app_trigger_haptic_feedback": return;
+    case "web_app_ready": return;
+  }
+});
+async function shareMessage(id) {
+  const r = await fetch("/dev/tg/prepared?id=" + encodeURIComponent(id)).then((x) => x.json());
+  if (r.error) { toFrame("prepared_message_failed", { error: "MESSAGE_EXPIRED" }); return toast("⚠️ " + r.error); }
+  const res = r.result || {};
+  const text = res.caption || (res.input_message_content && res.input_message_content.message_text) || res.title || "";
+  const d = document.createElement("div"); d.innerHTML = text;
+  pickChat("Отправить в чат", d.textContent, async (to) => {
+    const out = await post("/dev/tg/share", { chat: to, user: frameUser, id });
+    if (out.error) { toFrame("prepared_message_failed", { error: "UNKNOWN_ERROR" }); return toast("⚠️ " + out.error); }
+    toFrame("prepared_message_sent", {});
+    closeApp(); select(to);
+  }, () => toFrame("prepared_message_failed", { error: "USER_DECLINED" }));
+}
+function pickChat(title, text, onPick, onCancel) {
+  const user = frame ? frameUser : sender;
+  const chats = S.chats.filter((c) => membersOf(c).includes(user));
+  const box = document.createElement("div");
+  box.className = "sheet"; box.style.zIndex = 60;
+  box.innerHTML = `<div class="pick"><h3>${esc(title)}</h3><p>${esc(text)}</p><div class="list">${chats.map((c) => `<div class="item" data-to="${c.id}">${avatar(c.title, c.id)}<div class="name">${esc(c.id > 0 ? c.title + " · личка с ботом" : c.title)}</div></div>`).join("")}</div><footer><button class="pill" data-x>Отмена</button></footer></div>`;
+  document.body.appendChild(box);
+  box.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const to = e.target.closest("[data-to]");
+    if (to) { box.remove(); onPick(Number(to.dataset.to)); return; }
+    if (e.target.closest("[data-x]") || e.target === box) { box.remove(); if (onCancel) onCancel(); }
+  });
+}
+function pickInfo(title, text) {
+  const box = document.createElement("div");
+  box.className = "sheet"; box.style.zIndex = 60;
+  box.innerHTML = `<div class="pick"><h3>${esc(title)}</h3><p>${esc(text)}</p><footer><button class="pill" data-x>OK</button></footer></div>`;
+  document.body.appendChild(box);
+  box.addEventListener("click", (e) => { if (e.target.closest("[data-x]") || e.target === box) box.remove(); });
+}
+window.addEventListener("resize", sendViewport);
+if (!chat) chat = -1001001;
+refresh().then(() => { if (!sender) select(chat); });
+</script>
+</body>
+</html>
