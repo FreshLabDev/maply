@@ -108,7 +108,7 @@ func setup(t *testing.T) *harness {
 		INSERT INTO maply.place (status, source, source_id, source_url, license, kind, lat, lon, image_key,
 		                         country_iso, continent, city, fact, difficulty, reviewed_at, author, heading)
 		VALUES ('approved', 'mapillary', '918273645', 'https://www.mapillary.com/app/?pKey=918273645',
-		        'CC-BY-SA-4.0', 'photo', $1, $2, $3, 'UA', 'europe',
+		        'CC-BY-SA-4.0', 'panorama', $1, $2, $3, 'UA', 'europe',
 		        '{"uk":"Львів","ru":"Львов","be":"Львоў"}', '{"uk":"Факт","ru":"Факт","be":"Факт"}', 3, now(), 'someone', 164.5)`,
 		placeLat, placeLon, testImageKey); err != nil {
 		t.Fatal(err)
