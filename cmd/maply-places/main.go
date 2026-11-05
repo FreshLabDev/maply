@@ -7,11 +7,15 @@
 // of a panorama, asks Nominatim for the
 // city around the point with its outline and names, asks Mapillary for the
 // direction the frame faces, and finds the country and continent in the same
-// Natural Earth borders scoring uses. The result is a directory of images and
-// one SQL file that inserts the places as approved; running it twice inserts
+// Natural Earth borders scoring uses, and picks the direction a panorama's
+// strip on the days page faces. The result is a directory of images and one
+// SQL file that inserts the places as approved; running it twice inserts
 // nothing new.
 //
 //	maply-places -out curation/out -facts curation/facts.json curation/batch-001 curation/batch-002
+//
+// For the places inserted before the strips, -thumb-yaws writes the UPDATEs
+// that set their direction (see thumbYaws).
 //
 // Nominatim and Mapillary answers are cached under -out, so a rerun asks
 // neither again. MAPILLARY_TOKEN comes from the environment and is never
@@ -65,6 +69,9 @@ type reviews struct {
 type curated struct {
 	City map[string]string `json:"city"`
 	Fact map[string]string `json:"fact"`
+	// ThumbYaw replaces the picked direction of the strip, in degrees
+	// clockwise from the centre of the panorama.
+	ThumbYaw *float64 `json:"thumb_yaw"`
 }
 
 // manifestEntry is what a curator needs to write facts: no coordinates and
@@ -83,7 +90,19 @@ func main() {
 	out := flag.String("out", "curation/out", "output directory: images/, cache/, places.sql, manifest.json")
 	factsPath := flag.String("facts", "", "JSON {\"<batch>/<n>\": {\"city\": {lang: name}, \"fact\": {lang: fact}}}; optional")
 	sharpenCSV := flag.String("sharpen", "", "CSV of id,kind,source_id,image_key: fetch the originals again into <out>/sharp")
+	yawsCSV := flag.String("thumb-yaws", "", "CSV of id,kind,image_key: write <out>/thumb-yaws.sql with the strips' directions")
+	imagesDir := flag.String("images", "", "where -thumb-yaws reads the images; <out>/images by default")
 	flag.Parse()
+	if *yawsCSV != "" {
+		dir := *imagesDir
+		if dir == "" {
+			dir = filepath.Join(*out, "images")
+		}
+		if err := thumbYaws(*yawsCSV, dir, *out); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if *sharpenCSV != "" {
 		p := &preparer{out: *out, token: os.Getenv("MAPILLARY_TOKEN"), client: &http.Client{Timeout: 2 * time.Minute}}
 		if err := p.sharpen(*sharpenCSV, filepath.Join(*out, "sharp")); err != nil {
@@ -131,7 +150,7 @@ func main() {
 				continue
 			}
 			ref := fmt.Sprintf("%s/%03d", batch, c.N)
-			pl, err := p.prepare(batchDir, ref, c)
+			pl, err := p.prepare(batchDir, ref, c, facts[ref].ThumbYaw)
 			if err != nil {
 				log.Printf("%s (%s): skipped: %v", ref, c.Region, err)
 				continue
@@ -177,11 +196,12 @@ type place struct {
 	city       map[string]string
 	poly       json.RawMessage
 	heading    *float64
+	thumbYaw   *float64
 	difficulty int
 	fact       map[string]string
 }
 
-func (p *preparer) prepare(batchDir, ref string, c candidate) (*place, error) {
+func (p *preparer) prepare(batchDir, ref string, c candidate, yaw *float64) (*place, error) {
 	cacheBase := filepath.Join(p.out, "cache", strings.ReplaceAll(ref, "/", "-"))
 	country, ok := p.world.Locate(geo.Point{Lat: c.Lat, Lon: c.Lon})
 	if !ok {
@@ -216,6 +236,11 @@ func (p *preparer) prepare(batchDir, ref string, c candidate) (*place, error) {
 	}
 	if c.Source == "mapillary" {
 		if pl.heading, err = p.heading(c, cacheBase+".heading.json"); err != nil {
+			return nil, err
+		}
+	}
+	if c.IsPano {
+		if pl.thumbYaw, err = p.thumbYaw(pl.key, cacheBase+".v1.yaw", yaw); err != nil {
 			return nil, err
 		}
 	}
@@ -488,14 +513,18 @@ func (pl *place) insert() string {
 	if pl.heading != nil {
 		heading = strconv.FormatFloat(*pl.heading, 'f', 1, 64)
 	}
+	yaw := "NULL"
+	if pl.thumbYaw != nil {
+		yaw = strconv.FormatFloat(*pl.thumbYaw, 'f', -1, 64)
+	}
 	return fmt.Sprintf(`INSERT INTO maply.place (status, source, source_id, source_url, author, license, kind, lat, lon, heading,
-  image_key, country_iso, continent, city, city_poly, fact, difficulty, reviewed_at)
-VALUES ('approved', %s, %s, %s, %s, %s, '%s', %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, now())
+  image_key, country_iso, continent, city, city_poly, fact, difficulty, reviewed_at, thumb_yaw)
+VALUES ('approved', %s, %s, %s, %s, %s, '%s', %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, now(), %s)
 ON CONFLICT (source, source_id) DO NOTHING;
 `, lit(pl.c.Source), lit(pl.c.SourceID), litOrNull(sourceURL), litOrNull(pl.c.Author), lit(pl.c.License), kind,
 		strconv.FormatFloat(pl.c.Lat, 'f', -1, 64), strconv.FormatFloat(pl.c.Lon, 'f', -1, 64), heading,
 		lit(pl.key), lit(pl.country.ISO), lit(pl.country.Continent),
-		jsonLit(pl.city), rawLit(pl.poly), jsonLit(pl.fact), pl.difficulty)
+		jsonLit(pl.city), rawLit(pl.poly), jsonLit(pl.fact), pl.difficulty, yaw)
 }
 
 func lit(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
