@@ -7,8 +7,10 @@
 //   Desk.keyboard               whether a mouse and a keyboard are the input: hints name keys only then
 //   Desk.change(fn)             fn(on) after the layout switched, the page already restyled
 //   Desk.place()                the game's state changed: the plates move into the side panel or back
-//   Desk.start(game)            once the words are in: the header, the panel, the keys. game is app.js's:
+//   Desk.start(game)            once the words are in: the panel and the keys. game is app.js's:
 //                               { view(), state(), open(), close(), pin(lngLat, point), globe, pano }
+//
+// The header's links and full screen button are written when the router opens the first screen, whichever it is.
 //
 // In the game the map is a panel in the bottom right corner. It opens when the mouse rests on the globe, on a click
 // or on M, and folds 600 ms after the mouse leaves, unless it is held open, a drag is going on or the keyboard is in
