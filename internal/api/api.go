@@ -349,13 +349,13 @@ func (s *Server) resolveAs(r *http.Request, touch bool) (play, error) {
 	user := tg.User{ID: data.User.ID, FirstName: data.User.FirstName, LastName: data.User.LastName,
 		Username: data.User.Username, LanguageCode: data.User.LanguageCode}
 
-	// A party's invitation opens the app as the DM does: the free game has
-	// no chat, and the day's game from it is the person's own. Seen from
-	// there it is the DM's place, so the DM's reveal closes their answers as
-	// it does for a plain link to the app; a refused morning post to someone
-	// who never started the bot is the scheduler's to drop. The free game's
-	// own requests record them without a DM (TouchPerson).
-	if _, invite := free.InviteCode(data.StartParam); data.StartParam == "" || invite {
+	// A party's invitation and a challenge open the app as the DM does: the
+	// free game has no chat, and the day's game from it is the person's own.
+	// Seen from there it is the DM's place, so the DM's reveal closes their
+	// answers as it does for a plain link to the app; a refused morning post
+	// to someone who never started the bot is the scheduler's to drop. The
+	// free game's own requests record them without a DM (TouchPerson).
+	if data.StartParam == "" || free.Invitation(data.StartParam) {
 		if touch {
 			if err := s.touch(ctx, p); err != nil {
 				return play{}, err

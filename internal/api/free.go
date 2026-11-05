@@ -8,8 +8,11 @@ package api
 // A Telegram person is whoever initData names, whatever group the app was
 // opened from: the free game has no chat. They are recorded in core with
 // TouchPerson, never Touch, which would make the free game a DM with the bot
-// and move the day's answer window. A site guest plays alone, as the cookie
-// player of the day's game, with no records.
+// and move the day's answer window. A browser signed in with an account that
+// has Telegram is that person too, alone and with friends; it writes nothing
+// to core, which the sign-in has done. A site guest, and an account with
+// Google alone, plays alone as the site's player of the day's game, with no
+// records.
 
 import (
 	"context"
@@ -27,6 +30,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/maply/internal/account"
 	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/free"
 	"github.com/FreshLabDev/maply/internal/geo"
@@ -71,6 +75,12 @@ func (s *Server) freeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/party/{code}/leave", s.partyLeave)
 	mux.HandleFunc("POST /api/party/{code}/rematch", s.partyRematch)
 	mux.HandleFunc("POST /api/party/{code}/invite", s.partyInvite)
+	mux.HandleFunc("GET /api/free/archive", s.archiveList)
+	mux.HandleFunc("POST /api/free/archive", s.archiveTake)
+	mux.HandleFunc("POST /api/free/solo/{id}/challenge", s.challengeMake)
+	mux.HandleFunc("GET /api/free/challenge/{code}", s.challengeView)
+	mux.HandleFunc("POST /api/free/challenge/{code}/play", s.challengeTake)
+	mux.HandleFunc("POST /api/free/challenge/{code}/invite", s.challengeInvite)
 }
 
 // freeViewer is who is asking, as the free game knows them.
@@ -78,6 +88,13 @@ type freeViewer struct {
 	who  free.Who
 	user auth.User
 	lang string
+	// site is a Telegram person on the site, signed in with their account.
+	site bool
+}
+
+// namer reads a Telegram person's first name from core.
+type namer interface {
+	NameOf(ctx context.Context, userID int64) (string, error)
 }
 
 // viewer reads the asker: initData when the request has it, else the site's
@@ -104,20 +121,61 @@ func (s *Server) freeViewer(w http.ResponseWriter, r *http.Request, lim *limiter
 	if write && !ownJSON(r) {
 		return freeViewer{}, apiError{http.StatusUnsupportedMediaType, "json_only"}
 	}
+	sv := s.siteViewer(r)
+	if sv.TelegramUserID != 0 {
+		return s.freeAccount(r, lim, sv)
+	}
 	if !s.ipLimit.allowIP(clientIP(r)) || !s.freeSiteAll.allowKey("all") {
 		return freeViewer{}, errRateLimited
 	}
-	v := freeViewer{who: free.Who{Player: playerID(r)}, lang: i18n.Resolve(r.URL.Query().Get("lang"))}
+	v := freeViewer{who: free.Who{Player: sv.Player}, lang: i18n.Resolve(r.URL.Query().Get("lang"))}
 	if v.who.Player == "" && write {
-		v.who.Player = newPlayerID()
-		setPlayer(w, v.who.Player)
+		if sv.SignedIn() {
+			// The account's own site player, made now if it has none yet,
+			// so its games follow it from browser to browser.
+			p, err := s.Store.AccountSitePlayer(r.Context(), sv.AccountID, newPlayerID(), nil)
+			if err != nil {
+				return freeViewer{}, err
+			}
+			v.who.Player = p
+		} else {
+			v.who.Player = newPlayerID()
+			setPlayer(w, v.who.Player)
+		}
 	}
 	return v, nil
 }
 
+// freeAccount is a browser signed in with an account that has Telegram: the
+// person, as in the Mini App. The session is a cookie, so a page of another
+// site, even another ws04.cc one, may not ask for it.
+func (s *Server) freeAccount(r *http.Request, lim *limiter, sv account.Viewer) (freeViewer, error) {
+	if site := r.Header.Get("Sec-Fetch-Site"); site == "cross-site" || site == "same-site" {
+		return freeViewer{}, errBadRequest
+	}
+	if !lim.allow(sv.TelegramUserID) {
+		return freeViewer{}, errRateLimited
+	}
+	ctx := r.Context()
+	lang, err := s.Store.UserLang(ctx, sv.TelegramUserID)
+	if err != nil {
+		return freeViewer{}, err
+	}
+	if lang == "" {
+		lang = i18n.Normalize(r.URL.Query().Get("lang"))
+	}
+	u := auth.User{ID: sv.TelegramUserID}
+	if n, ok := s.Store.(namer); ok {
+		if u.FirstName, err = n.NameOf(ctx, sv.TelegramUserID); err != nil {
+			return freeViewer{}, err
+		}
+	}
+	return freeViewer{who: free.Who{UserID: sv.TelegramUserID}, user: u, lang: i18n.Resolve(lang), site: true}, nil
+}
+
 // met records a Telegram person who makes or joins a game.
 func (s *Server) met(ctx context.Context, v freeViewer) error {
-	if !v.who.Telegram() || s.People == nil {
+	if !v.who.Telegram() || v.site || s.People == nil {
 		return nil
 	}
 	u := v.user
@@ -490,7 +548,8 @@ func (s *Server) partyInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	link := "https://t.me/" + s.BotUsername + "/play?startapp=" + free.InvitePrefix + code
-	if s.Invites == nil {
+	// The site has no shareMessage: it shares the link.
+	if s.Invites == nil || v.site {
 		writeJSON(w, http.StatusOK, map[string]string{"link": link})
 		return
 	}

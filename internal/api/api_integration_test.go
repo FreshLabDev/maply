@@ -96,7 +96,7 @@ func setup(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	for _, stmt := range []string{
-		`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.site_guess, maply.site_player, maply.chat_settings, maply.round, maply.place, maply.avatar, maply.world_card, maply.profile_card, maply.day_closed CASCADE`,
+		`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.site_guess, maply.site_player, maply.chat_settings, maply.round, maply.place, maply.avatar, maply.world_card, maply.profile_card, maply.day_closed, maply.free_game CASCADE`,
 		`TRUNCATE core.person, core.chat CASCADE`,
 		`TRUNCATE core.language_observation`,
 	} {
@@ -108,7 +108,7 @@ func setup(t *testing.T) *harness {
 		INSERT INTO maply.place (status, source, source_id, source_url, license, kind, lat, lon, image_key,
 		                         country_iso, continent, city, fact, difficulty, reviewed_at, author, heading)
 		VALUES ('approved', 'mapillary', '918273645', 'https://www.mapillary.com/app/?pKey=918273645',
-		        'CC-BY-SA-4.0', 'photo', $1, $2, $3, 'UA', 'europe',
+		        'CC-BY-SA-4.0', 'panorama', $1, $2, $3, 'UA', 'europe',
 		        '{"uk":"Львів","ru":"Львов","be":"Львоў"}', '{"uk":"Факт","ru":"Факт","be":"Факт"}', 3, now(), 'someone', 164.5)`,
 		placeLat, placeLon, testImageKey); err != nil {
 		t.Fatal(err)

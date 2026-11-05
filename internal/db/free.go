@@ -111,14 +111,22 @@ func (s *Store) FreeSnapshot(ctx context.Context, id int64) (free.Snapshot, erro
 	b := &pgx.Batch{}
 	b.Queue(`
 		SELECT g.id, COALESCE(g.code, ''), g.kind, g.mode, COALESCE(g.seconds, 0), COALESCE(g.rounds, 0),
-		       g.host, g.status, g.version, COALESCE(n.code, ''), g.created_at, g.started_at, g.finished_at
+		       g.host, g.status, g.version, COALESCE(n.code, ''), g.created_at, g.started_at, g.finished_at,
+		       a.date, COALESCE(r.day_no, 0), CASE WHEN g.kind = 'challenge' THEN c.game ELSE 0 END, COALESCE(c.code, '')
 		  FROM free_game g LEFT JOIN free_game n ON n.id = g.next_id
+		  LEFT JOIN free_archive a ON a.game = g.id LEFT JOIN round r ON r.date = a.date
+		  LEFT JOIN free_attempt t ON t.game = g.id LEFT JOIN free_challenge c ON c.id = t.challenge
 		 WHERE g.id = $1`, id).QueryRow(func(row pgx.Row) error {
 		g := &snap.Game
+		var day *time.Time
 		err := row.Scan(&g.ID, &g.Code, &g.Kind, &g.Settings.Mode, &g.Settings.Seconds, &g.Settings.Rounds,
-			&g.Host, &g.Status, &g.Version, &g.NextCode, &g.CreatedAt, &g.StartedAt, &g.FinishedAt)
+			&g.Host, &g.Status, &g.Version, &g.NextCode, &g.CreatedAt, &g.StartedAt, &g.FinishedAt,
+			&day, &g.DayNo, &g.From, &g.Challenge)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return free.ErrNoRow
+		}
+		if day != nil {
+			g.Day = *day
 		}
 		return err
 	})
@@ -185,7 +193,8 @@ func (s *Store) FreeKnown(ctx context.Context, userID, placeID int64) (bool, err
 
 // FreeCandidates lists the places a game may get next: the free pool, and the
 // days closed in every zone that none of the game's players answered, minus
-// the game's own places. Each comes with when one of the players last had it
+// the game's own places. Panoramas only: early days had flat photos, and
+// maply shows none of them any more. Each comes with when one of the players last had it
 // in any free game, nil when none has.
 func (s *Store) FreeCandidates(ctx context.Context, id int64) ([]free.Candidate, map[string]bool, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -195,11 +204,13 @@ func (s *Store) FreeCandidates(ctx context.Context, id int64) ([]free.Candidate,
 		     seen AS (SELECT fr.place_id, max(fr.starts_at) AS at FROM free_round fr
 		               WHERE fr.game IN (SELECT game FROM games) GROUP BY fr.place_id),
 		     cand AS (
-		       SELECT p.id, p.country_iso, false AS day FROM place p WHERE p.pool = 'free' AND p.status = 'approved'
+		       SELECT p.id, p.country_iso, false AS day FROM place p
+		        WHERE p.pool = 'free' AND p.status = 'approved' AND p.kind = 'panorama'
 		       UNION ALL
 		       SELECT p.id, p.country_iso, true
 		         FROM day_closed dc JOIN round r ON r.date = dc.date JOIN place p ON p.id = r.place_id
-		        WHERE NOT EXISTS (SELECT 1 FROM guess g JOIN m ON g.user_id = m.user_id WHERE g.date = dc.date)
+		        WHERE p.kind = 'panorama'
+		          AND NOT EXISTS (SELECT 1 FROM guess g JOIN m ON g.user_id = m.user_id WHERE g.date = dc.date)
 		          AND NOT EXISTS (SELECT 1 FROM site_guess g JOIN m ON g.player = m.player WHERE g.date = dc.date))
 		SELECT c.id, c.country_iso, s.at, c.day
 		  FROM cand c LEFT JOIN seen s ON s.place_id = c.id
@@ -379,7 +390,7 @@ func (s *Store) FinishFree(ctx context.Context, id int64, status string, at time
 	}
 	for _, r := range results {
 		var place, players, beaten, streak any
-		if r.Kind != free.Solo {
+		if r.Kind == free.Party || r.Kind == free.Duel {
 			place, players, beaten = r.Place, r.Players, r.Beaten
 		}
 		if r.Settings.Mode == free.Streak {
@@ -437,7 +448,7 @@ func (s *Store) LastFreeSettings(ctx context.Context, w free.Who) (free.Settings
 	err := s.pool.QueryRow(ctx, `
 		SELECT g.mode, COALESCE(g.seconds, 0), COALESCE(g.rounds, 0)
 		  FROM free_member m JOIN free_game g ON g.id = m.game
-		 WHERE `+cond+` AND g.kind = 'solo'
+		 WHERE `+cond+` AND g.kind = 'solo' AND g.mode <> 'archive'
 		 ORDER BY g.created_at DESC, g.id DESC LIMIT 1`, arg).Scan(&set.Mode, &set.Seconds, &set.Rounds)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return free.Settings{}, false, nil
@@ -448,11 +459,15 @@ func (s *Store) LastFreeSettings(ctx context.Context, w free.Who) (free.Settings
 	return set, true, nil
 }
 
+// OpenFreeGames is the player's solo games still going, or their parties. A
+// day from the archive and an attempt at a challenge are neither: each is
+// reached from its own list, and a new solo game leaves them be.
 func (s *Store) OpenFreeGames(ctx context.Context, w free.Who, kind string) ([]int64, error) {
 	cond, arg := memberOf(w)
 	rows, err := s.pool.Query(ctx, `
 		SELECT g.id FROM free_member m JOIN free_game g ON g.id = m.game
-		 WHERE `+cond+` AND g.status IN ('lobby', 'playing') AND (g.kind = 'solo') = $2
+		 WHERE `+cond+` AND g.status IN ('lobby', 'playing')
+		   AND CASE WHEN $2 THEN g.kind = 'solo' AND g.mode <> 'archive' ELSE g.kind IN ('party', 'duel') END
 		 ORDER BY g.id DESC`, arg, kind == free.Solo)
 	if err != nil {
 		return nil, fmt.Errorf("open free games: %w", err)
@@ -463,9 +478,9 @@ func (s *Store) OpenFreeGames(ctx context.Context, w free.Who, kind string) ([]i
 func (s *Store) FreeBest(ctx context.Context, userID int64, except int64) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT mode, COALESCE(seconds, 0), COALESCE(rounds, 0),
-		       max(CASE WHEN mode = 'streak' THEN streak ELSE points END)
+		       max(CASE mode WHEN 'streak' THEN streak WHEN 'timed' THEN countries ELSE points END)
 		  FROM free_result
-		 WHERE user_id = $1 AND game <> $2
+		 WHERE user_id = $1 AND game <> $2 AND mode <> 'archive'
 		 GROUP BY 1, 2, 3`, userID, except)
 	if err != nil {
 		return nil, fmt.Errorf("free best of %d: %w", userID, err)
@@ -487,16 +502,19 @@ func (s *Store) StaleFreeGames(ctx context.Context, idle, lobby, now time.Time) 
 	rows, err := s.pool.Query(ctx, `
 		SELECT g.id FROM free_game g
 		 WHERE g.status IN ('lobby', 'playing')
-		   AND ((g.kind <> 'solo' AND g.status = 'playing')
+		   AND ((g.kind IN ('party', 'duel') AND g.status = 'playing')
 		     OR (g.status = 'lobby'
 		         AND GREATEST(g.created_at, (SELECT max(last_seen_at) FROM free_member WHERE game = g.id)) < $2)
-		     OR (g.kind = 'solo'
+		     OR (g.kind IN ('solo', 'challenge')
 		         AND (GREATEST(g.created_at,
 		                       (SELECT max(starts_at) FROM free_round WHERE game = g.id),
 		                       (SELECT max(answered_at) FROM free_guess WHERE game = g.id)) < $1
 		              OR EXISTS (SELECT 1 FROM free_round r
 		                          WHERE r.game = g.id AND r.ends_at + interval '2 seconds' < $3
-		                            AND NOT EXISTS (SELECT 1 FROM free_guess q WHERE q.game = r.game AND q.n = r.n)))))
+		                            AND NOT EXISTS (SELECT 1 FROM free_guess q WHERE q.game = r.game AND q.n = r.n))
+		              -- A timed game is over when its time is, answered or not.
+		              OR (g.mode = 'timed'
+		                  AND (SELECT min(starts_at) FROM free_round WHERE game = g.id) + g.seconds * interval '1 second' < $3))))
 		 ORDER BY g.id LIMIT 500`, idle, lobby, now)
 	if err != nil {
 		return nil, fmt.Errorf("stale free games: %w", err)

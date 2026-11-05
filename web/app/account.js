@@ -98,7 +98,10 @@ function acctDialog() {
   acctBox('<b class="acct-h">' + esc(T("acct.dialog_title")) + '</b><p>' + esc(T("acct.dialog_text")) + '</p>' +
     btn("telegram", TG_LOGO) + btn("google", G_LOGO) +
     (none ? '<p class="acct-off">' + esc(T("acct.auth.unavailable")) + '</p>' : '') +
-    '<p class="acct-note">' + esc(T("acct.dialog_note")) + '</p><a class="acct-link" href="/privacy?lang=' + LANG + '">' + esc(T("acct.privacy")) + '</a>', T("acct.dialog_title"));
+    '<p class="acct-note">' + esc(T("acct.dialog_note")) + '</p><a class="acct-link" href="/privacy?lang=' + LANG + '">' + esc(T("acct.privacy")) + '</a>' +
+    // The header has one button on the site, this one: a guest's profile, from the cookie, opens from here.
+    (typeof openProfile === "function" ? '<button class="acct-link acct-prof" id="acctProf">' + esc(T("prof.guest_open")) + '</button>' : ''), T("acct.dialog_title"));
+  if ($("acctProf")) $("acctProf").onclick = () => { acctClose(); Router.go("/me"); };
 }
 
 /* The avatar's menu: profile when the profile page is there, accounts, language, sign out. */

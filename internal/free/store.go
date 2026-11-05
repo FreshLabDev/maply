@@ -35,6 +35,15 @@ type Game struct {
 	CreatedAt  time.Time
 	StartedAt  *time.Time
 	FinishedAt *time.Time
+	// Day is the closed day a game from the archive plays, and DayNo its
+	// number; the zero time otherwise.
+	Day   time.Time
+	DayNo int
+	// From is the game whose places an attempt at a challenge plays.
+	From int64
+	// Challenge is the code of the challenge the game is an attempt at, or
+	// was made into.
+	Challenge string
 }
 
 type Member struct {
@@ -243,4 +252,55 @@ type Store interface {
 	// StaleFreeGames is the games still open whose last move was before
 	// idle, or whose lobby was made before lobby, for the sweep.
 	StaleFreeGames(ctx context.Context, idle, lobby, now time.Time) ([]int64, error)
+
+	// FreeRoundPlace is the place of a game's place n.
+	FreeRoundPlace(ctx context.Context, game int64, n int) (int64, error)
+
+	// FreeArchive is every day closed in every zone, newest first, as the
+	// player may take it from the archive.
+	FreeArchive(ctx context.Context, w Who) ([]ArchiveDay, error)
+	// CreateFreeArchive makes the player's game of closed day dayNo with its
+	// place begun at g.At, or gives the game they took the day in before.
+	// ErrNoRow is no such closed day; ErrDayAnswered and ErrDaySeen a day the
+	// player knows.
+	CreateFreeArchive(ctx context.Context, dayNo int, g NewGame) (int64, error)
+	// FreeDayRank is where an answer worth base points at km would have
+	// stood among a closed day's answers, counted without their speed bonus,
+	// and of how many, the answer included.
+	FreeDayRank(ctx context.Context, date time.Time, base int, km float64) (rank, of int, err error)
+
+	// MakeFreeChallenge makes the challenge of a finished game for its
+	// player, or gives the code of the one made before.
+	MakeFreeChallenge(ctx context.Context, game, userID int64, code string, at time.Time) (string, error)
+	// FreeChallenge is a challenge with every attempt at it.
+	FreeChallenge(ctx context.Context, code string) (ChallengeRow, error)
+	// TakeFreeChallenge makes the person's attempt at a challenge, or gives
+	// the one they made before.
+	TakeFreeChallenge(ctx context.Context, challenge int64, g NewGame) (int64, error)
+	// FreeChallenges is the challenges the person is in that were made since.
+	FreeChallenges(ctx context.Context, userID int64, since time.Time) ([]ChallengeBrief, error)
+}
+
+// ChallengeRow is a challenge as the store has it.
+type ChallengeRow struct {
+	ID        int64
+	Code      string
+	Game      int64
+	Settings  Settings
+	CreatedAt time.Time
+	Attempts  []Attempt
+}
+
+// Attempt is one person's game at a challenge, summed over the places they
+// have answered so far.
+type Attempt struct {
+	UserID int64
+	Name   string
+	Game   int64
+	Status string
+	// Maker is the game the challenge was made from.
+	Maker bool
+	Line  Line
+	// Seen is how many of the places the player had had before.
+	Seen int
 }

@@ -191,8 +191,11 @@ The settings screen starts on the last game's settings, and a game begins in one
 |:--|:--|:--|:--|
 | Classic | 3, 5 or 10 | Blitz 30, 60, 90, 120 s, or no timer | After the last place |
 | Country streak | Until a miss | 30 or 60 s | Wrong country, a pin in the sea, or the time running out |
+| Against the clock | As many as fit | 3 minutes for the whole game | The three minutes running out |
 
 Without a timer a place ends with the answer or with "Give up", which scores 0 and shows the place. A streak has no "no timer": without one it turns into a search for the answer on the internet. After each place the player sees it with the distance, the points and their parts and the fact, and goes on when they like. The final shows the sum, or the streak's length, and the record for those settings.
+
+Against the clock the score is the number of countries found in three minutes. A wrong country does not end the game, a place can be skipped, and there is no speed bonus: the clock is the game. Every place ends when the game does, so the time runs on through a place's reveal, and a place cut by the end counts as missed.
 
 A place is three requests: start, answer, picture. Starting writes when the place began and when it ends, and only then gives the picture; asking again gives the same picture and the same time left, so a reload does not reset the clock, and the place counts as seen from then on. The answer is taken until the end plus 2 s for the network. A game nobody touches closes after a day.
 
@@ -202,7 +205,15 @@ Everyone plays the same places at the same time. The host picks the time per pla
 
 The bot prepares an invitation, "maply · Blitz · 5 places · 30 s" with a button, and the player sends it to any chat. The button opens the Mini App in the lobby, also for someone who never started the bot. A place shows a ribbon of who has answered, without points; at zero a pin already set goes by itself. Then the place, everyone's pins with names and the points stay for 8 s on a blitz and 10 s on the longer timers, and a place everyone has answered closes early. A player who stops polling for 10 s is not waited for, and one who missed two places in a row is marked away until they answer again. A lobby whose host is silent for 30 s passes to the next player by joining time; a lobby lives 30 minutes.
 
-The final has the standings, "Ahead of 67% of the others" in place of an average place (2nd of 3 and 2nd of 8 do not compare), the closest pin of the game, "Rematch" into a new lobby on the same settings, and "Share". With friends is Telegram only: the site has no sign-in yet.
+The final has the standings, "Ahead of 67% of the others" in place of an average place (2nd of 3 and 2nd of 8 do not compare), the closest pin of the game, "Rematch" into a new lobby on the same settings, and "Share". With friends needs a Telegram person: the Mini App, or the site signed in with an account that has Telegram. The invitation from the site is the link, since the site has no `shareMessage`.
+
+### The archive
+
+Past days of the daily game, one place each and no timer, from the free screen's "Archive". Only days in `day_closed` are there, over in every zone, so the archive never holds a place still in play. A player takes a day once; a day they answered in the bot or on the site, and a day whose place came up in their free play, are shown closed. Taking a day starts its place, which counts as seen from then on, and taking it again gives the same game. After the answer the player sees where they would have stood in that day's table, "4 of 12", counted on the points without the speed bonus, a tie counting as behind; the day's real table does not change. A site guest plays the archive as the browser's player.
+
+### Challenges
+
+A challenge is a party for friends who are not online at once. After a classic game on a timer the player taps "Challenge friends": the game's places, in the same order and on the same settings, become a challenge with a code, and the game is their attempt. The invitation goes out as a party's does, `startapp=c<code>`. Everyone who takes it plays an attempt of their own, once, on their own clock: a place starts when they start it, as in a solo game. The challenge's table shows names and sums only, never a place, and lists the attempts still going and the ones given up after a day. A place the player has had before is played all the same and marked in the table: the places were drawn for the maker, and someone who plays a lot will know some of them. Challenges need a Telegram person, as parties do; the free screen lists the ones from the last seven days. Taking one records the person with `TouchPerson`, never as a DM.
 
 ### Points and records
 
@@ -214,7 +225,7 @@ share = min(1, left / (T − 2 s))      -- the first 2 s load the picture
 speed = round10(200 × share × points_for_distance / 3500)
 ```
 
-No timer, an answer in the 2 s of grace and a pin the app sent at zero earn none. With friends, equal points rank by fewer kilometres in all, then by less time in all; a missed place counts as half the Earth's circumference and the whole time, or silence would look like a quick answer. Records are kept for each set of settings, "60 s · 5 places" or "Country streak · 30 s", from finished games, alone and with friends together, since the counting is the same. A site guest plays alone and keeps no records.
+No timer, an answer in the 2 s of grace and a pin the app sent at zero earn none. With friends, equal points rank by fewer kilometres in all, then by less time in all; a missed place counts as half the Earth's circumference and the whole time, or silence would look like a quick answer. Records are kept for each set of settings, "60 s · 5 places", "Country streak · 30 s" or the countries found against the clock, from finished games, alone and with friends together, since the counting is the same. On the site an account with Telegram is the person, the same games and records as in the Mini App, and writes nothing to core: the sign-in has recorded them. A day from the archive keeps no record: it has its place in the day's table instead. A site guest plays alone and keeps no records, and so does an account with Google alone, as its own site player, so its games follow it from browser to browser.
 
 ### Places
 
@@ -290,7 +301,7 @@ Planned by the owner on 23 October, built after v0.0.1-alpha.15. A site player c
 
 ## Profile
 
-Planned by the owner on 5 November (plan v2, "Профиль игрока"). In the Mini App the profile opens from the name's letter at the end of the header, and its address is `/me`; the logo still opens the days. A site guest gets a profile from the cookie with a note to sign in so the history is not lost.
+Planned by the owner on 5 November (plan v2, "Профиль игрока"). In the Mini App the profile opens from the name's letter at the end of the header, and its address is `/me`; the logo still opens the days. A site guest gets a profile from the cookie with a note to sign in so the history is not lost. Signed in on the site with Telegram, the profile is the Telegram player's, settings included; with Google alone it is the account's site days from every browser it took in, one a day. A Telegram player's profile, in the bot too, also counts the site days their account took in on the days without a Telegram answer, so the guest's history stays with the sign-in. On the site the account's button is the header's only one: its menu opens the profile, and a guest's sign-in dialog has a link to it.
 
 - **The player.** Two tabs. The daily game: total points, the 30-day average, days, the current and best streak, the typical miss (median km), the share of countries and cities found, the best day, the best world place, and the average percentile, "better than 78% of players". Players are compared by percentile, not place: each day has a different number of players, and site players have no speed bonus, so the percentile counts points without it. Charts drawn in SVG: points over the last 30 rounds with gaps and the median, misses in bins from 1 to 2,500 km, continents with the best and the worst, and a map of one's own pins where a tap opens that day. Under them the passport (countries found turn gold; stamps for 30 days in a row and a city pin within 1 km), the history by day and the settings. Free play shows only means, medians and records, never sums: games are unlimited, and a sum would reward quantity.
 - **Others, on a tap on a name.** Name and letter, days, streak, the 30-day average, best world place, countries; from free play the average per place and duels. Only days over in every zone count. Inside a group both are in, the photo and "closer than you on 14 of 22 shared days".

@@ -55,6 +55,7 @@ body.is-free {
 .fr-wide { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin: 8px 0 0; padding: 14px 12px;
            background: var(--panel); color: var(--on-panel); font: 700 16px/1.2 var(--label); letter-spacing: .03em; text-align: start; }
 .fr-wide em { font-style: normal; }
+.fr-wide.alt { background: var(--field-deep); color: var(--ink); }
 .fr-wait { margin: 40px 0 16px; text-align: center; color: var(--ink-soft); }
 
 /* The end, and the countdown before a place: one big number. */
@@ -78,6 +79,33 @@ body.is-free {
 .fr-rows li { grid-template-columns: minmax(0, 1fr) auto 58px; }
 .fr-table li { grid-template-columns: 22px minmax(0, 1fr) 64px; }
 .fr-l + .fr-list { margin-top: 0; }
+
+/* The archive: a row a day, the ones still open with the way in. */
+.fr-days { display: grid; gap: 2px; margin-top: 16px; }
+.fr-day { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 50px; padding: 0 12px;
+          background: var(--field-deep); color: var(--ink); text-align: start; }
+.fr-day b { font: 700 22px/1 var(--display); letter-spacing: .02em; }
+.fr-day span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-soft); font-size: 15px; }
+.fr-day em { font: 700 12px/1 var(--label); font-style: normal; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+.fr-day.done em { color: var(--ink-soft); }
+.fr-day.done em i { font: 700 21px/1 var(--display); font-style: normal; color: var(--ink); }
+.fr-day.off, .fr-day.off span { color: var(--ink-muted); }
+.fr-day.off em { font-family: inherit; font-weight: 400; font-size: 13px; line-height: 1.2; letter-spacing: 0; text-transform: none; white-space: normal; text-align: end; }
+.fr-rank { margin: 8px 0 0; color: var(--ink); font: 700 15px/1.3 var(--label); letter-spacing: .04em; }
+/* After a day the way on stays in reach under a long fact: two buttons side by side when there is a next day. */
+.fr-res > .fr-way { position: sticky; bottom: 0; margin-top: 14px; padding-top: 6px; background: var(--field); box-shadow: 0 -14px 12px -4px var(--field); }
+.fr-way.two { grid-template-columns: 1fr 1fr; }
+.fr-way.two .fr-link { grid-column: 1 / -1; }
+
+/* Challenges: the ones on the free screen, and who played one. */
+.fr-chs { display: grid; gap: 2px; }
+.fr-ch { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "who go" "set go"; gap: 3px 12px; align-items: center; width: 100%;
+         padding: 10px 12px; background: var(--field-deep); color: var(--ink); text-align: start; }
+.fr-ch b { grid-area: who; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 15px/1.2 var(--label); letter-spacing: .03em; }
+.fr-ch span { grid-area: set; color: var(--ink-muted); font-size: 13px; }
+.fr-ch em { grid-area: go; font-style: normal; }
+.fr-chby { margin: 14px 0 0; font: 700 19px/1.2 var(--label); letter-spacing: .03em; }
+.fr-list .fr-under { display: block; margin-top: 3px; }
 
 /* The lobby's players. */
 .fr-mem { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 2px; }
@@ -143,6 +171,8 @@ body.is-free {
   .fr-play.rev, .fr-play.grown.rev { grid-template-columns: minmax(0, 1.55fr) minmax(380px, 1fr); grid-template-rows: minmax(0, .6fr) minmax(0, 1fr);
                 grid-template-areas: "map pano" "map act"; }
   .fr-play.rev .fr-pano { visibility: visible; }
+  .fr-play.rev.nopic { grid-template-rows: minmax(0, 1fr); grid-template-areas: "map act"; }
+  .fr-play.nopic .fr-pano { display: none; }
   .fr-res { max-height: none; min-height: 0; }
   .fr-page { max-width: 640px; }
 }

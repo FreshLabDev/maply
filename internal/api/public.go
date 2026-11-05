@@ -162,8 +162,7 @@ func (s *Server) profilePublic(w http.ResponseWriter, r *http.Request) {
 		slug = profile.NewSlug()
 	}
 	ctx := r.Context()
-	// The setting refers to the person in core, who may not be there yet.
-	if err := ps.TouchPerson(ctx, v.person); err != nil {
+	if err := s.touchProfile(ctx, ps, v); err != nil {
 		s.fail(w, r, err)
 		return
 	}

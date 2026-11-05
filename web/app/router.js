@@ -26,10 +26,10 @@
 // button the browser opens its own new tab.
 //
 // In Telegram there is no browser history: its Back button is the only one, and the page's history would go back
-// out of the app on some clients. There the router only replaces the address, keeping Telegram's hash, and Back
-// goes to the parent.
+// out of the app on some clients. There the router only replaces the address, keeping Telegram's hash, and keeps
+// the pages it went through itself: Back goes to the page before, as on the site, and to the parent at the first.
 const Router = (() => {
-  const screens = [], listeners = [];
+  const screens = [], listeners = [], trail = [];
   let current = null, started = false;
   const telegram = () => { const w = window.Telegram && Telegram.WebApp; return !!w && w.platform !== "unknown"; };
   const depth = () => (history.state && history.state.maply) || 0;
@@ -66,12 +66,15 @@ const Router = (() => {
   }
   function go(path, opts) {
     const to = url(path), same = to === location.pathname + location.search + location.hash;
-    if (!started || telegram() || same || (opts && opts.replace)) history.replaceState({ maply: depth() }, "", to);
+    const replace = !started || same || (opts && opts.replace);
+    if (telegram() && !replace && trail.push(location.pathname) > 50) trail.shift();
+    if (replace || telegram()) history.replaceState({ maply: depth() }, "", to);
     else history.pushState({ maply: depth() + 1 }, "", to);
     if (started) route();
   }
   function back(parent) {
-    if (!telegram() && depth() > 0) history.back();
+    if (telegram() && trail.length) go(trail.pop(), { replace: true });
+    else if (!telegram() && depth() > 0) history.back();
     else go(parent || "/", { replace: true });
   }
   function start() {

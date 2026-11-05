@@ -90,10 +90,13 @@ player, and production-minded.
   bold title, an italic hint, the substance in a quote, `◉`/`◎` on choices,
   Success on the current one, Back, and Close only in a group.
 - Bot names are written in lowercase everywhere, including headings and images.
-- Free play (`internal/free`, `/play`, `/party/<code>`) is outside the day:
+- Free play (`internal/free`, `/play`, `/party/<code>`; the archive and a
+  challenge are screens inside `/play`) is outside the day:
   its own `free_*` tables, no place in the world, no stats shared with the
   day, and no bot message in groups. Its rules are in `docs/design.md` →
-  "Free play". With friends is Telegram only until the site has sign-in.
+  "Free play". Records and friends need a Telegram person: the Mini App,
+  or the site signed in with an account that has Telegram, which plays as
+  the person and writes nothing to `core`.
 
 ## Anti-Cheat Invariants
 
@@ -160,10 +163,12 @@ the diff looks like.
   ticket links Google but never merges two accounts.
 - A name typed on the site is not checked: bot posts call that player "Guest".
   The site's write endpoints take only JSON from maply's own pages.
-- A profile shows its owner every scored day, today's too; anyone else, and
-  a site guest looking at their own, gets only days over in every zone
-  (`profile.LatestClosed`), with no pins, history or answer times. A world
-  place and the percentile count only days over everywhere. A mini profile
+- A profile shows its owner every scored day, today's too, signed in on
+  the site with Telegram as well; anyone else, and a site guest or an
+  account without Telegram looking at their own, gets only days over in
+  every zone (`profile.LatestClosed`), with no pins, history or answer
+  times. A world place and the percentile count only days over everywhere.
+  A mini profile
   opens by an opaque handle (`profile.Handles`) that the server puts only
   next to a name it already shows, never on an anonymous row, so a handle
   cannot name a row before its reveal. The photo goes out only inside a
@@ -205,6 +210,19 @@ the diff looks like.
 - Free play takes the free pool before closed days: a closed day's picture
   is public on the days page. A late joiner in a party skips a place drawn
   before they came that they have had (`FreeKnown`).
+- The free game's archive lists and serves only days in `day_closed`, so it
+  never holds a place still in play, whatever number is asked. A player
+  takes a day once (`free_archive`), and never a day they answered (`guess`,
+  or `site_guess` for the browser's player) or whose place they had in free
+  play; taking it starts the place. Its result is `free_result` with mode
+  `archive`: no record, and never a row of the day's table.
+- A challenge (`free_challenge`) shows names and sums only, never a place:
+  an attempt gets each place as a solo game does, when it starts it, on its
+  own clock. A Telegram person takes it once (`free_attempt`); a place they
+  have had is played and counted as seen in the table. The day's game opened
+  from `startapp=c<code>` is the DM's, as from a party's invitation.
+- Against the clock gives no speed bonus, and every place ends when the
+  game's three minutes do, so no place stays open past them.
 - The `startapp` payload is signed with HMAC; group membership is checked with
   `getChatMember`. `initData` is verified on every request that writes.
 

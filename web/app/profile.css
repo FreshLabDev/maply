@@ -7,6 +7,9 @@
          outline: 2px solid var(--field-tint); outline-offset: -2px; font: 700 17px/1 var(--display); text-transform: uppercase; }
 .mebtn:focus-visible { outline-color: var(--ink); }
 .framed .mebtn { width: 28px; height: 28px; }
+/* On the site the account's button is the header's one way in: its menu has the profile, and a guest's sign-in too. */
+.top .acct:not(:empty) ~ .mebtn { display: none; }
+.acct-box .acct-prof { margin-top: 4px; padding: 0; background: none; text-align: start; text-decoration: underline; font: 400 14px/1.35 var(--text); }
 /* At 320 px the timer's label would break into three lines beside the letter. */
 @media (max-width: 360px) {
   html:not(.framed) .mebtn { margin-inline-start: 8px; width: 28px; height: 28px; }
@@ -92,7 +95,8 @@
 
 .pflags { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
 .pflags span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; background: var(--field-deep); font-size: 14px; }
-.pflag { font-style: normal; font-size: 18px; line-height: 1; }
+.pflag { flex: none; font-style: normal; line-height: 1; }
+img.pflag { display: inline-block; width: 21px; height: 14px; vertical-align: -2px; box-shadow: 0 0 0 1px var(--field-deep); }
 .pflag.code { padding: 2px 3px; background: var(--speed); color: var(--field-deep); font: 700 10px/1 var(--label); letter-spacing: .04em; }
 .pstamps { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
 .pstamp { padding: 7px 10px; outline: 1.5px dashed var(--field-tint); outline-offset: -1.5px; color: var(--ink-muted); font: 700 12px/1.1 var(--label); letter-spacing: .06em; text-transform: uppercase; }

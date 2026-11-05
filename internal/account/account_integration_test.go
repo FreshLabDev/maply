@@ -588,7 +588,7 @@ func TestTheGuestJoinsANewAccountOrWaits(t *testing.T) {
 	s := setup(t)
 	ctx := context.Background()
 	if _, err := s.pool.Exec(ctx, `INSERT INTO maply.place (id, status, source, source_id, license, kind, lat, lon, image_key, country_iso, continent, difficulty, reviewed_at)
-		OVERRIDING SYSTEM VALUE VALUES (1, 'used', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'photo', 50.45, 30.52, 'k1', 'UA', 'europe', 2, now())`); err != nil {
+		OVERRIDING SYSTEM VALUE VALUES (1, 'used', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 50.45, 30.52, 'k1', 'UA', 'europe', 2, now())`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.pool.Exec(ctx, `INSERT INTO maply.round (date, day_no, place_id) VALUES ('2026-11-01', 1, 1)`); err != nil {

@@ -13,19 +13,48 @@ import (
 	"github.com/FreshLabDev/maply/internal/round"
 )
 
-// Who is whose profile it is: a Telegram person, or a site player known only
-// by the cookie. Exactly one is set.
+// Who is whose profile it is: a Telegram person, a site account without
+// Telegram, or a site player known only by the cookie. Exactly one is set.
+//
+// An account's site rows come from every site player it has taken in, and
+// a Telegram person's include their account's on the days they have no
+// Telegram answer: the guest's history comes along with a sign-in, and
+// closed days are never rewritten into Telegram rows. Two browsers merged
+// after a day closed may leave two site rows of it; the earliest counts, as
+// the account's own answer of an open day does.
 type Who struct {
-	UserID int64
-	Player string
+	UserID  int64
+	Account string
+	Player  string
 }
 
-// whereWho is the condition on a scored row's owner, and its argument.
-func (w Who) where(col string) (string, any) {
-	if w.UserID != 0 {
-		return col + "user_id = $1", w.UserID
+func (w Who) arg() any {
+	switch {
+	case w.UserID != 0:
+		return w.UserID
+	case w.Account != "":
+		return w.Account
 	}
-	return col + "player = $1::uuid", w.Player
+	return w.Player
+}
+
+// siteRows is the condition on who's own rows of site_guess under alias a.
+func (w Who) siteRows(a string) string {
+	switch {
+	case w.UserID != 0:
+		return a + `player IN (SELECT sp.id FROM site_player sp JOIN account ac ON ac.id = sp.account_id
+		                        WHERE ac.telegram_user_id = $1)
+		   AND NOT EXISTS (SELECT 1 FROM guess t
+		                    WHERE t.user_id = $1 AND t.date = ` + a + `date AND ` + scored("t.") + `)`
+	case w.Account != "":
+		return a + "player IN (SELECT id FROM site_player WHERE account_id = $1::uuid)"
+	}
+	return a + "player = $1::uuid"
+}
+
+// scored is the condition on a guess or site_guess row that has its score.
+func scored(a string) string {
+	return a + "km IS NOT NULL AND " + a + "pts_km IS NOT NULL AND " + a + "pts_bonus IS NOT NULL"
 }
 
 // PlayedDay is one scored answer with what the profile shows of it.
@@ -55,35 +84,29 @@ type PlayedDay struct {
 // caller decides upTo from what the viewer may see: a day still open
 // somewhere is not anyone else's to read.
 func (s *Store) PlayedDays(ctx context.Context, who Who, upTo round.Date) ([]PlayedDay, error) {
-	var q string
+	days := `(SELECT DISTINCT ON (g.date) g.date, g.lat, g.lon, g.km, g.pts_km + g.pts_bonus AS points, 0 AS speed,
+	                 g.pts_bonus, NULL::bigint AS user_id, g.player
+	            FROM site_guess g
+	           WHERE ` + who.siteRows("g.") + ` AND g.date <= $2 AND ` + scored("g.") + `
+	           ORDER BY g.date, g.answered_at, g.player)`
 	if who.UserID != 0 {
-		q = `
-		SELECT g.date, r.day_no, g.lat, g.lon, g.km,
-		       g.pts_km + g.pts_bonus + COALESCE(g.pts_speed, 0), g.pts_km + g.pts_bonus, g.pts_bonus,
-		       COALESCE(p.continent, ''), COALESCE(p.country_iso, ''), p.city,
-		       COALESCE(dp.rank, 0), COALESCE(dp.n, 0)
-		  FROM guess g
-		  JOIN round r ON r.date = g.date
-		  JOIN place p ON p.id = r.place_id
-		  LEFT JOIN day_place dp ON dp.user_id = g.user_id AND dp.date = g.date
-		 WHERE g.user_id = $1 AND g.date <= $2
-		   AND g.km IS NOT NULL AND g.pts_km IS NOT NULL AND g.pts_bonus IS NOT NULL
-		 ORDER BY g.date`
-	} else {
-		q = `
-		SELECT g.date, r.day_no, g.lat, g.lon, g.km,
-		       g.pts_km + g.pts_bonus, g.pts_km + g.pts_bonus, g.pts_bonus,
-		       COALESCE(p.continent, ''), COALESCE(p.country_iso, ''), p.city,
-		       COALESCE(dp.rank, 0), COALESCE(dp.n, 0)
-		  FROM site_guess g
-		  JOIN round r ON r.date = g.date
-		  JOIN place p ON p.id = r.place_id
-		  LEFT JOIN day_place dp ON dp.player = g.player AND dp.date = g.date
-		 WHERE g.player = $1::uuid AND g.date <= $2
-		   AND g.km IS NOT NULL AND g.pts_km IS NOT NULL AND g.pts_bonus IS NOT NULL
-		 ORDER BY g.date`
+		days = `SELECT date, lat, lon, km, pts_km + pts_bonus + COALESCE(pts_speed, 0) AS points, COALESCE(pts_speed, 0) AS speed,
+		               pts_bonus, user_id, NULL::uuid AS player
+		          FROM guess
+		         WHERE user_id = $1 AND date <= $2 AND ` + scored("") + `
+		        UNION ALL ` + days
 	}
-	_, arg := who.where("")
+	q := `
+		SELECT d.date, r.day_no, d.lat, d.lon, d.km, d.points, d.points - d.speed, d.pts_bonus,
+		       COALESCE(p.continent, ''), COALESCE(p.country_iso, ''), p.city,
+		       COALESCE(dt.rank, ds.rank, 0), COALESCE(dt.n, ds.n, 0)
+		  FROM (` + days + `) d
+		  JOIN round r ON r.date = d.date
+		  JOIN place p ON p.id = r.place_id
+		  LEFT JOIN day_place dt ON dt.user_id = d.user_id AND dt.date = d.date
+		  LEFT JOIN day_place ds ON ds.player = d.player AND ds.date = d.date
+		 ORDER BY d.date`
+	arg := who.arg()
 	rows, err := s.pool.Query(ctx, q, arg, upTo.Time())
 	if err != nil {
 		return nil, fmt.Errorf("played days: %w", err)
@@ -128,18 +151,24 @@ func (s *Store) Standings(ctx context.Context, who Who, dates []round.Date) ([]S
 	for i, d := range dates {
 		ts[i] = d.Time()
 	}
-	cond, arg := who.where("")
+	mine := `(SELECT DISTINCT ON (g.date) g.date, g.pts_km + g.pts_bonus AS base
+	            FROM site_guess g
+	           WHERE ` + who.siteRows("g.") + ` AND g.date = ANY($2::date[]) AND ` + scored("g.") + `
+	           ORDER BY g.date, g.answered_at, g.player)`
+	if who.UserID != 0 {
+		mine = `SELECT date, pts_km + pts_bonus AS base FROM guess
+		         WHERE user_id = $1 AND date = ANY($2::date[]) AND ` + scored("") + `
+		        UNION ALL ` + mine
+	}
 	rows, err := s.pool.Query(ctx, `
-		WITH mine AS (
-		  SELECT date, points - pts_speed AS base FROM day_score
-		   WHERE `+cond+` AND date = ANY($2::date[]))
+		WITH mine AS (`+mine+`)
 		SELECT m.date,
 		       count(*) FILTER (WHERE ds.points - ds.pts_speed < m.base),
 		       count(*) FILTER (WHERE ds.points - ds.pts_speed = m.base) - 1,
 		       count(*)
 		  FROM mine m JOIN day_score ds ON ds.date = m.date
 		 GROUP BY m.date
-		 ORDER BY m.date`, arg, ts)
+		 ORDER BY m.date`, who.arg(), ts)
 	if err != nil {
 		return nil, fmt.Errorf("standings: %w", err)
 	}
