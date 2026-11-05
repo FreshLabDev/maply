@@ -203,6 +203,7 @@ func run(logger *slog.Logger, dsn, addr, places, state string, days int, fresh b
 	mux := http.NewServeMux()
 	mux.Handle("/api/", game)
 	mux.Handle("/img/", game)
+	mux.Handle("/thumb/", game)
 	mux.Handle("/", app)
 	e.Handler = mux
 	mountDev(e, mux)

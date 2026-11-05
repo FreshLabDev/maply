@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"regexp"
 	"strings"
 	"testing"
@@ -136,7 +137,7 @@ func TestAppKeysExist(t *testing.T) {
 	}
 	uses := regexp.MustCompile(`\b(?:T|lines)\("([a-z_.]*[a-z_])"|data-(?:t|aria)="([a-z_.]+)"|LOOK = \{([^}]*)\}`)
 	quoted := regexp.MustCompile(`"([a-z_]+)"`)
-	for _, name := range []string{"index.html", "app.js", "map.js", "tg.js"} {
+	for _, name := range []string{"index.html", "app.js", "days.js", "map.js", "tg.js"} {
 		data, err := fs.ReadFile(embedded, "app/"+name)
 		if err != nil {
 			t.Fatal(err)
@@ -163,6 +164,35 @@ func TestAppKeysExist(t *testing.T) {
 		"loading", "on_water", "on_land", "moved", "error.network", "error.left", "error.unavailable", "error.bad_request", "error.internal"} {
 		if !known[key] {
 			t.Errorf("the app builds %q, which internal/i18n does not have", key)
+		}
+	}
+}
+
+// The days page draws a flag only for a code it knows a file for, and its
+// letters otherwise: the list in days.js is the vendored files, no more.
+func TestFlagsAreTheVendoredFiles(t *testing.T) {
+	data, err := fs.ReadFile(embedded, "app/days.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?s)const FLAGS = new Set\(\((.*?)\)\.split`).FindSubmatch(data)
+	if m == nil {
+		t.Fatal("no FLAGS in days.js")
+	}
+	listed := map[string]bool{}
+	for _, code := range regexp.MustCompile(`[A-Z]{2}`).FindAllString(string(m[1]), -1) {
+		listed[code] = true
+	}
+	files, err := fs.Glob(embedded, "app/vendor/country-flag-icons-1.6.20/3x2/*.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != len(listed) {
+		t.Errorf("%d flag files, %d codes in days.js", len(files), len(listed))
+	}
+	for _, f := range files {
+		if code := strings.TrimSuffix(path.Base(f), ".svg"); !listed[code] {
+			t.Errorf("%s is served but days.js does not know it", code)
 		}
 	}
 }
