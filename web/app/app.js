@@ -303,9 +303,10 @@ function setCall(b, sub) {
 }
 
 // globe.js draws the globe, the pin and the answer; the layout above says where the small globe stands and what the
-// plates cover. The small globe turns only once the loading screen is gone, and not under the menu.
+// plates cover. The small globe turns only once the loading screen is gone, and not under a page or free play.
 const globe = createGlobe({ el: $("map"), lang: LANG0, mini: miniAt, insets: reserve, haptic,
-  spin: () => $("loader").classList.contains("gone") && !document.body.classList.contains("is-page") });
+  spin: () => $("loader").classList.contains("gone") && !document.body.classList.contains("is-page") &&
+    !document.body.classList.contains("is-free") });
 // A tap beside the globe, in the void around it, returns to the photo. In the computer's panel the void is the
 // panel's own water, and a click there is a miss, not a way out.
 globe.on("beside", () => { if (!Desk.on) toPhoto(); });
