@@ -178,9 +178,11 @@ func (s *Store) ChatGuesses(ctx context.Context, d round.Date, chatID int64) ([]
 // many answers the world ranks: what a result's version is made of, counted
 // without reading either list.
 func (s *Store) ResultCounts(ctx context.Context, d round.Date, chatID int64) (chat, world int, err error) {
+	// $2 is typed by its first use: compared to a bare 0 it would be int4,
+	// which a supergroup id (-100…) overflows.
 	err = s.pool.QueryRow(ctx, `
 		SELECT (SELECT count(*) FROM guess g
-		         WHERE $2 <> 0 AND g.date = $1
+		         WHERE $2::bigint <> 0 AND g.date = $1
 		           AND EXISTS (SELECT 1 FROM core.maply_presence p
 		                        WHERE p.telegram_user_id = g.user_id AND p.chat_id = $2)),
 		       (SELECT count(*) FROM day_score WHERE date = $1)`, d.Time(), chatID).Scan(&chat, &world)

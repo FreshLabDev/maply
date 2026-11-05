@@ -41,9 +41,11 @@ const (
 	placeLon     = 24.0315
 	testImageKey = "Zk3qT9xWm2LpV7aN"
 
-	kyivGroup   = int64(-1005501)
-	moscowGroup = int64(-1005502)
-	minskGroup  = int64(-1005503)
+	// Real supergroup ids, past int4: a query that types a chat id as int4
+	// fails here as it does in production.
+	kyivGroup   = int64(-1001900005501)
+	moscowGroup = int64(-1001900005502)
+	minskGroup  = int64(-1001900005503)
 )
 
 type members map[[2]int64]bool
