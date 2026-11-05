@@ -74,8 +74,41 @@ type handler struct {
 	files map[string]file
 }
 
-// Handler serves the app at the root: "/" is index.html, anything not in the
-// embedded tree is a 404.
+// Pages are the addresses the app draws itself. The server answers each with
+// index.html, and router.js picks the screen from the path. "*" stands for one
+// path segment: a day, a party code, a player. A screen that needs a new
+// address adds it here.
+var Pages = []string{"/days", "/days/*", "/me", "/play", "/party/*", "/p/*"}
+
+// segment is what "*" in Pages matches: short, and nothing a file name or a
+// path trick could need.
+var segment = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// isPage says whether a cleaned path is one of Pages.
+func isPage(name string) bool {
+	got := strings.Split(strings.TrimPrefix(name, "/"), "/")
+	for _, p := range Pages {
+		want := strings.Split(strings.TrimPrefix(p, "/"), "/")
+		if len(want) != len(got) {
+			continue
+		}
+		ok := true
+		for i, w := range want {
+			if w == "*" {
+				ok = ok && segment.MatchString(got[i])
+			} else {
+				ok = ok && w == got[i]
+			}
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
+// Handler serves the app at the root: "/" and every address in Pages is
+// index.html, anything else not in the embedded tree is a 404.
 func Handler() (http.Handler, error) {
 	root, err := fs.Sub(embedded, "app")
 	if err != nil {
@@ -110,7 +143,7 @@ func Handler() (http.Handler, error) {
 	if idx, ok := h.files["/index.html"]; ok {
 		data := localRef.ReplaceAllFunc(idx.data, func(m []byte) []byte {
 			sm := localRef.FindSubmatch(m)
-			f, ok := h.files["/"+string(sm[2])]
+			f, ok := h.files["/"+strings.TrimPrefix(string(sm[2]), "/")]
 			if !ok || f.immutable {
 				return m
 			}
@@ -121,7 +154,8 @@ func Handler() (http.Handler, error) {
 	return h, nil
 }
 
-// localRef is a script or stylesheet index.html loads from the service.
+// localRef is a script or stylesheet index.html loads from the service. The
+// page is served on every address in Pages, so it names them from the root.
 var localRef = regexp.MustCompile(`(src|href)="([^":?#]+\.(?:js|css))"`)
 
 func (h *handler) add(name string, data []byte, immutable bool) {
@@ -163,7 +197,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := path.Clean(r.URL.Path)
-	if name == "/" {
+	if name == "/" || isPage(name) {
 		name = "/index.html"
 	}
 	f, ok := h.files[name]

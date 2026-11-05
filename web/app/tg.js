@@ -24,7 +24,8 @@ function haptic(kind) {
   if (tgAt("6.1")) {
     const h = tg.HapticFeedback;
     if (kind === "success") h.notificationOccurred("success"); else if (kind === "select") h.selectionChanged(); else h.impactOccurred(kind);
-  } else if (navigator.vibrate) navigator.vibrate(VIBRATE[kind]);
+  // A page opened by its address can buzz on its own before any tap; the browser refuses that and says so in the console.
+  } else if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) navigator.vibrate(VIBRATE[kind]);
 }
 // Telegram's system Back button is shown while the globe is open and returns to the photo.
 // Telegram's Back closes the days page first, then goes from the map to the photo.
