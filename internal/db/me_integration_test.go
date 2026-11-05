@@ -18,10 +18,6 @@ func TestFreeGamesReadFreeResult(t *testing.T) {
 	// without it.
 	exec(t, store, `TRUNCATE maply.free_game CASCADE`)
 	t.Cleanup(func() { exec(t, store, `TRUNCATE maply.free_game CASCADE`) })
-	// free-game's migration 024 gives free_result its player; until it
-	// lands, the test does.
-	exec(t, store, `ALTER TABLE maply.free_result ADD COLUMN IF NOT EXISTS player UUID REFERENCES maply.site_player(id) ON DELETE CASCADE`)
-	exec(t, store, `ALTER TABLE maply.free_result ALTER COLUMN user_id DROP NOT NULL`)
 	if games, err := store.FreeGames(ctx, FreeWho{UserID: 7}); err != nil || len(games) != 0 {
 		t.Fatalf("before free play: %v, %v", games, err)
 	}

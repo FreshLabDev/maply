@@ -16,21 +16,6 @@ import (
 	"github.com/FreshLabDev/maply/internal/round"
 )
 
-// freeAccounts gives free_result the player column of free-game's
-// migration 024 until it lands: a result is a Telegram person's or an
-// account's site player's. It goes with the merge of 024.
-func (hs *harness) freeAccounts() {
-	hs.t.Helper()
-	for _, q := range []string{
-		`ALTER TABLE maply.free_result ADD COLUMN IF NOT EXISTS player UUID REFERENCES maply.site_player(id) ON DELETE CASCADE`,
-		`ALTER TABLE maply.free_result ALTER COLUMN user_id DROP NOT NULL`,
-	} {
-		if _, err := hs.pool.Exec(context.Background(), q); err != nil {
-			hs.t.Fatal(err)
-		}
-	}
-}
-
 // freeGame writes one player's finished free game and its result: who is a
 // Telegram id or a site player. A party gets a second seat nobody holds a
 // result for.
@@ -129,7 +114,6 @@ func (b topBody) line() string {
 // anyone outside their groups, and the profile has its places.
 func TestFreeLeaderboards(t *testing.T) {
 	hs := setup(t)
-	hs.freeAccounts()
 	hs.person(1, "Oksana", kyivGroup)
 	hs.person(2, "Ivan", kyivGroup)
 	hs.person(3, "Lena", minskGroup)
@@ -232,7 +216,6 @@ func TestFreeLeaderboards(t *testing.T) {
 // A board shows its first hundred and the viewer's own row wherever it is.
 func TestFreeLeaderboardKeepsTheViewersRow(t *testing.T) {
 	hs := setup(t)
-	hs.freeAccounts()
 	hs.person(1, "Oksana")
 	for i := range 100 {
 		hs.freeGame(int64(1000+i), "solo", "streak", 60, 0, 10, hs.now.Add(-time.Duration(i+1)*time.Minute))
@@ -255,7 +238,6 @@ func TestFreeLeaderboardKeepsTheViewersRow(t *testing.T) {
 // link too. A site player no account holds is on no board.
 func TestFreeLeaderboardsOfAccounts(t *testing.T) {
 	hs := setup(t)
-	hs.freeAccounts()
 	const (
 		home  = "11111111-1111-4111-8111-111111111111"
 		work  = "22222222-2222-4222-8222-222222222222"
