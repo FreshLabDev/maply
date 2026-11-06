@@ -11,6 +11,11 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.17 - 2026-11-06
+
+For the operator: no migrations and no new settings; the image replaces
+alpha.16 as it is.
+
 ### Added
 
 - The site has an icon in the browser's tab and on a phone's home screen:
