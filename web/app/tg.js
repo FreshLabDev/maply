@@ -17,6 +17,8 @@ if (inTg) {
   const framed = () => document.documentElement.classList.toggle("framed", !tg.isFullscreen);
   framed();
   tg.onEvent("fullscreenChanged", () => { framed(); dispatchEvent(new Event("resize")); });
+  // Telegram's own Back leads out of a page, so the sheet draws no way out of its own (app.css).
+  if (tg.isVersionAtLeast("6.1")) document.documentElement.classList.add("tgback");
 }
 // Feedback: in Telegram, its haptics (works on iPhone too, where navigator.vibrate is absent); in a browser, vibrate.
 const VIBRATE = { light: 8, soft: 6, medium: 14, select: 10, success: [10, 40, 10] };

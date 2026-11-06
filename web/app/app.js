@@ -822,7 +822,8 @@ async function getJSON(path) {
   if (!inTg) return reply(await get(path + (path.includes("?") ? "&" : "?") + "lang=" + encodeURIComponent(LANG)));
   return reply(await get(path, { headers: { Authorization: "tma " + tg.initData } }));
 }
-// The sheet is a dialog over the app: a screen reader announces its title and starts on its close button.
+// The sheet is a dialog over the app: a screen reader announces its title and starts on its back button, or on the
+// sheet itself where the way out is the header's or Telegram's.
 // SHEET counts what the sheet shows: a reply that comes back after the sheet moved on or closed is dropped.
 let SHEET = 0, sheetFrom = null;
 function sheet(title, html, back, close) {
@@ -830,11 +831,33 @@ function sheet(title, html, back, close) {
   // Closing gives the focus back to what opened the sheet.
   if (!sh.classList.contains("on")) sheetFrom = document.activeElement;
   SHEET++;
-  sh.innerHTML = '<div class="sh-top"><button class="sh-b" id="shBack" aria-label="' + esc(T("aria_collapse")) + '">' + (back ? (fwd() === "→" ? "←" : "→") : "×") + '</button><b id="shTitle">' + title + '</b></div><div class="sh-body">' + html + '</div>';
+  sh.innerHTML = '<div class="sh-top"><button class="sh-b" id="shBack" aria-label="' + esc(T("desk.back")) + '"></button><b id="shTitle">' + title + '</b></div><div class="sh-body">' + html + '</div>';
   sh.dataset.kind = ""; sh.classList.add("on"); document.body.classList.add("is-sheet"); syncBack(); behindSheet(true);
-  $("shBack").onclick = back || close || closeDays;
-  $("shBack").focus({ preventScroll: true });
+  const b = $("shBack");
+  sheetBack(b, close);
+  b.onclick = back || close || closeDays;
+  b.focus({ preventScroll: true });
   return SHEET;
+}
+// The sheet's back is one arrow, pointing the way back reads. A step inside (a day to the list, a mini profile or the
+// world's table to what it came over) always shows it. The page's own way out, the close it was given, shows only in
+// a phone's browser: on a computer the header leads out, in Telegram its Back does (desktop.css, app.css). days.js
+// sets the action itself as a day opens and closes, so the button tells the two apart as its action is set.
+function sheetBack(b, close) {
+  let act = null;
+  Object.defineProperty(b, "onclick", {
+    configurable: true,
+    get: () => act,
+    set(f) {
+      act = f; b.classList.toggle("root", !!close && f === close); b.textContent = fwd() === "→" ? "←" : "→";
+      // Back from a day to the list on a phone in Telegram: the arrow that had the focus is the way out now, not drawn.
+      if (document.activeElement === b && !b.getClientRects().length) $("sheet").focus({ preventScroll: true });
+    },
+  });
+  b.addEventListener("click", (e) => { if (act) act.call(b, e); });
+  // The button is the sheet's first stop for the focus, here and in the sheets put back (profile.js). Where it is not
+  // drawn, the sheet itself takes the focus.
+  b.focus = (o) => b.getClientRects().length ? HTMLElement.prototype.focus.call(b, o) : $("sheet").focus(o);
 }
 // What is in reach, from the top layer down; the rest is inert, out of Tab's and a screen reader's way. While the
 // sheet is open, the sheet, and on a computer, where it is a page under the header, the header's links beside it.
@@ -873,6 +896,8 @@ Router.screen("today", /^\/today$/, {
 Desk.change(() => {
   hideTip(); showRules(false);
   if (document.body.classList.contains("is-sheet")) behindSheet(true);
+  // The sheet's way out is drawn on one side of the line and not on the other: a focus it had goes to the sheet.
+  if ($("sheet").classList.contains("on") && document.activeElement === document.body) $("shBack").focus({ preventScroll: true });
   syncBack();
   split($("act").classList.contains("on"));
   if (state === "reveal") { paintBoard(boardRows, boardTotal); countUp(new Set()); ovUnderBoard(); }

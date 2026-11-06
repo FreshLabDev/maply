@@ -2213,6 +2213,24 @@
     "uk": "Відповісти · Enter",
     "zh": "提交 · Enter"
   },
+  "app.desk.back": {
+    "ar": "رجوع",
+    "be": "Назад",
+    "ca": "Enrere",
+    "cs": "Zpět",
+    "de": "Zurück",
+    "en": "Back",
+    "es": "Atrás",
+    "fr": "Retour",
+    "it": "Indietro",
+    "ja": "戻る",
+    "pl": "Wstecz",
+    "ru": "Назад",
+    "sv": "Tillbaka",
+    "tr": "Geri",
+    "uk": "Назад",
+    "zh": "返回"
+  },
   "app.desk.days_hint": {
     "ar": "كل الأماكن والنتائج",
     "be": "Усе месцы і вынікі",

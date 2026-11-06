@@ -292,6 +292,13 @@ html.framed { --top: 44px; }
          padding: var(--safe-top) calc(16px + var(--safe-right)) 0 calc(16px + var(--safe-left)); }
 .sh-top b { font: 700 26px/1 var(--display); letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sh-b { width: 32px; height: 32px; font: 400 22px/1 var(--text); color: var(--ink-soft); }
+/* The sheet's way out of a page (app.js, sheetBack): in Telegram its own Back leads out instead. Two backs on one
+   screen would be one too many. */
+.tgback .sh-b.root { display: none; }
+.sheet:focus { outline: none; }
+/* The day's clock and its table belong to the day's own screen: over a sheet, a page of the menu or the free game
+   they have nothing to say. Hidden, they keep their place, so the header's items stay where they are. */
+:is(.is-sheet, .is-page, .is-free) :is(#timer, #prog) { visibility: hidden; }
 .sh-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px calc(16px + var(--safe-right)) calc(24px + var(--safe-bottom)) calc(16px + var(--safe-left)); user-select: text; -webkit-user-select: text; }
 .sh-wait, .sh-sub { color: var(--ink-soft); margin: 8px 0 12px; }
 .sh-name { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 16px; color: var(--ink-muted); }
