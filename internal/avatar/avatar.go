@@ -35,6 +35,15 @@ const maxBytes = 2 << 20
 // workers is how many people are asked of Telegram at once.
 const workers = 4
 
+// Refresh's queue: how many people wait at most, how long one is not queued
+// again, how many it remembers, and how long one ask may take.
+const (
+	queueSize = 512
+	requeue   = time.Hour
+	remember  = 20000
+	askWait   = 20 * time.Second
+)
+
 type Store interface {
 	AvatarOf(ctx context.Context, userID int64) (db.Avatar, bool, error)
 	SetAvatar(ctx context.Context, userID int64, a db.Avatar) error
@@ -45,11 +54,22 @@ type Telegram interface {
 	FileBytes(ctx context.Context, fileID string, max int64) ([]byte, error)
 }
 
+// batch is a Store that reads many kept photos in one query.
+type batch interface {
+	AvatarsOf(ctx context.Context, ids []int64) (map[int64][]byte, error)
+}
+
 type Service struct {
 	Store Store
-	TG    Telegram
-	Log   *slog.Logger
-	Now   func() time.Time
+	// TG asks Telegram; nil keeps only what is kept.
+	TG  Telegram
+	Log *slog.Logger
+	Now func() time.Time
+
+	start  sync.Once
+	queue  chan int64
+	mu     sync.Mutex
+	queued map[int64]time.Time
 }
 
 func (s *Service) log() *slog.Logger {
@@ -70,8 +90,16 @@ func (s *Service) now() time.Time {
 // page that must answer at once. People without one are left out.
 func (s *Service) Kept(ctx context.Context, ids []int64) map[int64][]byte {
 	out := map[int64][]byte{}
-	if s == nil {
+	if s == nil || len(ids) == 0 {
 		return out
+	}
+	if b, ok := s.Store.(batch); ok {
+		m, err := b.AvatarsOf(ctx, ids)
+		if err != nil {
+			s.log().Warn("avatars not read", "users", len(ids), "error", err)
+			return out
+		}
+		return m
 	}
 	for _, id := range ids {
 		a, ok, err := s.Store.AvatarOf(ctx, id)
@@ -126,7 +154,7 @@ func (s *Service) one(ctx context.Context, id int64) []byte {
 		return nil
 	}
 	now := s.now()
-	if ok && now.Sub(kept.CheckedAt) < fresh {
+	if ok && now.Sub(kept.CheckedAt) < fresh || s.TG == nil {
 		return kept.JPEG
 	}
 	photo, has, err := s.TG.ProfilePhoto(ctx, id, 2*Side)
@@ -156,6 +184,56 @@ func (s *Service) one(ctx context.Context, id int64) []byte {
 		s.log().Warn("avatar not kept", "user", id, "error", err)
 	}
 	return next.JPEG
+}
+
+// Refresh asks Telegram, in the background, for the photos of ids not asked
+// today, so that a page shows the face a person has now and a person never
+// seen in a result gets one. It never waits: ids queued within the hour, or
+// more than the queue holds, are left for a later page.
+func (s *Service) Refresh(ids []int64) {
+	if s == nil || s.TG == nil || len(ids) == 0 {
+		return
+	}
+	s.start.Do(func() {
+		s.queue = make(chan int64, queueSize)
+		go s.drain()
+	})
+	now := s.now()
+	var add []int64
+	s.mu.Lock()
+	if s.queued == nil || len(s.queued) > remember {
+		s.queued = map[int64]time.Time{}
+	}
+	for _, id := range ids {
+		if at, ok := s.queued[id]; id == 0 || ok && now.Sub(at) < requeue {
+			continue
+		}
+		s.queued[id] = now
+		add = append(add, id)
+	}
+	s.mu.Unlock()
+	for i, id := range add {
+		select {
+		case s.queue <- id:
+		default:
+			s.mu.Lock()
+			for _, left := range add[i:] {
+				delete(s.queued, left)
+			}
+			s.mu.Unlock()
+			return
+		}
+	}
+}
+
+// drain asks for the queued people one at a time, for as long as the
+// process runs.
+func (s *Service) drain() {
+	for id := range s.queue {
+		ctx, cancel := context.WithTimeout(context.Background(), askWait)
+		s.one(ctx, id)
+		cancel()
+	}
 }
 
 // Square is the middle square of a photo, Side pixels, as a JPEG.

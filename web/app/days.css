@@ -95,6 +95,8 @@ html[dir="rtl"] .axis svg { direction: ltr; }
 .rkl b { text-align: end; }
 .rkl .w { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rkl .w .src { width: 14px; height: 14px; margin-inline-end: 6px; vertical-align: -2px; }
+/* A Telegram player's photo stands where the Telegram mark would. */
+.rkl .w .src.ph { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; vertical-align: -5px; }
 .rkl .k { font-size: 13px; color: var(--ink-muted); }
 .rkl li.me .k { color: var(--field-tint); }
 .dnav { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; }

@@ -114,6 +114,49 @@ func TestFetchAsksTelegramOnceADay(t *testing.T) {
 	}
 }
 
+// Refresh asks in the background, once an hour at most per person, and
+// leaves a service without Telegram alone.
+func TestRefreshAsksInTheBackground(t *testing.T) {
+	now := time.Date(2026, 11, 6, 18, 0, 0, 0, time.UTC)
+	store := &memStore{m: map[int64]db.Avatar{}}
+	fake := &fakeTG{photos: map[int64]tg.Photo{1: {FileID: "f1", FileUniqueID: "u1"}}}
+	s := &Service{Store: store, TG: fake, Now: func() time.Time { return now }}
+
+	s.Refresh([]int64{1, 2, 0})
+	deadline := time.Now().Add(5 * time.Second)
+	for len(s.Kept(context.Background(), []int64{1})) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the photo of 1 was not kept")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for {
+		store.mu.Lock()
+		_, two := store.m[2]
+		store.mu.Unlock()
+		if two {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("2 was not asked")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.Refresh([]int64{1, 2})
+	time.Sleep(50 * time.Millisecond)
+	fake.mu.Lock()
+	asked := fake.asked
+	fake.mu.Unlock()
+	if asked != 2 {
+		t.Errorf("asked %d times, want 2: the same hour asks nobody again", asked)
+	}
+
+	(&Service{Store: store}).Refresh([]int64{3})
+	if got := (&Service{Store: store}).Fetch(context.Background(), []int64{1, 3}); len(got) != 1 || got[1] == nil {
+		t.Errorf("Fetch without Telegram = %v, want the kept photo of 1", got)
+	}
+}
+
 func TestSquareTakesTheMiddle(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 300, 100))
 	for x := range 300 {

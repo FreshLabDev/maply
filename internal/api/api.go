@@ -96,10 +96,43 @@ type Sharer interface {
 	PrepareScore(ctx context.Context, sh card.Share) (string, error)
 }
 
-// Avatars gives the kept profile photos of players as square JPEGs, without
-// asking Telegram, leaving out people who have none.
+// Avatars gives the kept profile photos of players as square JPEGs, leaving
+// out people who have none. Kept and Refresh never wait for Telegram; Fetch
+// asks it for the ones not asked today.
 type Avatars interface {
 	Kept(ctx context.Context, ids []int64) map[int64][]byte
+	Fetch(ctx context.Context, ids []int64) map[int64][]byte
+	Refresh(ids []int64)
+}
+
+// faces is the kept photos of ids, and asks Telegram in the background for
+// the ones not asked today, so that a new face or a changed one shows on a
+// later page.
+func (s *Server) faces(ctx context.Context, ids []int64) map[int64][]byte {
+	if s.Avatars == nil || len(ids) == 0 {
+		return nil
+	}
+	seen := make(map[int64]bool, len(ids))
+	uniq := ids[:0:0]
+	for _, id := range ids {
+		if id != 0 && !seen[id] {
+			seen[id] = true
+			uniq = append(uniq, id)
+		}
+	}
+	if len(uniq) == 0 {
+		return nil
+	}
+	s.Avatars.Refresh(uniq)
+	return s.Avatars.Kept(ctx, uniq)
+}
+
+// photoURL is a kept photo as the data: URL the app draws, or nothing.
+func photoURL(b []byte) string {
+	if b == nil {
+		return ""
+	}
+	return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
 }
 
 type Server struct {
@@ -229,6 +262,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/account/", s.accounts)
 	mux.HandleFunc("GET /api/profile", s.profile)
 	mux.HandleFunc("GET /api/profile/who", s.mini)
+	mux.HandleFunc("GET /api/face", s.face)
 	mux.HandleFunc("POST /api/profile/settings", s.profileSettings)
 	mux.HandleFunc("POST /api/profile/public", s.profilePublic)
 	mux.HandleFunc("GET /api/top", s.top)
@@ -965,14 +999,23 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		OpensAt: opensAt,
 		Version: version,
 	}
-	photos := map[int64][]byte{}
-	if s.Avatars != nil && !live {
-		ids := make([]int64, len(guesses))
-		for i, g := range guesses {
-			ids[i] = g.UserID
+	// A Telegram photo goes wherever its name does: before the reveal only
+	// your own, then the chat's and the world's rows the board names.
+	ids := []int64{p.user.ID}
+	if !live {
+		for _, g := range guesses {
+			ids = append(ids, g.UserID)
 		}
-		photos = s.Avatars.Kept(ctx, ids)
+		for i, e := range world.Entries {
+			if i >= boardShown {
+				break
+			}
+			if e.UserID != 0 {
+				ids = append(ids, e.UserID)
+			}
+		}
 	}
+	photos := s.faces(ctx, ids)
 	secret := s.boardSecret()
 	viewer := p.viewer()
 	handles := s.handles()
@@ -986,9 +1029,7 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		}
 		if me || !live {
 			l.Name, l.Who = g.FirstName, handles.Of(g.UserID, scope)
-		}
-		if b := photos[g.UserID]; b != nil {
-			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
+			l.Photo = photoURL(photos[g.UserID])
 		}
 		resp.Table = append(resp.Table, l)
 	}
@@ -1100,8 +1141,8 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 		default:
 			l.Hidden = true
 		}
-		if b := photos[e.UserID]; b != nil && e.UserID != 0 && !l.Anon {
-			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
+		if e.UserID != 0 && !l.Anon && !l.Hidden {
+			l.Photo = photoURL(photos[e.UserID])
 		}
 		out = append(out, l)
 	}

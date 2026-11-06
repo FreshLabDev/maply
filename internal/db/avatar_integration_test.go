@@ -30,4 +30,12 @@ func TestAvatarKeepsAPhotoOrNone(t *testing.T) {
 	if a, _, _ := store.AvatarOf(ctx, 7); a.UniqueID != "u1" || !bytes.Equal(a.JPEG, []byte{1, 2, 3}) {
 		t.Fatalf("photo: %+v", a)
 	}
+	// Many in one read: the ones with a photo, nobody else.
+	if err := store.SetAvatar(ctx, 8, Avatar{CheckedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	m, err := store.AvatarsOf(ctx, []int64{7, 8, 9})
+	if err != nil || len(m) != 1 || !bytes.Equal(m[7], []byte{1, 2, 3}) {
+		t.Fatalf("AvatarsOf = %v, %v", m, err)
+	}
 }

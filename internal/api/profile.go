@@ -3,7 +3,6 @@ package api
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -27,8 +26,9 @@ import (
 //     place before then.
 //   - Anyone else sees a few numbers over the days over everywhere, so a
 //     profile tells nobody what a player did on a day still being guessed.
-//     The photo comes only inside a group both are in, and the head to head
-//     only there and over the days the group's reveal has opened.
+//     The Telegram photo goes with the name, as on Telegram itself; the head
+//     to head comes only inside a group both are in, over the days the
+//     group's reveal has opened.
 //   - A player who hid themselves has no mini profile, and the site's tables
 //     call them "Telegram player".
 
@@ -335,11 +335,35 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// faceWait bounds how long the app's own face waits for Telegram.
+const faceWait = 5 * time.Second
+
+// face is the viewer's own Telegram photo, for the face the app draws for
+// them: asked of Telegram now when it was not today, so a new photo shows on
+// the next open. Nothing for a guest or an account without Telegram.
+func (s *Server) face(w http.ResponseWriter, r *http.Request) {
+	v, err := s.profileViewer(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var out struct {
+		Photo string `json:"photo,omitempty"`
+	}
+	if v.user != 0 && s.Avatars != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), faceWait)
+		defer cancel()
+		out.Photo = photoURL(s.Avatars.Fetch(ctx, []int64{v.user})[v.user])
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, out)
+}
+
 type miniProfile struct {
 	profile.Mini
 	// Me says the handle is the viewer's own: the app opens the whole profile.
 	Me bool `json:"me,omitempty"`
-	// Photo is a data: URL, sent only inside a group both are in.
+	// Photo is a data: URL of the Telegram photo.
 	Photo string `json:"photo,omitempty"`
 	// Duel is the head to head with the viewer over the group's open days.
 	Duel *headToHead `json:"duel,omitempty"`
@@ -400,6 +424,7 @@ func (s *Server) mini(w http.ResponseWriter, r *http.Request) {
 		free = &profile.Free{}
 	}
 	out := miniProfile{Mini: profile.MiniOf(name, ranked, *free)}
+	out.Photo = photoURL(s.faces(ctx, []int64{id})[id])
 	if v.chatID != 0 && v.user != 0 {
 		in, err := ps.Present(ctx, v.chatID, []int64{id})
 		if err != nil {
@@ -407,11 +432,6 @@ func (s *Server) mini(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if in[id] {
-			if s.Avatars != nil {
-				if b := s.Avatars.Kept(ctx, []int64{id})[id]; b != nil {
-					out.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
-				}
-			}
 			// The days the group has seen the result of: today only once
 			// the group's own reveal has passed.
 			upTo := round.DateIn(now, v.zone)

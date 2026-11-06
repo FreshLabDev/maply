@@ -173,7 +173,10 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	resp.Board = board(secret, d, 0, world, isMe, nil, nil, true, true, names)
+	if v.TelegramUserID != 0 {
+		ids = append(ids, v.TelegramUserID)
+	}
+	resp.Board = board(secret, d, 0, world, isMe, nil, s.faces(ctx, ids), true, true, names)
 	resp.Players = world.Players()
 	if g, ok, err := s.siteGuessOf(r, d, v); err != nil {
 		s.fail(w, r, err)

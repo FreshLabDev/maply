@@ -38,6 +38,33 @@ func (s *Store) AvatarOf(ctx context.Context, userID int64) (Avatar, bool, error
 	return a, true, nil
 }
 
+// AvatarsOf is the kept photos of ids, leaving out the people without one.
+func (s *Store) AvatarsOf(ctx context.Context, ids []int64) (map[int64][]byte, error) {
+	out := map[int64][]byte{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT user_id, jpeg FROM avatar WHERE user_id = ANY($1) AND jpeg IS NOT NULL`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("avatars: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			id int64
+			b  []byte
+		)
+		if err := rows.Scan(&id, &b); err != nil {
+			return nil, fmt.Errorf("avatars: %w", err)
+		}
+		out[id] = b
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("avatars: %w", err)
+	}
+	return out, nil
+}
+
 // SetAvatar keeps what Telegram said about userID's photo just now.
 func (s *Store) SetAvatar(ctx context.Context, userID int64, a Avatar) error {
 	var id *string

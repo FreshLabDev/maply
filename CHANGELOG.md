@@ -11,6 +11,22 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Changed
+
+- A Telegram player's photo is shown wherever their name is: the day's
+  table and the world's in the Mini App, the site's result, the days page,
+  the leaderboards and the mini profile, to anyone, not only inside a group
+  both are in. A player who hid themselves stays "Anonymous" with a plain
+  face, and before the chat's reveal the other rows still have neither name
+  nor photo.
+- Your own face is your Telegram photo: the profile button in the header,
+  your profile and your rows, in the Mini App and on the site signed in
+  with Telegram. It is asked of Telegram when the app opens, at most once a
+  day, so a new photo shows the next day.
+- Photos stay current: a page shows the kept ones at once and asks
+  Telegram in the background for the ones missing or a day old. Names were
+  already read from Telegram on every visit.
+
 ### Fixed
 
 - A double tap on the panorama zooms on a phone. The phone's browser sends

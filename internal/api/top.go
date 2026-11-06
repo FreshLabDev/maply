@@ -3,7 +3,6 @@ package api
 
 import (
 	"context"
-	"encoding/base64"
 	"net/http"
 	"slices"
 	"strconv"
@@ -181,11 +180,7 @@ func (s *Server) top(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	photos, err := s.topPhotos(ctx, v, t.Rows, hidden)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
+	photos := s.topPhotos(ctx, t.Rows, hidden)
 	k := topKinds[board]
 	out := topView{Board: board, Seconds: b.Seconds, Rounds: b.Rounds, Period: period,
 		SecondsOf: k.seconds, RoundsOf: k.rounds, Total: t.Total, Guest: v.freeWho() == (db.FreeWho{}), Rows: make([]topLine, 0, len(t.Rows))}
@@ -198,47 +193,24 @@ func (s *Server) top(w http.ResponseWriter, r *http.Request) {
 			l.Name, l.Anon = anonName(v.lang), true
 		case row.UserID != 0:
 			l.Who = handles.Of(row.UserID, scope)
-			if b := photos[row.UserID]; b != nil {
-				l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
-			}
+			l.Photo = photoURL(photos[row.UserID])
 		}
 		out.Rows = append(out.Rows, l)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// topPhotos are the rows' photos, given as in the mini profile: only to
-// someone who opened the Mini App from a group, and only of the players that
-// group has seen. Kept photos only, so a board asks Telegram nothing, and
-// never one of a player who is "Anonymous" here.
-func (s *Server) topPhotos(ctx context.Context, v profileViewer, rows []db.TopRow, hidden map[int64]bool) (map[int64][]byte, error) {
-	ps := s.profileStore()
-	if v.chatID == 0 || v.user == 0 || ps == nil || s.Avatars == nil {
-		return nil, nil
-	}
+// topPhotos are the rows' Telegram photos: anyone's who is named here, never
+// one of a player who is "Anonymous". Kept photos only, so a board waits for
+// Telegram on nothing; the missing and the old ones are asked for after.
+func (s *Server) topPhotos(ctx context.Context, rows []db.TopRow, hidden map[int64]bool) map[int64][]byte {
 	var ids []int64
 	for _, r := range rows {
 		if r.UserID != 0 && !hidden[r.UserID] {
 			ids = append(ids, r.UserID)
 		}
 	}
-	if len(ids) == 0 {
-		return nil, nil
-	}
-	in, err := ps.Present(ctx, v.chatID, ids)
-	if err != nil {
-		return nil, err
-	}
-	seen := ids[:0]
-	for _, id := range ids {
-		if in[id] {
-			seen = append(seen, id)
-		}
-	}
-	if len(seen) == 0 {
-		return nil, nil
-	}
-	return s.Avatars.Kept(ctx, seen), nil
+	return s.faces(ctx, ids)
 }
 
 type topPlace struct {

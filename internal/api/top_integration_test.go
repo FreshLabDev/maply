@@ -219,7 +219,11 @@ func TestFreeLeaderboards(t *testing.T) {
 }
 
 // photosAsked keeps a photo for everyone and remembers whom it was asked for.
-type photosAsked struct{ calls [][]int64 }
+type photosAsked struct {
+	calls     [][]int64
+	refreshed [][]int64
+	fetched   [][]int64
+}
 
 func (p *photosAsked) Kept(_ context.Context, ids []int64) map[int64][]byte {
 	p.calls = append(p.calls, append([]int64(nil), ids...))
@@ -230,9 +234,22 @@ func (p *photosAsked) Kept(_ context.Context, ids []int64) map[int64][]byte {
 	return out
 }
 
-// A board's photos are the mini profile's: only to someone who opened the
-// Mini App from a group, only of the players that group has seen, all in
-// one ask, and never on an anonymous row.
+func (p *photosAsked) Fetch(ctx context.Context, ids []int64) map[int64][]byte {
+	p.fetched = append(p.fetched, append([]int64(nil), ids...))
+	out := map[int64][]byte{}
+	for _, id := range ids {
+		out[id] = []byte{0xff, 0xd8, byte(id)}
+	}
+	return out
+}
+
+func (p *photosAsked) Refresh(ids []int64) {
+	p.refreshed = append(p.refreshed, append([]int64(nil), ids...))
+}
+
+// A board's rows have the Telegram photos of everyone named on it, to
+// anyone, in one ask, and never on an anonymous row. The same ids go to
+// Telegram in the background.
 func TestFreeLeaderboardPhotos(t *testing.T) {
 	hs := setup(t)
 	photos := &photosAsked{}
@@ -264,36 +281,57 @@ func TestFreeLeaderboardPhotos(t *testing.T) {
 		return faces(decode[topBody](t, hs.expect("GET", "/api/top?board=streak&seconds=30", auth, "", http.StatusOK)))
 	}
 
-	// Opened from the DM: no photo, and nothing asked.
-	if got := get(initData(1, "Oksana", "en", "")); got != "Anonymous -, Ivan -, Oksana -, Taras -" {
+	// From the DM: everyone named has a photo; Lena is "Anonymous".
+	if got := get(initData(1, "Oksana", "en", "")); got != "Anonymous -, Ivan photo, Oksana photo, Taras photo" {
 		t.Fatalf("from the DM: %s", got)
 	}
-	if len(photos.calls) != 0 {
-		t.Fatalf("photos asked from the DM: %v", photos.calls)
+	if fmt.Sprint(photos.calls) != "[[2 1 4]]" || fmt.Sprint(photos.refreshed) != "[[2 1 4]]" {
+		t.Fatalf("photos asked: %v, refreshed: %v", photos.calls, photos.refreshed)
 	}
-	// Opened from the Kyiv group: its players have theirs, Oksana too;
-	// Taras is outside it and Lena is "Anonymous".
-	if got := get(initData(1, "Oksana", "en", hs.payload(kyivGroup))); got != "Anonymous -, Ivan photo, Oksana photo, Taras -" {
+	// From the Kyiv group the same.
+	if got := get(initData(1, "Oksana", "en", hs.payload(kyivGroup))); got != "Anonymous -, Ivan photo, Oksana photo, Taras photo" {
 		t.Fatalf("from the group: %s", got)
 	}
-	if fmt.Sprint(photos.calls) != "[[2 1]]" {
-		t.Fatalf("photos asked: %v", photos.calls)
-	}
-	// A guest on the site sees no photo.
+	// A guest on the site too.
 	rr := httptest.NewRecorder()
 	hs.h.ServeHTTP(rr, httptest.NewRequest("GET", "/api/top?board=streak&seconds=30&lang=en", nil))
-	if got := faces(decode[topBody](t, rr.Body.String())); got != "Anonymous -, Ivan -, Oksana -, Taras -" {
+	if got := faces(decode[topBody](t, rr.Body.String())); got != "Anonymous -, Ivan photo, Oksana photo, Taras photo" {
 		t.Fatalf("a guest: %s", got)
 	}
 	// Seen in the Kyiv group, Lena is named there and has her photo; to
-	// someone who shares no group with her she is still "Anonymous".
+	// someone who shares no group with her she is still "Anonymous", and
+	// her photo is not even read.
 	hs.person(3, "Lena", kyivGroup)
-	if got := get(initData(1, "Oksana", "en", hs.payload(kyivGroup))); got != "Lena photo, Ivan photo, Oksana photo, Taras -" {
+	if got := get(initData(1, "Oksana", "en", hs.payload(kyivGroup))); got != "Lena photo, Ivan photo, Oksana photo, Taras photo" {
 		t.Fatalf("Lena in the group: %s", got)
 	}
 	hs.person(7, "Marta")
-	if got := get(initData(7, "Marta", "en", "")); got != "Anonymous -, Ivan -, Oksana -, Taras -" {
+	photos.calls = nil
+	if got := get(initData(7, "Marta", "en", "")); got != "Anonymous -, Ivan photo, Oksana photo, Taras photo" {
 		t.Fatalf("Marta from the DM: %s", got)
+	}
+	if fmt.Sprint(photos.calls) != "[[2 1 4]]" {
+		t.Fatalf("photos read for Marta: %v", photos.calls)
+	}
+}
+
+// The app's own face is the person's Telegram photo, asked of Telegram on
+// the spot; a guest has none and nothing is asked.
+func TestOwnFace(t *testing.T) {
+	hs := setup(t)
+	photos := &photosAsked{}
+	hs.srv.Avatars = photos
+	hs.person(1, "Oksana", kyivGroup)
+	face := decode[struct {
+		Photo string `json:"photo"`
+	}](t, hs.expect("GET", "/api/face", initData(1, "Oksana", "en", ""), "", http.StatusOK))
+	if !strings.HasPrefix(face.Photo, "data:image/jpeg;base64,") || fmt.Sprint(photos.fetched) != "[[1]]" {
+		t.Fatalf("own face %q, fetched %v", face.Photo, photos.fetched)
+	}
+	rr := httptest.NewRecorder()
+	hs.h.ServeHTTP(rr, httptest.NewRequest("GET", "/api/face", nil))
+	if rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), "photo") || len(photos.fetched) != 1 {
+		t.Fatalf("a guest's face: %d %s, fetched %v", rr.Code, rr.Body.String(), photos.fetched)
 	}
 }
 

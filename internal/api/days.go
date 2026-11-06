@@ -186,6 +186,8 @@ type rankLine struct {
 	Who string `json:"who,omitempty"`
 	// Anon is a player who hid themselves, "Anonymous" here.
 	Anon bool `json:"anon,omitempty"`
+	// Photo is a named Telegram player's kept photo.
+	Photo string `json:"photo,omitempty"`
 }
 
 // dayMe is the viewer's own answer on a closed day, with the parts of its
@@ -298,6 +300,13 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	shown := []int64{v.user}
+	for _, id := range ids {
+		if !hidden[id] {
+			shown = append(shown, id)
+		}
+	}
+	photos := s.faces(ctx, shown)
 	handles := s.handles()
 	scope := handleScope("day", d, v.chatID)
 	misses := make([]float64, len(world.Entries))
@@ -311,6 +320,7 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 				l.Name, l.Anon = anonName(v.lang), true
 			case e.UserID != 0:
 				l.Who = handles.Of(e.UserID, scope)
+				l.Photo = photoURL(photos[e.UserID])
 			}
 			resp.Ranking = append(resp.Ranking, l)
 		}

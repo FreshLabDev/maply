@@ -22,9 +22,22 @@ const GROUP = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="4.3" cy="
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 // A Telegram photo comes as a data: URL of a JPEG maply encoded; anything else keeps the letter.
 const PHOTO = /^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/;
-const av = (who, me, photo) => photo && PHOTO.test(photo)
+// MY_FACE is the person's own Telegram photo: their own face is it wherever it is drawn, the letter until it comes.
+let MY_FACE = "";
+const av = (who, me, photo) => (photo = photo || (me ? MY_FACE : "")) && PHOTO.test(photo)
   ? '<i class="av ph' + (me ? ' me' : '') + '"><img src="' + photo + '" alt=""></i>'
   : '<i class="av' + (me ? ' me' : '') + '">' + esc(initial(who)) + '</i>';
+// The own photo is asked for once a launch, beside everything else; the faces already drawn take it when it comes.
+function loadFace() {
+  const site = typeof ME !== "undefined" && ME && ME.account && ME.account.telegram;
+  if (inTg ? !tg.initData : !site) return;
+  getJSON("/api/face").then((d) => {
+    if (!d || !d.photo || !PHOTO.test(d.photo)) return;
+    MY_FACE = d.photo;
+    document.querySelectorAll("i.av.me:not(.ph)").forEach((el) => { el.classList.add("ph"); el.innerHTML = '<img src="' + MY_FACE + '" alt="">'; });
+    if (typeof meLetter === "function") meLetter();
+  }).catch(() => {});
+}
 // The first character as a reader sees it: a flag, an emoji with its skin tone or a letter with its accent is one.
 function initial(s) {
   s = String(s || "").trim();
@@ -914,6 +927,7 @@ Desk.change(() => {
 async function boot() {
   // Who is signed in on the site decides which API plays.
   if (typeof accountBoot === "function") await accountBoot();
+  loadFace();
   if (window.Free && Free.takes()) return Free.start(boot);
   // The client's language first, so nothing on the first screen is blank; the person's own choice from core
   // arrives with /api/today and wins.

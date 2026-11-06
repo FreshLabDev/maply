@@ -306,7 +306,7 @@ function dayHTML(d) {
       // A named Telegram player's handle opens their mini profile (profile.js), by a tap or the keyboard.
       html += '<li' + (r.me ? ' class="me"' : '') + '><span class="n">' + fmt(r.rank) + '</span><span class="w"' + (r.me ? '' : ' lang="' + nameLang() + '"') +
         (r.who && !r.me ? ' data-who="' + esc(r.who) + '" role="button" tabindex="0"' : '') + '>' +
-        (r.anon ? SRC_ANON : r.site ? SRC_SITE : SRC_TG) + esc(name) + '</span><span class="k">' + kmT(r.km) + '</span><b>' + fmt(r.points) + '</b></li>';
+        (r.anon ? SRC_ANON : r.site ? SRC_SITE : (r.photo || r.me && MY_FACE) && PHOTO.test(r.photo || MY_FACE) ? '<img class="src ph" src="' + (r.photo || MY_FACE) + '" alt="">' : SRC_TG) + esc(name) + '</span><span class="k">' + kmT(r.km) + '</span><b>' + fmt(r.points) + '</b></li>';
     }
     html += '</ol><p class="sh-legend"><span>' + SRC_TG + esc(T("from_tg")) + '</span><span>' + SRC_SITE + esc(T("from_site")) + '</span></p></div>';
   }

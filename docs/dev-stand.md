@@ -122,8 +122,8 @@ numbers and they swell the days' world tables; each who does not hide has a
 public page at `/p/devtop-0000000000020NN`, linked from the panel. Rows of
 the Google accounts have no mini profile, as in the service. The fake
 Telegram has no profile photos, so the stand's six keep a made-up one each:
-opened from «Карта друзей», `/top` shows the photos of the group's players
-and letters for the rest, as the service does. The games have no places,
+`/top` shows their photos and letters for the rest, as the service shows
+every kept photo. The games have no places,
 which is how "Засеять таблицы заново" tells them from games played on the
 stand: it plays them again up to the stand's clock and keeps the rest.
 
