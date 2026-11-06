@@ -252,7 +252,11 @@ the diff looks like.
   days page shows for closed days. Starting a place fixes its start and end;
   starting it again gives the same time left. The coordinates, name, fact
   and source come only in the answer, and in a party when the place closes;
-  before that a party's poll says who has answered and nothing else.
+  before that a party's poll says who has answered and nothing else. In a
+  party against the clock no place closes: a player gets the places they
+  have answered, with only their own pin, and the one they are on, and its
+  image token only for those; everyone's places and pins come once the game
+  is over for everyone (`TestTimedParty` covers it).
 - A Telegram person who makes or joins a free game is recorded with
   `TouchPerson`, never `Touch`: free play must not add a DM context that
   closes their day's answer window or puts them on the morning DM post.
@@ -267,7 +271,9 @@ the diff looks like.
   player takes a day once (`free_archive`), and never a day they answered
   (`guess`, or `site_guess` of any site player their account holds) or
   whose place they had in free play; taking it starts the place. Its result is `free_result` with mode
-  `archive`: no record, and never a row of the day's table.
+  `archive`: no record, and never a row of the day's table. A party on a day
+  (`free_game.day`) takes no player who answered that day or had its place, at
+  joining and again at the start.
 - A challenge (`free_challenge`) shows names and sums only, never a place:
   an attempt gets each place as a solo game does, when it starts it, on its
   own clock. A person takes it once (`free_attempt`), whichever of their
