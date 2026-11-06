@@ -6,6 +6,7 @@ import (
 	"context"
 	"html"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -41,6 +42,51 @@ func entryName(lang string, e db.Entry) string {
 	return displayName(e.Name)
 }
 
+// hiddenStore is the store's "Hide me".
+type hiddenStore interface {
+	Hidden(ctx context.Context, ids []int64) (map[int64]bool, error)
+	Present(ctx context.Context, chatID int64, ids []int64) (map[int64]bool, error)
+	SharesGroup(ctx context.Context, viewer int64, ids []int64) (map[int64]bool, error)
+}
+
+var _ hiddenStore = (*db.Store)(nil)
+
+// hidesFrom reports whether the Telegram player id asked to be hidden and
+// chat c is not theirs: a group they are in, a DM's person who shares a
+// group with them and their own DM still read their name, as in the app.
+func (s *Scheduler) hidesFrom(ctx context.Context, c db.Chat, id int64) (bool, error) {
+	h, ok := s.Store.(hiddenStore)
+	if !ok || id == 0 || c.Kind == "dm" && c.ID == id {
+		return false, nil
+	}
+	hidden, err := h.Hidden(ctx, []int64{id})
+	if err != nil || !hidden[id] {
+		return false, err
+	}
+	known := h.SharesGroup
+	if c.Kind == "group" {
+		known = h.Present
+	}
+	in, err := known(ctx, c.ID, []int64{id})
+	return err == nil && !in[id], err
+}
+
+// anonFirst is w with its first, the one a post names, called "Anonymous"
+// when they hid themselves from c. The entries are copied.
+func (s *Scheduler) anonFirst(ctx context.Context, lang string, c db.Chat, w db.World) (db.World, error) {
+	if len(w.Entries) == 0 || w.Entries[0].Site() {
+		return w, nil
+	}
+	hide, err := s.hidesFrom(ctx, c, w.Entries[0].UserID)
+	if err != nil || !hide {
+		return w, err
+	}
+	out := w
+	out.Entries = slices.Clone(w.Entries)
+	out.Entries[0].Name = i18n.T(lang, "app.prof.anon")
+	return out, nil
+}
+
 // kmText is "242 km" in lang, or "40 m" under a kilometre.
 func kmText(lang string, km float64) string {
 	return i18n.FormatDistance(lang, km)
@@ -65,6 +111,9 @@ func (s *Scheduler) lookBack(ctx context.Context, lang string, d round.Date, c d
 	}
 	w, err := s.Store.World(ctx, d)
 	if err != nil {
+		return "", err
+	}
+	if w, err = s.anonFirst(ctx, lang, c, w); err != nil {
 		return "", err
 	}
 	lines := s.worldLines(lang, w, c)
@@ -121,6 +170,11 @@ func (s *Scheduler) seasonLines(ctx context.Context, lang string, d round.Date, 
 	top, err := s.Store.Season(ctx, first, d, chat, 1)
 	if err != nil || len(top) == 0 {
 		return nil, err
+	}
+	if hide, err := s.hidesFrom(ctx, c, top[0].UserID); err != nil {
+		return nil, err
+	} else if hide {
+		top[0].Name = i18n.T(lang, "app.prof.anon")
 	}
 	lines := []string{"<b>" + i18n.T(lang, "season.title") + "</b>",
 		"🏆 " + i18n.T(lang, key, "name", displayName(top[0].Name), "points", i18n.FormatNumber(lang, top[0].Points))}

@@ -15,8 +15,8 @@ import (
 // The free play's leaderboards: each player's best on a board, over the last
 // week or all time. Free play has no place in the day and nothing to reveal,
 // so the names are the world table's after the day: a player who hid
-// themselves is "Telegram player" to everyone outside their own groups, and
-// has no handle there. An account without Telegram is named as on the site,
+// themselves is "Anonymous" to everyone outside their own groups, and has no
+// handle there. An account without Telegram is named as on the site,
 // by its site player, and has no mini profile, so no handle either.
 
 // TopStore is what the leaderboards read. The store has it.
@@ -109,6 +109,8 @@ type topLine struct {
 	// name the viewer may see.
 	Who string `json:"who,omitempty"`
 	Me  bool   `json:"me,omitempty"`
+	// Anon is a player who hid themselves, "Anonymous" here.
+	Anon bool `json:"anon,omitempty"`
 }
 
 // freeWho is the viewer in free play: the Telegram person, signed in on the
@@ -185,7 +187,7 @@ func (s *Server) top(w http.ResponseWriter, r *http.Request) {
 		l := topLine{Rank: row.Rank, Name: row.Name, Score: row.Score, Me: v.ownsTop(row)}
 		switch {
 		case hidden[row.UserID]:
-			l.Name = tgPlayer(v.lang)
+			l.Name, l.Anon = anonName(v.lang), true
 		case row.UserID != 0:
 			l.Who = handles.Of(row.UserID, scope)
 		}

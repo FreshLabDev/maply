@@ -282,7 +282,7 @@ func TestProfileVisibility(t *testing.T) {
 		t.Fatalf("a hidden profile opens on the site: %d", code)
 	}
 	code, body = site("/api/day?date=" + yesterday.String() + "&lang=en")
-	if code != http.StatusOK || strings.Contains(body, "Oksana") || whoIn(t, body, "Telegram player") != "" || !strings.Contains(body, "Telegram player") {
+	if code != http.StatusOK || strings.Contains(body, "Oksana") || whoIn(t, body, "Anonymous") != "" || !strings.Contains(body, `"name":"Anonymous"`) || !strings.Contains(body, `"anon":true`) {
 		t.Fatalf("yesterday with her hidden = %s", body)
 	}
 	// Her group still sees her, and she sees herself.

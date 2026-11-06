@@ -92,7 +92,7 @@ func TestProfileOfATelegramAccountOnTheSite(t *testing.T) {
 	if after := presence(); after != before {
 		t.Fatalf("the site's profile wrote presence: %d, then %d", before, after)
 	}
-	// Hidden, she is a Telegram player on the site's day page, except to a
+	// Hidden, she is "Anonymous" on the site's day page, except to a
 	// group-mate signed in with Telegram.
 	ivan := hs.signIn(2, "Ivan")
 	if body := hs.siteExpect("GET", "/api/day?date="+d2.String()+"&lang=en", ivan, "", http.StatusOK); !strings.Contains(body, "Oksana") {
@@ -101,7 +101,7 @@ func TestProfileOfATelegramAccountOnTheSite(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/day?date="+d2.String()+"&lang=en", nil)
 	rr := httptest.NewRecorder()
 	hs.h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), "Oksana") || !strings.Contains(rr.Body.String(), "Telegram player") {
+	if rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), "Oksana") || !strings.Contains(rr.Body.String(), "Anonymous") {
 		t.Fatalf("a guest sees the day = %d %s", rr.Code, rr.Body.String())
 	}
 }

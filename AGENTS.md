@@ -181,13 +181,15 @@ the diff looks like.
   cannot name a row before its reveal. The photo goes out only inside a
   group both are in, and the head to head counts only the days whose result
   that group has seen.
-- "Hide me" (`profile_setting.hide_me`) replaces the name with "Telegram
-  player" in the world's tables, the site's result, the days page and the
-  free play's leaderboards for
-  everyone outside the person's own groups, from a DM too, and the mini
-  profile answers `404 hidden`. A group's own table and card, which a
-  player may forward, and the bot's posts, the world's podium in a DM
-  included, keep the name. A handle is scoped to its table
+- "Hide me" (`profile_setting.hide_me`) shows the player as "Anonymous"
+  with a plain avatar, without photo or handle, in the world's tables, the
+  site's result, the days page, the free play's leaderboards and the bot's
+  world lines (the look back's first, a group result's world first, the
+  month's world champion) for everyone outside the person's own groups,
+  from a DM too, and the mini profile answers `404 hidden`. A group's own
+  table and card, which a player may forward, and the bot's posts about
+  the group's own people keep the name. The world's podium picture is one
+  for every DM of a language, so it names nobody who hid. A handle is scoped to its table
   (`profile.Handles.Of`), so one player's rows in two tables cannot be
   matched by it.
 - A public page `/p/<slug>` exists only while its owner keeps it on. The

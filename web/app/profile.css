@@ -173,3 +173,7 @@ img.pflag { display: inline-block; width: 21px; height: 14px; vertical-align: -2
 /* A name the server gave a handle opens that player's mini profile. */
 [data-who] { cursor: pointer; }
 .rk .w[data-who], .lb.all [data-who] { text-decoration: underline dotted var(--field-tint); text-underline-offset: 3px; }
+
+/* A player who hid themselves: a plain figure where a photo or a letter would be (profile.js, anonAv). */
+.av.nobody { background: var(--field-tint); color: var(--ink-soft); }
+.av.nobody svg { width: 72%; height: 72%; margin-top: 18%; }

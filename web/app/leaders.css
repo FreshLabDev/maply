@@ -42,6 +42,8 @@
 .lead-rows b { font: 700 21px/1 var(--display); letter-spacing: .02em; text-align: end; }
 .lead-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .lead-n[data-who] { cursor: pointer; }
+/* An anonymous row's plain mark before the name, as on the days page. */
+.lead-n .src { width: 16px; height: 16px; margin-inline-end: 8px; vertical-align: -3px; }
 .lead-n[data-who]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .lead-rows li.m1 em, .lead-rows li.m1 b { color: var(--speed); }
 .lead-rows li.me { background: var(--ink); color: var(--field-deep); }

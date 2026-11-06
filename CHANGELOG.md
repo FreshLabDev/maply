@@ -84,10 +84,11 @@ For the operator:
   average per place and duels. Inside a shared group it adds the photo and
   "closer than you on 14 of 22 shared days", counted over the days that
   group has seen the result of. Names carry an opaque handle, never an id.
-- "Hide me" in the profile: the world's tables, the site's result and the
-  days page read "Telegram player" instead of the name for everyone outside
-  the person's own groups, and the mini profile does not open. The bot's
-  posts keep the name.
+- "Hide me" in the profile: for everyone outside the person's own groups
+  the world's tables, the site's result, the days page, the free play's
+  leaderboards and the bot's world lines show "Anonymous" with a plain
+  avatar instead of the name and photo, and the mini profile does not
+  open. The person's groups keep the name.
 - The month's season: the sum of a player's 20 best days. The 07:00 post of
   the 1st names the champion inside yesterday's look back, a group's own in
   a group and the world's in a DM with the person's place; no new message.

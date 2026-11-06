@@ -102,6 +102,7 @@ window.Leaders = (() => {
       if (mine !== ticket || !box.isConnected) return;
       const list = box.querySelector("#leadList");
       list.removeAttribute("aria-busy");
+      ready();
       list.innerHTML = '<p class="lead-wait">' + esc(errorText(e)) + '</p><button class="lead-retry">' + esc(T("free.retry")) + '</button>';
       list.querySelector(".lead-retry").onclick = load;
       return;
@@ -129,9 +130,14 @@ window.Leaders = (() => {
       chips("rounds", up(b.rounds), roundsOf(b), (v) => T(ROUNDS[v]), T("free.places"));
   }
 
+  // The tables need nothing of the day: opened at the start, the loading screen goes with the first board, not with
+  // the day's picture.
+  const ready = () => { if (typeof hideLoader === "function") hideLoader(); };
+
   function paint(d) {
     const b = board(d.board), list = box.querySelector("#leadList");
     list.removeAttribute("aria-busy");
+    ready();
     const me = d.rows.find((r) => r.me);
     let h = '<div class="lead-th up"><span>#</span><span>' + esc(T("lead.player")) + '</span><span>' + esc(T(b.unit)) + '</span></div>';
     if (!d.rows.length) h += '<p class="lead-wait">' + esc(T(d.period === "week" ? "lead.empty_week" : "lead.empty")) + '</p>';
@@ -139,8 +145,10 @@ window.Leaders = (() => {
       // A rank that skips ahead: a dashed line says there are rows between.
       const cls = [r.me ? "me" : "", r.rank === 1 ? "m1" : "", i && r.rank > d.rows[i - 1].rank + 1 ? "skip" : ""].filter(Boolean).join(" ");
       const name = r.me ? T("you") : r.name || T("guest");
-      return '<li' + (cls ? ' class="' + cls + '"' : "") + '><em>' + fmt(r.rank) + '</em><span class="lead-n"' + (r.me ? "" : ' lang="' + nameLang() + '" dir="auto"') +
-        (r.who && !r.me ? ' data-who="' + esc(r.who) + '" role="button" tabindex="0"' : "") + '>' + esc(name) + '</span><b>' + fmt(r.score) + '</b></li>';
+      return '<li' + (cls ? ' class="' + cls + '"' : "") + '><em>' + fmt(r.rank) + '</em><span class="lead-n"' +
+        (r.who && !r.me ? ' data-who="' + esc(r.who) + '" role="button" tabindex="0"' : "") + '>' + (r.anon && !r.me ? SRC_ANON : "") +
+        // A name in its own direction, inside a row that keeps the page's: an Arabic name stays at the start.
+        (r.me ? esc(name) : '<bdi lang="' + nameLang() + '">' + esc(name) + '</bdi>') + '</span><b>' + fmt(r.score) + '</b></li>';
     }).join("") + '</ol>';
     if (d.total) h += '<p class="lead-count">' + esc(T("lead.players", { n: fmt(d.total) })) + '</p>';
     list.innerHTML = h;
