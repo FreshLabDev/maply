@@ -166,6 +166,45 @@ func (s *Store) Contexts(ctx context.Context, userID int64) ([]Context, error) {
 	return out, nil
 }
 
+// NamedOn is which of users the world's tables may name on d at now: those
+// whose every group maply is in has had d's reveal. Before it a group would
+// learn who is who among its own players from a table elsewhere, ahead of its
+// own result. A player in no group is named at once; the DM is the player's
+// own and has no one to keep it from.
+func (s *Store) NamedOn(ctx context.Context, zones round.Zones, d round.Date, users []int64, now time.Time) (map[int64]bool, error) {
+	out := make(map[int64]bool, len(users))
+	if len(users) == 0 {
+		return out, nil
+	}
+	for _, u := range users {
+		out[u] = true
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT p.telegram_user_id, COALESCE(cs.timezone, ''),
+		       COALESCE(core.effective_language(0, p.chat_id, 'chat'), '')
+		  FROM core.maply_presence p
+		  LEFT JOIN chat_settings cs ON cs.chat_id = p.chat_id
+		 WHERE p.telegram_user_id = ANY($1) AND p.chat_id <> 0
+		   AND COALESCE(cs.active, true)`, users)
+	if err != nil {
+		return nil, fmt.Errorf("groups of the named: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			user       int64
+			zone, lang string
+		)
+		if err := rows.Scan(&user, &zone, &lang); err != nil {
+			return nil, err
+		}
+		if now.Before(d.Reveal(zones.For(zone, lang))) {
+			out[user] = false
+		}
+	}
+	return out, rows.Err()
+}
+
 // leftContext is a context with when maply left it, nil while it is there.
 type leftContext struct {
 	Context

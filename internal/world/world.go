@@ -81,14 +81,15 @@ type hider interface {
 
 var _ hider = (*db.Store)(nil)
 
-// hiddenTop is which of the first three Telegram players of w hid
-// themselves. The picture goes to every DM in its language, so no group a
-// viewer shares with them makes an exception, as it does in the app.
-func (s *Service) hiddenTop(ctx context.Context, w db.World) (map[int64]bool, error) {
-	h, ok := s.Store.(hider)
-	if !ok {
-		return nil, nil
-	}
+// namer is the store's NamedOn: which of users the world's tables may name.
+type namer interface {
+	NamedOn(ctx context.Context, zones round.Zones, d round.Date, users []int64, now time.Time) (map[int64]bool, error)
+}
+
+var _ namer = (*db.Store)(nil)
+
+// topIDs is the Telegram players among the first three of w.
+func topIDs(w db.World) []int64 {
 	var ids []int64
 	for i, e := range w.Entries {
 		if i == 3 {
@@ -98,7 +99,45 @@ func (s *Service) hiddenTop(ctx context.Context, w db.World) (map[int64]bool, er
 			ids = append(ids, e.UserID)
 		}
 	}
-	return h.Hidden(ctx, ids)
+	return ids
+}
+
+// namedTop is which of the first three of w the picture names on d now. It
+// goes to a DM at the DM's reveal or later, so the viewer's own reveal is
+// behind; a player is named once every group they are in has had its own,
+// a site player at once. Once the day is final everyone is. A store that
+// cannot tell names nobody before that.
+func (s *Service) namedTop(ctx context.Context, d round.Date, w db.World, final bool) ([3]bool, error) {
+	var out [3]bool
+	if final {
+		return [3]bool{true, true, true}, nil
+	}
+	n, ok := s.Store.(namer)
+	if !ok {
+		return out, nil
+	}
+	open, err := n.NamedOn(ctx, s.Zones, d, topIDs(w), s.now())
+	if err != nil {
+		return out, err
+	}
+	for i, e := range w.Entries {
+		if i == 3 {
+			break
+		}
+		out[i] = e.Site() || open[e.UserID]
+	}
+	return out, nil
+}
+
+// hiddenTop is which of the first three Telegram players of w hid
+// themselves. The picture goes to every DM in its language, so no group a
+// viewer shares with them makes an exception, as it does in the app.
+func (s *Service) hiddenTop(ctx context.Context, w db.World) (map[int64]bool, error) {
+	h, ok := s.Store.(hider)
+	if !ok {
+		return nil, nil
+	}
+	return h.Hidden(ctx, topIDs(w))
 }
 
 // nobody is the plain face of a player who hid themselves: a figure in the
@@ -144,9 +183,9 @@ func anonymous(lang string, w db.World, hidden map[int64]bool) db.World {
 	return out
 }
 
-// faces is the photos of the first three Telegram players of w, the plain
-// one for those hidden.
-func (s *Service) faces(ctx context.Context, w db.World, hidden map[int64]bool) map[int64]*anim.Face {
+// faces is the photos of the first three Telegram players of w the picture
+// names, the plain one for those hidden.
+func (s *Service) faces(ctx context.Context, w db.World, named [3]bool, hidden map[int64]bool) map[int64]*anim.Face {
 	out := map[int64]*anim.Face{}
 	var ids []int64
 	for i, e := range w.Entries {
@@ -154,7 +193,7 @@ func (s *Service) faces(ctx context.Context, w db.World, hidden map[int64]bool) 
 			break
 		}
 		switch {
-		case e.Site():
+		case e.Site() || !named[i]:
 		case hidden[e.UserID]:
 			out[e.UserID] = nobody
 		default:
@@ -186,8 +225,10 @@ type key struct {
 type Card struct {
 	Version string
 	Final   bool
-	FileID  string
-	MP4     []byte
+	// Named is which of the first three the picture names.
+	Named  [3]bool
+	FileID string
+	MP4    []byte
 	// World is the ranking the picture shows.
 	World db.World
 	drawn time.Time
@@ -212,31 +253,46 @@ func (c Card) Animation() telegram.Animation {
 }
 
 // state is d's ranking now and the version of the picture that shows it.
-// Once the day is final the podium is named, and hidden is who on it asked
-// to be hidden: the version changes with it.
-func (s *Service) state(ctx context.Context, d round.Date) (w db.World, pins []db.WorldPin, version string, final bool, hidden map[int64]bool, err error) {
-	final = s.Final(d)
-	if w, err = s.Store.World(ctx, d); err != nil {
-		return db.World{}, nil, "", false, nil, err
+// named is who on the podium the picture names (namedTop), and hidden who
+// of them asked to be hidden: the version changes with either.
+func (s *Service) state(ctx context.Context, d round.Date) (st view, err error) {
+	st.final = s.Final(d)
+	if st.w, err = s.Store.World(ctx, d); err != nil {
+		return view{}, err
 	}
-	if w.Players() == 0 {
-		return db.World{}, nil, "", false, nil, ErrEmpty
+	if st.w.Players() == 0 {
+		return view{}, ErrEmpty
 	}
-	if pins, err = s.Store.WorldPins(ctx, d); err != nil {
-		return db.World{}, nil, "", false, nil, err
+	if st.pins, err = s.Store.WorldPins(ctx, d); err != nil {
+		return view{}, err
 	}
-	if final {
-		if hidden, err = s.hiddenTop(ctx, w); err != nil {
-			return db.World{}, nil, "", false, nil, err
+	if st.named, err = s.namedTop(ctx, d, st.w, st.final); err != nil {
+		return view{}, err
+	}
+	if st.named != [3]bool{} {
+		if st.hidden, err = s.hiddenTop(ctx, st.w); err != nil {
+			return view{}, err
 		}
 	}
-	return w, pins, fingerprint(w, pins, final, hidden), final, hidden, nil
+	st.version = fingerprint(st.w, st.pins, st.named, st.hidden)
+	return st, nil
+}
+
+// view is what one picture of a day shows.
+type view struct {
+	w       db.World
+	pins    []db.WorldPin
+	version string
+	final   bool
+	named   [3]bool
+	hidden  map[int64]bool
 }
 
 // soon reports whether prev is recent enough to stand for an open day's
-// newer ranking: it must already show need, the person asking.
-func (s *Service) soon(prev Card, final bool, need int64) bool {
-	return !final && !prev.Final && s.now().Sub(prev.drawn) < redrawEvery &&
+// newer ranking: it must already show need, the person asking, and name
+// whom a picture now would.
+func (s *Service) soon(prev Card, st view, need int64) bool {
+	return !st.final && !prev.Final && prev.Named == st.named && s.now().Sub(prev.drawn) < redrawEvery &&
 		(need == 0 || prev.World.RankOf(need) > 0)
 }
 
@@ -246,14 +302,14 @@ func (s *Service) Fresh(ctx context.Context, d round.Date, lang, shown string, n
 	if shown == "" {
 		return false, nil
 	}
-	_, _, version, final, _, err := s.state(ctx, d)
-	if err != nil || version == shown {
+	st, err := s.state(ctx, d)
+	if err != nil || st.version == shown {
 		return err == nil, err
 	}
 	s.mu.Lock()
 	prev, ok := s.last[key{d, lang}]
 	s.mu.Unlock()
-	return ok && prev.Version == shown && s.soon(prev, final, need), nil
+	return ok && prev.Version == shown && s.soon(prev, st, need), nil
 }
 
 // Card is the picture of d's ranking so far in lang: kept or drawn now. need
@@ -262,10 +318,11 @@ func (s *Service) Fresh(ctx context.Context, d round.Date, lang, shown string, n
 func (s *Service) Card(ctx context.Context, d round.Date, lang string, need int64) (Card, error) {
 	s.draw.Lock()
 	defer s.draw.Unlock()
-	w, pins, version, final, hidden, err := s.state(ctx, d)
+	st, err := s.state(ctx, d)
 	if err != nil {
 		return Card{}, err
 	}
+	w, pins, version, final, hidden := st.w, st.pins, st.version, st.final, st.hidden
 	if w.RankOf(need) == 0 {
 		need = 0
 	}
@@ -273,13 +330,13 @@ func (s *Service) Card(ctx context.Context, d round.Date, lang string, need int6
 	s.mu.Lock()
 	prev, ok := s.last[k]
 	s.mu.Unlock()
-	if ok && (prev.Version == version || s.soon(prev, final, need)) {
+	if ok && (prev.Version == version || s.soon(prev, st, need)) {
 		return prev, nil
 	}
 	if kept, ok, err := s.Store.WorldCard(ctx, d, lang); err != nil {
 		return Card{}, err
 	} else if ok && kept.Version == version {
-		c := Card{Version: version, Final: final, FileID: kept.FileID, World: w, drawn: s.now()}
+		c := Card{Version: version, Final: final, Named: st.named, FileID: kept.FileID, World: w, drawn: s.now()}
 		s.remember(k, c)
 		return c, nil
 	}
@@ -293,15 +350,15 @@ func (s *Service) Card(ctx context.Context, d round.Date, lang string, need int6
 	}
 	start := time.Now()
 	var faces map[int64]*anim.Face
-	if final {
-		faces = s.faces(ctx, w, hidden)
+	if st.named != [3]bool{} {
+		faces = s.faces(ctx, w, st.named, hidden)
 	}
-	mp4, err := s.render(ctx, Scene(lang, rd.DayNo, answer, anonymous(lang, w, hidden), pins, faces, final))
+	mp4, err := s.render(ctx, Scene(lang, rd.DayNo, answer, anonymous(lang, w, hidden), pins, faces, st.named))
 	if err != nil {
 		return Card{}, err
 	}
-	s.Log.Info("world animation drawn", "date", d, "lang", lang, "players", w.Players(), "final", final, "took", time.Since(start).Round(time.Millisecond))
-	c := Card{Version: version, Final: final, MP4: mp4, World: w, drawn: s.now()}
+	s.Log.Info("world animation drawn", "date", d, "lang", lang, "players", w.Players(), "final", final, "named", st.named, "took", time.Since(start).Round(time.Millisecond))
+	c := Card{Version: version, Final: final, Named: st.named, MP4: mp4, World: w, drawn: s.now()}
 	s.remember(k, c)
 	return c, nil
 }
@@ -355,11 +412,10 @@ func (s *Service) render(ctx context.Context, sc anim.Scene) ([]byte, error) {
 }
 
 // fingerprint changes whenever the picture would: a new answer, a new top
-// three, one of them hiding or showing again, the day closing, the drawing
-// itself.
-func fingerprint(w db.World, pins []db.WorldPin, final bool, hidden map[int64]bool) string {
+// three, one of them named, hiding or showing again, the drawing itself.
+func fingerprint(w db.World, pins []db.WorldPin, named [3]bool, hidden map[int64]bool) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%t|%d\n", renderer, final, len(pins))
+	fmt.Fprintf(h, "%s|%v|%d\n", renderer, named, len(pins))
 	for _, p := range pins {
 		fmt.Fprintf(h, "%.4f,%.4f,%.3f\n", p.Lat, p.Lon, p.Km)
 	}
@@ -373,10 +429,10 @@ func fingerprint(w db.World, pins []db.WorldPin, final bool, hidden map[int64]bo
 }
 
 // Scene is the world post of the day in lang: the pins in the order they
-// came, coloured by how close, and the first three. They are named once the
-// day is final; before that their chats may still be answering, and the
-// steps show only the distance and the points.
-func Scene(lang string, dayNo int, answer db.Answer, w db.World, pins []db.WorldPin, faces map[int64]*anim.Face, final bool) anim.Scene {
+// came, coloured by how close, and the first three, those named as named
+// says (namedTop); a step whose player's group is still guessing shows only
+// the distance and the points.
+func Scene(lang string, dayNo int, answer db.Answer, w db.World, pins []db.WorldPin, faces map[int64]*anim.Face, named [3]bool) anim.Scene {
 	guesses := make([]anim.Guess, len(pins))
 	for i, p := range pins {
 		guesses[i] = anim.Guess{Lat: p.Lat, Lon: p.Lon, Km: p.Km}
@@ -400,7 +456,7 @@ func Scene(lang string, dayNo int, answer db.Answer, w db.World, pins []db.World
 		if i == 3 {
 			break
 		}
-		if !final {
+		if !named[i] {
 			top[i] = &anim.Winner{Name: "•••", Km: e.Km, Points: float64(e.Points)}
 			continue
 		}

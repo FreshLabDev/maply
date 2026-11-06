@@ -108,7 +108,7 @@ func TestScenePinsRainInTheOrderTheyCame(t *testing.T) {
 	store.answer(3, "Cy", 300, at.Add(time.Hour))
 	store.answer(4, "Di", 3000, at.Add(30*time.Minute))
 	a, _ := store.Answer(context.Background(), 1)
-	w := Scene("en", 3, a, store.world, store.pins, nil, true).(*anim.World)
+	w := Scene("en", 3, a, store.world, store.pins, nil, [3]bool{true, true, true}).(*anim.World)
 	if w.Guesses[0].At != 1 || w.Guesses[1].At != 0 {
 		t.Errorf("times = %v %v", w.Guesses[0].At, w.Guesses[1].At)
 	}
@@ -131,12 +131,12 @@ func TestSiteWinnerIsAGuestInEveryLanguage(t *testing.T) {
 	w := store.world
 	w.Entries = append([]db.Entry{{Rank: 1, Player: "p1", Name: "anything typed", Km: 1, Points: 5000}}, w.Entries...)
 	for lang, want := range map[string]string{"zh": "Guest", "ja": "Guest", "ar": "Guest", "en": "Guest"} {
-		sc := Scene(lang, 3, a, w, store.pins, nil, true).(*anim.World)
+		sc := Scene(lang, 3, a, w, store.pins, nil, [3]bool{true, true, true}).(*anim.World)
 		if got := sc.Top[0].Name; got != want {
 			t.Errorf("%s: site winner named %q, want %q", lang, got, want)
 		}
 	}
-	if got := Scene("ru", 3, a, w, store.pins, nil, true).(*anim.World).Top[0].Name; got == "?" || got == "anything typed" {
+	if got := Scene("ru", 3, a, w, store.pins, nil, [3]bool{true, true, true}).(*anim.World).Top[0].Name; got == "?" || got == "anything typed" {
 		t.Errorf("ru: site winner named %q", got)
 	}
 }
@@ -201,5 +201,60 @@ func TestPodiumNamesNobodyWhoHid(t *testing.T) {
 	// A language the faces don't write gets English.
 	if _, err := s.Card(ctx, d, "ja", 0); err != nil || scene.Top[0].Name != "Anonymous" {
 		t.Fatalf("ja podium = %v, %+v", err, scene.Top[0])
+	}
+}
+
+// namingStore is a store that tells which players' groups have had their
+// reveal.
+type namingStore struct {
+	*fakeStore
+	open map[int64]bool
+}
+
+func (n namingStore) NamedOn(_ context.Context, _ round.Zones, _ round.Date, ids []int64, _ time.Time) (map[int64]bool, error) {
+	out := map[int64]bool{}
+	for _, id := range ids {
+		out[id] = n.open[id]
+	}
+	return out, nil
+}
+
+// Before the day closes everywhere the podium names a player whose groups
+// have all had their reveal, and keeps the others' names back; a name
+// opening draws the picture again at once, however recent the last one.
+func TestPodiumNamesWhoseGroupsHaveRevealed(t *testing.T) {
+	ctx := context.Background()
+	zones, err := round.LoadZones()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := round.NewDate(2026, 11, 2)
+	clock := d.At(19, 0, time.UTC)
+	store := &fakeStore{kept: map[string]db.WorldCard{}}
+	store.answer(1, "Ana", 3, clock.Add(-3*time.Hour))
+	store.answer(2, "Bo", 30, clock.Add(-2*time.Hour))
+	ns := namingStore{fakeStore: store, open: map[int64]bool{1: true}}
+	var scene *anim.World
+	s := &Service{Store: ns, Zones: zones, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now: func() time.Time { return clock },
+		Draw: func(_ context.Context, sc anim.Scene) ([]byte, error) {
+			scene = sc.(*anim.World)
+			return []byte("mp4"), nil
+		}}
+
+	c, err := s.Card(ctx, d, "en", 0)
+	if err != nil || c.Final || c.Named != [3]bool{true, false, false} {
+		t.Fatalf("card %+v, %v", c, err)
+	}
+	if scene.Top[0].Name != "Ana" || scene.Top[1].Name != "•••" {
+		t.Fatalf("podium = %q, %q", scene.Top[0].Name, scene.Top[1].Name)
+	}
+	clock = clock.Add(time.Minute)
+	ns.open[2] = true
+	if fresh, _ := s.Fresh(ctx, d, "en", c.Version, 0); fresh {
+		t.Error("the picture without his name is fresh after his group's reveal")
+	}
+	if c2, err := s.Card(ctx, d, "en", 0); err != nil || c2.Version == c.Version || scene.Top[1].Name != "Bo" {
+		t.Fatalf("after his reveal: %v, same version %t, %q", err, c2.Version == c.Version, scene.Top[1].Name)
 	}
 }

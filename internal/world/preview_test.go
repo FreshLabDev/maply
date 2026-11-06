@@ -37,7 +37,7 @@ func TestPreview(t *testing.T) {
 		}
 	}
 	a, _ := store.Answer(context.Background(), 1)
-	if _, err := anim.Encode(context.Background(), Scene("ru", 4, a, store.world, store.pins, faces, true), out, anim.Options{FFmpeg: "ffmpeg"}); err != nil {
+	if _, err := anim.Encode(context.Background(), Scene("ru", 4, a, store.world, store.pins, faces, [3]bool{true, true, true}), out, anim.Options{FFmpeg: "ffmpeg"}); err != nil {
 		t.Fatal(err)
 	}
 }

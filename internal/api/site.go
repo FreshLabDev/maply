@@ -172,7 +172,7 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 	})
 	isMe := func(e db.Entry) bool { return own >= 0 && e.Rank == world.Entries[own].Rank }
 	secret := s.boardSecret()
-	resp.Board = board(secret, d, 0, world, isMe, nil, true, true)
+	resp.Board = board(secret, d, 0, world, isMe, nil, true, func(db.Entry) bool { return true })
 	who := make([]*people.Person, len(resp.Board))
 	for i := range resp.Board {
 		who[i] = &resp.Board[i].Person

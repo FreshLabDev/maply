@@ -366,21 +366,22 @@ func TestADayAcrossZones(t *testing.T) {
 	if rr.Phase != "final" || rr.Place.Lat != placeLat || rr.Place.City != "Львов" || len(rr.Table) != 2 || !strings.Contains(res, "Pavel") {
 		t.Fatalf("Moscow result = %s", res)
 	}
-	// At the Moscow reveal the group's rows have names and keep their keys;
-	// the rest of the world stays hidden until the day closes in every zone,
-	// since Kyiv and Minsk are still answering.
+	// At the Moscow reveal the group's rows have names and keep their keys.
+	// So has Alesia's: the Minsk group she plays in revealed at 17:00 UTC.
+	// Dmitry stays hidden, as the Kyiv group he is in is still answering.
 	kept := 0
 	for _, l := range rr.Board {
 		if keys[l.Key] {
 			kept++
 		}
 		ours := l.Me || l.Group
-		if ours == (l.Name == "") || ours == l.Hidden || l.Group != (l.Name == "Pavel") {
+		named := ours || l.Name == "Alesia"
+		if named == l.Hidden || named == (l.Name == "") || l.Group != (l.Name == "Pavel") {
 			t.Fatalf("board row after the reveal = %+v", l)
 		}
 	}
-	if strings.Contains(res, "Dmitry") || strings.Contains(res, "Alesia") {
-		t.Fatalf("the Moscow group learns names from groups still guessing: %s", res)
+	if strings.Contains(res, "Dmitry") || !strings.Contains(res, "Alesia") {
+		t.Fatalf("the Moscow group's world names at 17:30 UTC: %s", res)
 	}
 	if kept != len(keys) {
 		t.Fatalf("the board's keys changed at the reveal: %+v", rr.Board)

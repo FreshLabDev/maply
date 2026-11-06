@@ -193,10 +193,10 @@ func TestATelegramAccountPlaysOnTheSite(t *testing.T) {
 	if body := hs.siteExpect("GET", "/api/result", pavel, "", http.StatusForbidden); leaks(body) || !strings.Contains(body, "2026-12-11T04:00:00Z") {
 		t.Fatalf("Pavel's result after his reveals = %s", body)
 	}
-	// Past her reveal she still sees the others of the world unnamed: Ivan's
-	// group is not hers, and the day is not over everywhere.
-	if body := hs.siteExpect("GET", "/api/result", oksana, "", http.StatusOK); strings.Contains(body, "Ivan") {
-		t.Fatalf("Ivan is named before the day closed: %s", body)
+	// Past her reveal she sees Ivan named: the Moscow group he plays in
+	// has had its reveal, though the day is not over everywhere.
+	if body := hs.siteExpect("GET", "/api/result", oksana, "", http.StatusOK); !strings.Contains(body, "Ivan") {
+		t.Fatalf("Ivan unnamed after his group's reveal: %s", body)
 	}
 
 	// The day is over in every zone: names for everyone, the place for

@@ -65,6 +65,7 @@ type Store interface {
 	ChatZone(context.Context, int64) (string, error)
 	World(context.Context, round.Date) (db.World, error)
 	DayPins(context.Context, round.Date) ([][2]float64, error)
+	NamedOn(context.Context, round.Zones, round.Date, []int64, time.Time) (map[int64]bool, error)
 	AdoptDMZone(context.Context, int64, string) (bool, error)
 	FixZone(context.Context, int64, string) error
 	ChatActive(context.Context, int64) (bool, error)
@@ -787,9 +788,10 @@ func (p play) viewer() int64 {
 }
 
 // resultVersion changes with a new answer in the chat or the world, at the
-// chat's reveal and when the world's names open.
-func resultVersion(chatN, worldN int, phase string, worldOpen bool) string {
-	return strconv.Itoa(chatN) + "." + strconv.Itoa(worldN) + "." + phase + "." + strconv.FormatBool(worldOpen)
+// chat's reveal and at each zone's reveal, revealed of them so far, when the
+// names of the world's players there open.
+func resultVersion(chatN, worldN int, phase string, revealed int) string {
+	return strconv.Itoa(chatN) + "." + strconv.Itoa(worldN) + "." + phase + "." + strconv.Itoa(revealed)
 }
 
 type resultResponse struct {
@@ -916,7 +918,7 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 	if live {
 		phase = "live"
 	}
-	worldOpen := !now.Before(s.Zones.LastReveal(p.date))
+	revealed := s.Zones.Revealed(p.date, now)
 	var opensAt *time.Time
 	if live {
 		at := opens.UTC()
@@ -943,7 +945,7 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 			chatN = 1
 		}
 	}
-	if version := resultVersion(chatN, worldN, phase, worldOpen); since != "" && since == version {
+	if version := resultVersion(chatN, worldN, phase, revealed); since != "" && since == version {
 		return resultResponse{Phase: phase, OpensAt: opensAt, Version: version, Same: true}, nil
 	}
 	var guesses []db.Guess
@@ -964,7 +966,7 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		return resultResponse{}, err
 	}
 	world := day.world
-	version := resultVersion(len(guesses), world.Players(), phase, worldOpen)
+	version := resultVersion(len(guesses), world.Players(), phase, revealed)
 	if since != "" && since == version {
 		return resultResponse{Phase: phase, OpensAt: opensAt, Version: version, Same: true}, nil
 	}
@@ -1010,7 +1012,11 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		}
 	}
 	isMe := func(e db.Entry) bool { return e.UserID != 0 && e.UserID == p.user.ID }
-	resp.Board = board(secret, p.date, viewer, world, isMe, group, !live, worldOpen)
+	named, err := s.namedOn(ctx, p.date, world, isMe, group, live, now)
+	if err != nil {
+		return resultResponse{}, err
+	}
+	resp.Board = board(secret, p.date, viewer, world, isMe, group, !live, named)
 	who := make([]*people.Person, 0, len(resp.Table)+len(resp.Board))
 	for i := range resp.Table {
 		who = append(who, &resp.Table[i].Person)
@@ -1081,10 +1087,11 @@ func worldNowOf(p play, w db.World, pins [][2]float64) *worldNow {
 
 // board is the world's table as this person may see it: the best rows, and
 // theirs and their group's wherever they stand. Your own row has its name.
-// Your group's names open at the chat's reveal, groupOpen; everyone else's
-// once the day has closed in every zone, worldOpen, so a group in Tokyo does
-// not learn who is who in a Kyiv group still guessing.
-func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.Entry) bool, group map[int64]bool, groupOpen, worldOpen bool) []boardLine {
+// Your group's names open at the chat's reveal, groupOpen; everyone else's as
+// named says: at the viewer's reveal, for a player whose groups have all had
+// theirs (namedOn), so a group in Tokyo does not learn who is who in a Kyiv
+// group still guessing.
+func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.Entry) bool, group map[int64]bool, groupOpen bool, named func(db.Entry) bool) []boardLine {
 	out := make([]boardLine, 0, min(len(w.Entries), boardShown+len(group)+1))
 	for i, e := range w.Entries {
 		me := isMe(e)
@@ -1094,7 +1101,7 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 		}
 		l := boardLine{Key: boardKey(secret, d, viewer, e), Rank: e.Rank, Km: e.Km, Points: e.Points, Bonus: e.Bonus, Speed: e.Speed}
 		switch {
-		case !(me || worldOpen || groupOpen && inGroup):
+		case !(me || groupOpen && inGroup || named(e)):
 			l.Person = people.Unnamed(me)
 		case e.Site():
 			l.Person = people.SitePlayer(e.Player, e.Name, me)
@@ -1107,6 +1114,30 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 		out = append(out, l)
 	}
 	return out
+}
+
+// namedOn is which rows of the world's table have their names for a viewer
+// whose reveal is ahead (live) or behind: none before it; after it a site
+// player at once, and a Telegram player once their groups have had their
+// reveal too. Once the day has closed everywhere every group has.
+func (s *Server) namedOn(ctx context.Context, d round.Date, w db.World, isMe func(db.Entry) bool, group map[int64]bool, live bool, now time.Time) (func(db.Entry) bool, error) {
+	switch {
+	case live:
+		return func(db.Entry) bool { return false }, nil
+	case !now.Before(s.Zones.LastReveal(d)):
+		return func(db.Entry) bool { return true }, nil
+	}
+	var ids []int64
+	for i, e := range w.Entries {
+		if e.UserID != 0 && (i < boardShown || isMe(e) || group[e.UserID]) {
+			ids = append(ids, e.UserID)
+		}
+	}
+	open, err := s.Store.NamedOn(ctx, s.Zones, d, ids, now)
+	if err != nil {
+		return nil, err
+	}
+	return func(e db.Entry) bool { return e.UserID == 0 || open[e.UserID] }, nil
 }
 
 // scoreDay scores the day's answers that have no score yet: every Telegram

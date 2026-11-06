@@ -197,6 +197,19 @@ func (z Zones) LastReveal(d Date) time.Time {
 	return last
 }
 
+// Revealed is how many of the zones maply offers have had d's reveal at now.
+// It grows at each zone's 20:00, which is when a name on the world's tables
+// may open.
+func (z Zones) Revealed(d Date, now time.Time) int {
+	n := 0
+	for _, loc := range z.locs {
+		if !now.Before(d.Reveal(loc)) {
+			n++
+		}
+	}
+	return n
+}
+
 // Match is the zone among ZoneChoices that keeps the same clock as device, an
 // IANA name from the person's phone, all year: the same offset in winter and
 // in summer. Paris and Warsaw match Berlin, Riga matches Kyiv. A device zone
