@@ -1,0 +1,625 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// Command maply-places prepares the places a curator kept for the queue.
+//
+// For every candidate a batch's reviews.json keeps, it re-encodes the frame
+// (which drops EXIF, GPS included) under a random key, paints over the nadir
+// of a panorama, asks Nominatim for the
+// city around the point with its outline and names, asks Mapillary for the
+// direction the frame faces, and finds the country and continent in the same
+// Natural Earth borders scoring uses, and picks the direction a panorama's
+// strip on the days page faces. The result is a directory of images and one
+// SQL file that inserts the places as approved; running it twice inserts
+// nothing new.
+//
+//	maply-places -out curation/out -facts curation/facts.json curation/batch-001 curation/batch-002
+//
+// For the places inserted before the strips, -thumb-yaws writes the UPDATEs
+// that set their direction (see thumbYaws).
+//
+// Nominatim and Mapillary answers are cached under -out, so a rerun asks
+// neither again. MAPILLARY_TOKEN comes from the environment and is never
+// printed.
+//
+// -pool free prepares places for the free game instead: no facts, one city
+// name, and pool = 'free' in the SQL. -avoid names the other pool's SQL and
+// candidates.json files, and a candidate within -avoid-km of one of their
+// places, or the same frame, is skipped. A free batch avoids every place and
+// batch of the day, and a batch of the day avoids the free pool:
+//
+//	maply-places -pool free -out curation/out-free \
+//	  -avoid curation/out/places.sql,curation/out-004/places.sql,curation/batch-001/candidates.json,… \
+//	  curation/batch-free-001
+package main
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"image"
+	"image/jpeg"
+	"io"
+	"log"
+	"math"
+	"math/big"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/FreshLabDev/maply/internal/i18n"
+)
+
+const userAgent = "maply-curation/0 (+https://github.com/FreshLabDev/maply)"
+
+type candidate struct {
+	N        int     `json:"n"`
+	Region   string  `json:"region"`
+	Source   string  `json:"source"`
+	SourceID string  `json:"source_id"`
+	Lat      float64 `json:"lat"`
+	Lon      float64 `json:"lon"`
+	IsPano   bool    `json:"is_pano"`
+	Author   string  `json:"author"`
+	License  string  `json:"license"`
+}
+
+type reviews struct {
+	// Pool is the pool the batch was chosen for; empty is the day's.
+	Pool string         `json:"pool"`
+	Keep map[string]int `json:"keep"`
+}
+
+// curated is what a curator adds to a place: its city's names, which replace
+// the geocoder's, and the fact shown after the reveal.
+type curated struct {
+	City map[string]string `json:"city"`
+	Fact map[string]string `json:"fact"`
+	// ThumbYaw replaces the picked direction of the strip, in degrees
+	// clockwise from the centre of the panorama.
+	ThumbYaw *float64 `json:"thumb_yaw"`
+}
+
+// manifestEntry is what a curator needs to write facts: no coordinates and
+// no source ID, so the file can sit next to the facts without leaking either.
+type manifestEntry struct {
+	Ref     string            `json:"ref"`
+	Region  string            `json:"region"`
+	City    map[string]string `json:"city"`
+	Country string            `json:"country"`
+	HasPoly bool              `json:"has_poly"`
+	Fact    bool              `json:"fact"`
+}
+
+func main() {
+	log.SetFlags(0)
+	out := flag.String("out", "curation/out", "output directory: images/, cache/, places.sql, manifest.json")
+	factsPath := flag.String("facts", "", "JSON {\"<batch>/<n>\": {\"city\": {lang: name}, \"fact\": {lang: fact}}}; optional")
+	sharpenCSV := flag.String("sharpen", "", "CSV of id,kind,source_id,image_key, as <out>/sharpen.csv: fetch the originals again into <out>/sharp")
+	yawsCSV := flag.String("thumb-yaws", "", "CSV of id,kind,image_key: write <out>/thumb-yaws.sql with the strips' directions")
+	imagesDir := flag.String("images", "", "where -thumb-yaws reads the images; <out>/images by default")
+	poolName := flag.String("pool", "daily", "daily, or free for the free game: no facts, one city name")
+	avoidPaths := flag.String("avoid", "", "comma-separated places.sql and candidates.json of the other pool")
+	avoidKm := flag.Float64("avoid-km", 10, "how close to a place of the other pool a candidate may not be")
+	flag.Parse()
+	if *yawsCSV != "" {
+		dir := *imagesDir
+		if dir == "" {
+			dir = filepath.Join(*out, "images")
+		}
+		if err := thumbYaws(*yawsCSV, dir, *out); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if *sharpenCSV != "" {
+		p := &preparer{out: *out, token: os.Getenv("MAPILLARY_TOKEN"), client: &http.Client{Timeout: 2 * time.Minute}}
+		if err := p.sharpen(*sharpenCSV, filepath.Join(*out, "sharp")); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if flag.NArg() == 0 {
+		log.Fatal("usage: maply-places [-out dir] [-facts file] batch-dir...")
+	}
+	for _, dir := range []string{"images", "cache"} {
+		if err := os.MkdirAll(filepath.Join(*out, dir), 0o755); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if *poolName != "daily" && *poolName != "free" {
+		log.Fatalf("-pool is daily or free, not %q", *poolName)
+	}
+	if *poolName == "free" && *factsPath != "" {
+		log.Fatal("the free pool has no facts")
+	}
+	if *poolName == "free" && *avoidPaths == "" {
+		log.Fatal("-pool free needs -avoid with the places and batches of the day")
+	}
+	var avoid *avoidList
+	if *avoidPaths != "" {
+		var err error
+		if avoid, err = readAvoid(strings.Split(*avoidPaths, ","), *avoidKm); err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("avoid: %d places of the other pool, %.0f km", len(avoid.points), *avoidKm)
+	}
+	facts := map[string]curated{}
+	if *factsPath != "" {
+		if err := readJSON(*factsPath, &facts); err != nil {
+			log.Fatal(err)
+		}
+	}
+	world, err := geo.World()
+	if err != nil {
+		log.Fatal(err)
+	}
+	p := &preparer{out: *out, world: world, token: os.Getenv("MAPILLARY_TOKEN"), client: &http.Client{Timeout: 60 * time.Second}}
+
+	var sql bytes.Buffer
+	sql.WriteString("-- Generated by cmd/maply-places. Inserts approved places; a rerun adds nothing.\nBEGIN;\n")
+	var manifest []manifestEntry
+	var sharpRows [][]string
+	for _, batchDir := range flag.Args() {
+		var cands []candidate
+		var rev reviews
+		if err := readJSON(filepath.Join(batchDir, "candidates.json"), &cands); err != nil {
+			log.Fatal(err)
+		}
+		if err := readJSON(filepath.Join(batchDir, "reviews.json"), &rev); err != nil {
+			log.Fatal(err)
+		}
+		// A free batch written as the day's would go to the queue of days.
+		if err := samePool(rev.Pool, *poolName); err != nil {
+			log.Fatalf("%s: %v", batchDir, err)
+		}
+		batch := filepath.Base(batchDir)
+		sort.Slice(cands, func(i, j int) bool { return cands[i].N < cands[j].N })
+		for _, c := range cands {
+			difficulty, kept := rev.Keep[strconv.Itoa(c.N)]
+			if !kept {
+				continue
+			}
+			ref := fmt.Sprintf("%s/%03d", batch, c.N)
+			if why := avoid.why(c); why != "" {
+				log.Printf("%s (%s): skipped: %s", ref, c.Region, why)
+				continue
+			}
+			pl, err := p.prepare(batchDir, ref, c, facts[ref].ThumbYaw)
+			if err != nil {
+				log.Printf("%s (%s): skipped: %v", ref, c.Region, err)
+				continue
+			}
+			pl.difficulty = difficulty
+			pl.fact = facts[ref].Fact
+			// The curator's names win: the geocoder sometimes names a square
+			// or a district, or has no name in a language.
+			for lang, name := range facts[ref].City {
+				if pl.city == nil {
+					pl.city = map[string]string{}
+				}
+				pl.city[lang] = name
+			}
+			pl.pool = *poolName
+			if pl.pool == "free" {
+				pl.city = oneName(pl.city)
+			}
+			sql.WriteString(pl.insert())
+			manifest = append(manifest, manifestEntry{Ref: ref, Region: c.Region, City: pl.city, Country: pl.country.ISO,
+				HasPoly: pl.poly != nil, Fact: len(pl.fact) > 0})
+			sharpRows = append(sharpRows, sharpenRow(ref, pl))
+		}
+	}
+	sql.WriteString("COMMIT;\n")
+	if err := os.WriteFile(filepath.Join(*out, "places.sql"), sql.Bytes(), 0o644); err != nil {
+		log.Fatal(err)
+	}
+	data, _ := json.MarshalIndent(manifest, "", "  ")
+	if err := os.WriteFile(filepath.Join(*out, "manifest.json"), data, 0o644); err != nil {
+		log.Fatal(err)
+	}
+	if err := writeCSV(filepath.Join(*out, "sharpen.csv"), sharpRows); err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("%d places prepared in %s", len(manifest), *out)
+}
+
+type preparer struct {
+	out    string
+	world  *geo.Countries
+	token  string
+	client *http.Client
+	lastNm time.Time
+}
+
+type place struct {
+	c          candidate
+	key        string
+	country    geo.Country
+	city       map[string]string
+	poly       json.RawMessage
+	heading    *float64
+	thumbYaw   *float64
+	difficulty int
+	fact       map[string]string
+	pool       string
+}
+
+func (p *preparer) prepare(batchDir, ref string, c candidate, yaw *float64) (*place, error) {
+	cacheBase := filepath.Join(p.out, "cache", strings.ReplaceAll(ref, "/", "-"))
+	country, ok := p.world.Locate(geo.Point{Lat: c.Lat, Lon: c.Lon})
+	if !ok {
+		// The simplified borders put some waterfronts offshore; the address
+		// still names the country.
+		iso, err := p.countryCode(c, cacheBase+".nominatim.json")
+		if err != nil {
+			return nil, err
+		}
+		if country, ok = p.world.ByISO(iso); !ok {
+			return nil, fmt.Errorf("the point is in no Natural Earth country, and %q is not one either", iso)
+		}
+		log.Printf("%s (%s): offshore in Natural Earth, country %s from the address", ref, c.Region, iso)
+	}
+	pl := &place{c: c, country: country}
+
+	var err error
+	// The key file is versioned: /img/ is served immutable, so a frame whose
+	// pixels change (v2 masks the nadir) needs a new key, not the old one.
+	if pl.key, err = p.image(filepath.Join(batchDir, "full", fmt.Sprintf("%03d.jpg", c.N)), c.IsPano, cacheBase+".v2.key"); err != nil {
+		return nil, err
+	}
+	// The curator named the city; the area around the point at city zoom is
+	// sometimes a district of it instead.
+	if pl.city, pl.poly, err = p.searchCity(c, cacheBase+".search.json"); err != nil {
+		return nil, err
+	}
+	if pl.city == nil {
+		if pl.city, pl.poly, err = p.cityOf(c, cacheBase+".nominatim.json"); err != nil {
+			return nil, err
+		}
+	}
+	if c.Source == "mapillary" {
+		if pl.heading, err = p.heading(c, cacheBase+".heading.json"); err != nil {
+			return nil, err
+		}
+	}
+	if c.IsPano {
+		if pl.thumbYaw, err = p.thumbYaw(pl.key, cacheBase+".v1.yaw", yaw); err != nil {
+			return nil, err
+		}
+	}
+	return pl, nil
+}
+
+// image re-encodes the frame under a random key, with the nadir of a panorama
+// painted over. The key is remembered, so a rerun reuses the file instead of
+// minting a second one.
+func (p *preparer) image(src string, pano bool, keyFile string) (string, error) {
+	if key, err := os.ReadFile(keyFile); err == nil {
+		if _, err := os.Stat(filepath.Join(p.out, "images", string(key))); err == nil {
+			return string(key), nil
+		}
+	}
+	f, err := os.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	img, _, err := image.Decode(f)
+	if err != nil {
+		return "", fmt.Errorf("decode %s: %w", src, err)
+	}
+	if pano {
+		img = maskNadir(img)
+	}
+	key, err := randomKey(20)
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	// Encoding from pixels writes no EXIF, GPS or maker notes.
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 88}); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(p.out, "images", key), buf.Bytes(), 0o644); err != nil {
+		return "", err
+	}
+	return key, os.WriteFile(keyFile, []byte(key), 0o644)
+}
+
+func randomKey(n int) (string, error) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		k, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+		if err != nil {
+			return "", err
+		}
+		b[i] = alphabet[k.Int64()]
+	}
+	return string(b), nil
+}
+
+func (p *preparer) countryCode(c candidate, cache string) (string, error) {
+	if _, _, err := p.cityOf(c, cache); err != nil {
+		return "", err
+	}
+	raw, err := os.ReadFile(cache)
+	if err != nil {
+		return "", err
+	}
+	var r struct {
+		Address struct {
+			CountryCode string `json:"country_code"`
+		} `json:"address"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return "", err
+	}
+	return strings.ToUpper(r.Address.CountryCode), nil
+}
+
+// cityOf asks Nominatim for the city-level area around the point: its names
+// in the family's languages and its outline for the city bonus.
+func (p *preparer) cityOf(c candidate, cache string) (map[string]string, json.RawMessage, error) {
+	raw, err := os.ReadFile(cache)
+	if err != nil {
+		// Nominatim's policy is one request a second.
+		if wait := time.Until(p.lastNm.Add(1100 * time.Millisecond)); wait > 0 {
+			time.Sleep(wait)
+		}
+		q := url.Values{
+			"format": {"jsonv2"}, "lat": {strconv.FormatFloat(c.Lat, 'f', 6, 64)}, "lon": {strconv.FormatFloat(c.Lon, 'f', 6, 64)},
+			"zoom": {"10"}, "polygon_geojson": {"1"}, "polygon_threshold": {"0.0005"}, "namedetails": {"1"},
+		}
+		raw, err = p.get("https://nominatim.openstreetmap.org/reverse?"+q.Encode(), nil)
+		p.lastNm = time.Now()
+		if err != nil {
+			return nil, nil, fmt.Errorf("nominatim: %w", err)
+		}
+		if err := os.WriteFile(cache, raw, 0o644); err != nil {
+			return nil, nil, err
+		}
+	}
+	var r struct {
+		Name        string            `json:"name"`
+		NameDetails map[string]string `json:"namedetails"`
+		GeoJSON     json.RawMessage   `json:"geojson"`
+		Error       string            `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return nil, nil, fmt.Errorf("nominatim answer: %w", err)
+	}
+	if r.Error != "" {
+		return nil, nil, fmt.Errorf("nominatim: %s", r.Error)
+	}
+	names := map[string]string{}
+	for _, code := range i18n.Codes() {
+		if n := r.NameDetails["name:"+code]; n != "" {
+			names[code] = n
+		}
+	}
+	if names["en"] == "" {
+		names["en"] = r.Name
+	}
+	var shape json.RawMessage
+	var g struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(r.GeoJSON, &g) == nil && (g.Type == "Polygon" || g.Type == "MultiPolygon") {
+		if _, err := geo.ParseGeometry(r.GeoJSON); err == nil {
+			shape = r.GeoJSON
+		}
+	}
+	return names, shape, nil
+}
+
+// nominatim fetches a Nominatim URL once and caches the answer.
+func (p *preparer) nominatim(u, cache string) ([]byte, error) {
+	if raw, err := os.ReadFile(cache); err == nil {
+		return raw, nil
+	}
+	// Nominatim's policy is one request a second.
+	if wait := time.Until(p.lastNm.Add(1100 * time.Millisecond)); wait > 0 {
+		time.Sleep(wait)
+	}
+	raw, err := p.get(u, nil)
+	p.lastNm = time.Now()
+	if err != nil {
+		return nil, fmt.Errorf("nominatim: %w", err)
+	}
+	return raw, os.WriteFile(cache, raw, 0o644)
+}
+
+type nominatimPlace struct {
+	Name        string            `json:"name"`
+	Class       string            `json:"class"`
+	Type        string            `json:"type"`
+	NameDetails map[string]string `json:"namedetails"`
+	GeoJSON     json.RawMessage   `json:"geojson"`
+}
+
+// searchCity looks the curator's city up by name and keeps the first area
+// that contains the point. It returns nil names when none does.
+func (p *preparer) searchCity(c candidate, cache string) (map[string]string, json.RawMessage, error) {
+	q := url.Values{
+		"format": {"jsonv2"}, "q": {c.Region}, "limit": {"8"},
+		"polygon_geojson": {"1"}, "polygon_threshold": {"0.0005"}, "namedetails": {"1"},
+	}
+	raw, err := p.nominatim("https://nominatim.openstreetmap.org/search?"+q.Encode(), cache)
+	if err != nil {
+		return nil, nil, err
+	}
+	var found []nominatimPlace
+	if err := json.Unmarshal(raw, &found); err != nil {
+		return nil, nil, fmt.Errorf("nominatim search answer: %w", err)
+	}
+	for _, f := range found {
+		shape, err := geo.ParseGeometry(f.GeoJSON)
+		if err != nil || !shape.Contains(geo.Point{Lat: c.Lat, Lon: c.Lon}) {
+			continue
+		}
+		return namesOf(f), f.GeoJSON, nil
+	}
+	return nil, nil, nil
+}
+
+func namesOf(f nominatimPlace) map[string]string {
+	names := map[string]string{}
+	for _, code := range i18n.Codes() {
+		if n := f.NameDetails["name:"+code]; n != "" {
+			names[code] = n
+		}
+	}
+	if names["en"] == "" {
+		names["en"] = f.Name
+	}
+	return names
+}
+
+// heading is the direction the centre of the frame faces.
+func (p *preparer) heading(c candidate, cache string) (*float64, error) {
+	raw, err := os.ReadFile(cache)
+	if err != nil {
+		if p.token == "" {
+			return nil, nil
+		}
+		q := url.Values{"fields": {"computed_compass_angle,compass_angle"}, "access_token": {p.token}}
+		raw, err = p.get("https://graph.mapillary.com/"+url.PathEscape(c.SourceID)+"?"+q.Encode(), nil)
+		if err != nil {
+			return nil, fmt.Errorf("mapillary: %w", err)
+		}
+		if err := os.WriteFile(cache, raw, 0o644); err != nil {
+			return nil, err
+		}
+	}
+	var r struct {
+		Computed *float64 `json:"computed_compass_angle"`
+		Compass  *float64 `json:"compass_angle"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return nil, fmt.Errorf("mapillary answer: %w", err)
+	}
+	h := r.Computed
+	if h == nil {
+		h = r.Compass
+	}
+	if h == nil {
+		return nil, nil
+	}
+	v := *h
+	for v < 0 {
+		v += 360
+	}
+	for v >= 360 {
+		v -= 360
+	}
+	return &v, nil
+}
+
+func (p *preparer) get(u string, headers map[string]string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept-Language", "en")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		// The URL may carry nothing secret, but the error is printed: keep
+		// it to the host.
+		return nil, fmt.Errorf("request to %s failed", req.URL.Host)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s answered %d", req.URL.Host, resp.StatusCode)
+	}
+	return body, nil
+}
+
+func (pl *place) insert() string {
+	kind := "photo"
+	if pl.c.IsPano {
+		kind = "panorama"
+	}
+	sourceURL := ""
+	if pl.c.Source == "mapillary" {
+		sourceURL = "https://www.mapillary.com/app/?pKey=" + pl.c.SourceID
+	}
+	heading := "NULL"
+	if pl.heading != nil {
+		// Rounded to a tenth, 359.96 would be 360.0, which the schema refuses.
+		h := math.Round(*pl.heading*10) / 10
+		if h >= 360 {
+			h -= 360
+		}
+		heading = strconv.FormatFloat(h, 'f', 1, 64)
+	}
+	yaw := "NULL"
+	if pl.thumbYaw != nil {
+		yaw = strconv.FormatFloat(*pl.thumbYaw, 'f', -1, 64)
+	}
+	// A place of the day leaves pool to its default, so its SQL still loads
+	// into a database from before the column.
+	poolCol, poolVal := "", ""
+	if pl.pool != "" && pl.pool != "daily" {
+		poolCol, poolVal = "pool, ", lit(pl.pool)+", "
+	}
+	return fmt.Sprintf(`INSERT INTO maply.place (%sstatus, source, source_id, source_url, author, license, kind, lat, lon, heading,
+  image_key, country_iso, continent, city, city_poly, fact, difficulty, reviewed_at, thumb_yaw)
+VALUES (%s'approved', %s, %s, %s, %s, %s, '%s', %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, now(), %s)
+ON CONFLICT (source, source_id) DO NOTHING;
+`, poolCol, poolVal, lit(pl.c.Source), lit(pl.c.SourceID), litOrNull(sourceURL), litOrNull(pl.c.Author), lit(pl.c.License), kind,
+		strconv.FormatFloat(pl.c.Lat, 'f', -1, 64), strconv.FormatFloat(pl.c.Lon, 'f', -1, 64), heading,
+		lit(pl.key), lit(pl.country.ISO), lit(pl.country.Continent),
+		jsonLit(pl.city), rawLit(pl.poly), jsonLit(pl.fact), pl.difficulty, yaw)
+}
+
+func lit(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+func litOrNull(s string) string {
+	if s == "" {
+		return "NULL"
+	}
+	return lit(s)
+}
+
+func jsonLit(m map[string]string) string {
+	if len(m) == 0 {
+		return "NULL"
+	}
+	b, _ := json.Marshal(m)
+	return lit(string(b)) + "::jsonb"
+}
+
+func rawLit(r json.RawMessage) string {
+	if len(r) == 0 {
+		return "NULL"
+	}
+	return lit(string(r)) + "::jsonb"
+}
+
+func readJSON(path string, v any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return nil
+}

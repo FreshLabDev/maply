@@ -1,0 +1,734 @@
+// SPDX-License-Identifier: Apache-2.0
+//go:build integration
+
+// A whole day on a fast clock against a real PostgreSQL:
+//
+//	MAPLY_TEST_DATABASE_URL=postgres://… go test -tags=integration ./internal/schedule/
+package schedule
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/FreshLabDev/tg"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/FreshLabDev/maply/internal/auth"
+	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/FreshLabDev/maply/migrations"
+)
+
+type sent struct {
+	kind    string // photo, text, edit, pin, unpin
+	chatID  int64
+	text    string
+	fileID  string
+	upload  bool
+	buttons telegram.Markup
+}
+
+type fakeTG struct {
+	mu   sync.Mutex
+	next int64
+	log  []sent
+	// fail makes the next send to the chat fail with this error.
+	fail map[int64]error
+	// failKind makes every call of a kind fail with this error.
+	failKind map[string]error
+	// onSend runs on every send, before it is answered.
+	onSend func()
+	// texts are the messages sent as text, which have no caption to edit.
+	texts map[int64]bool
+}
+
+func (f *fakeTG) add(s sent) (tg.Message, error) {
+	if f.onSend != nil {
+		f.onSend()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.fail[s.chatID]; err != nil {
+		delete(f.fail, s.chatID)
+		return tg.Message{}, err
+	}
+	if err := f.failKind[s.kind]; err != nil {
+		return tg.Message{}, err
+	}
+	f.next++
+	f.log = append(f.log, s)
+	msg := tg.Message{MessageID: f.next}
+	if s.kind == "text" {
+		if f.texts == nil {
+			f.texts = map[int64]bool{}
+		}
+		f.texts[f.next] = true
+	}
+	if s.kind == "photo" {
+		msg.Photo = []tg.Photo{{FileID: "small"}, {FileID: "file-1"}}
+	}
+	if s.kind == "animation" {
+		msg.Document = &tg.Document{FileID: fmt.Sprintf("anim-%d", f.next)}
+	}
+	return msg, nil
+}
+
+func (f *fakeTG) SendPhoto(_ context.Context, chatID int64, p telegram.Photo, caption string, m telegram.Markup) (tg.Message, error) {
+	return f.add(sent{kind: "photo", chatID: chatID, text: caption, fileID: p.FileID, upload: p.Path != "", buttons: m})
+}
+
+func (f *fakeTG) SendAnimation(_ context.Context, chatID int64, a telegram.Animation, caption string, m telegram.Markup) (tg.Message, error) {
+	return f.add(sent{kind: "animation", chatID: chatID, text: caption, fileID: a.FileID, upload: a.MP4 != nil, buttons: m})
+}
+
+func (f *fakeTG) EditCaption(_ context.Context, chatID, msgID int64, caption string, m telegram.Markup) error {
+	f.mu.Lock()
+	text := f.texts[msgID]
+	f.mu.Unlock()
+	if text {
+		return &tg.APIError{StatusCode: 400, ErrorCode: 400, Description: "Bad Request: there is no caption in the message to edit"}
+	}
+	_, err := f.add(sent{kind: "edit", chatID: chatID, text: caption, buttons: m})
+	return err
+}
+
+func (f *fakeTG) EditText(_ context.Context, chatID, _ int64, text string, m telegram.Markup) error {
+	_, err := f.add(sent{kind: "edit_text", chatID: chatID, text: text, buttons: m})
+	return err
+}
+
+func (f *fakeTG) EditAnimation(_ context.Context, chatID, msgID int64, a telegram.Animation, caption string, m telegram.Markup) (tg.Message, error) {
+	msg, err := f.add(sent{kind: "edit_animation", chatID: chatID, text: caption, fileID: a.FileID, upload: a.MP4 != nil, buttons: m})
+	if err == nil {
+		msg.Document = &tg.Document{FileID: fmt.Sprintf("edited-%d", msg.MessageID)}
+		msg.MessageID = msgID
+	}
+	return msg, err
+}
+
+func (f *fakeTG) SendText(_ context.Context, chatID int64, text string, m telegram.Markup) (tg.Message, error) {
+	return f.add(sent{kind: "text", chatID: chatID, text: text, buttons: m})
+}
+
+func (f *fakeTG) Pin(_ context.Context, chatID, _ int64) error {
+	_, err := f.add(sent{kind: "pin", chatID: chatID})
+	return err
+}
+
+func (f *fakeTG) Unpin(_ context.Context, chatID, _ int64) error {
+	_, err := f.add(sent{kind: "unpin", chatID: chatID})
+	return err
+}
+
+func (f *fakeTG) count(kind string, chatID int64) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, s := range f.log {
+		if s.kind == kind && s.chatID == chatID {
+			n++
+		}
+	}
+	return n
+}
+
+func (f *fakeTG) last(kind string, chatID int64) sent {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.log) - 1; i >= 0; i-- {
+		if s := f.log[i]; s.kind == kind && s.chatID == chatID {
+			return s
+		}
+	}
+	return sent{}
+}
+
+type fakeWeather struct{}
+
+func (fakeWeather) Now(context.Context, geo.Point) (time.Duration, *float64, error) {
+	t := -3.4
+	return 2 * time.Hour, &t, nil
+}
+
+func testDB(t *testing.T) (*db.Store, *pgxpool.Pool) {
+	t.Helper()
+	rawURL := os.Getenv("MAPLY_TEST_DATABASE_URL")
+	if rawURL == "" {
+		t.Skip("set MAPLY_TEST_DATABASE_URL to run the database tests")
+	}
+	if u, err := url.Parse(rawURL); err != nil || !strings.Contains(u.Path, "test") {
+		t.Fatalf("MAPLY_TEST_DATABASE_URL must name a disposable database containing \"test\"")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	bootstrap, err := os.ReadFile(filepath.Join("..", "..", "deploy", "core-init.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(bootstrap)); err != nil {
+		t.Fatal(err)
+	}
+	store, err := db.Connect(ctx, rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.Close)
+	if err := store.Migrate(ctx, migrations.FS); err != nil {
+		t.Fatal(err)
+	}
+	reset := func() {
+		for _, stmt := range []string{
+			`TRUNCATE maply.job, maply.chat_round, maply.guess, maply.site_guess, maply.site_player, maply.chat_settings, maply.round, maply.place, maply.avatar, maply.world_card, maply.profile_card, maply.day_closed CASCADE`,
+			`TRUNCATE core.person, core.chat CASCADE`,
+		} {
+			if _, err := pool.Exec(ctx, stmt); err != nil {
+				t.Fatalf("%s: %v", stmt, err)
+			}
+		}
+	}
+	reset()
+	t.Cleanup(reset)
+	return store, pool
+}
+
+func exec(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), sql, args...); err != nil {
+		t.Fatalf("%s: %v", sql, err)
+	}
+}
+
+const (
+	group  = int64(-1001900005001) // a supergroup's id, past 32 bits
+	player = int64(7)              // plays in the group and in a DM
+	quiet  = int64(8)              // in the group, never answers
+	alone  = int64(9)              // only a DM
+)
+
+// TestOneDay runs 05:00 to 21:00 Kyiv time in ten-minute steps, restarts the
+// scheduler at noon, and checks that every chat got each message once.
+func TestOneDay(t *testing.T) {
+	store, pool := testDB(t)
+	ctx := context.Background()
+	images := t.TempDir()
+	if err := os.WriteFile(filepath.Join(images, "k1"), []byte("jpeg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+	                                       country_iso, continent, city, fact, difficulty, reviewed_at)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe',
+	                       '{"en":"Lisbon","ru":"Лиссабон"}', '{"en":"Built on seven hills."}', 2, now())`)
+	chat := &tg.Chat{ID: group, Type: "supergroup", Title: "Maps"}
+	for _, u := range []tg.User{{ID: player, FirstName: "Pin"}, {ID: quiet, FirstName: "Q<b>"}} {
+		if err := store.Touch(ctx, u, chat); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, u := range []tg.User{{ID: player, FirstName: "Pin"}, {ID: alone, FirstName: "Solo"}} {
+		if err := store.Touch(ctx, u, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(t, pool, `INSERT INTO maply.chat_settings (chat_id, kind, timezone) VALUES ($1, 'group', 'Europe/Kyiv')`, group)
+	exec(t, pool, `INSERT INTO maply.chat_settings (chat_id, kind, timezone) VALUES ($1, 'dm', 'Europe/Kyiv'), ($2, 'dm', 'Europe/Kyiv')`, player, alone)
+
+	zones, err := round.LoadZones()
+	if err != nil {
+		t.Fatal(err)
+	}
+	countries, err := geo.World()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kyiv, _ := time.LoadLocation("Europe/Kyiv")
+	clock := time.Date(2026, 11, 2, 5, 0, 0, 0, kyiv)
+	fake := &fakeTG{fail: map[int64]error{}}
+	newScheduler := func() *Scheduler {
+		return &Scheduler{
+			Store: store, TG: fake, Weather: fakeWeather{}, Payloads: auth.NewSigner("123:abc"),
+			Zones: zones, Countries: countries, ImagesDir: images, Username: "maplyin_bot",
+			AppURL: "https://maply.example/", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+			Now: func() time.Time { return clock },
+		}
+	}
+	s := newScheduler()
+	d := round.DateIn(clock, kyiv)
+	// The first post to the lone player fails once; the retry sends it.
+	fake.fail[alone] = fmt.Errorf("telegram: 502 Bad Gateway")
+
+	for ; clock.Hour() < 21; clock = clock.Add(10 * time.Minute) {
+		if clock.Hour() == 10 && clock.Minute() == 0 {
+			exec(t, pool, `INSERT INTO maply.guess (date, user_id, context, lat, lon, answered_at, deadline_at)
+			               VALUES ($1, $2, 'dm', 40.4, -3.7, $3, $4)`, d.Time(), player, clock, d.Reveal(kyiv))
+		}
+		if clock.Hour() == 12 && clock.Minute() == 0 {
+			s = newScheduler() // a restart forgets what it planned
+		}
+		s.Step(ctx)
+		// A second instance would also step; the queue keeps it from repeating.
+		if clock.Minute() == 30 {
+			newScheduler().Step(ctx)
+		}
+	}
+
+	for _, c := range []struct {
+		name   string
+		kind   string
+		chatID int64
+		want   int
+	}{
+		{"group post", "photo", group, 2}, // the post and the result
+		{"group pin", "pin", group, 1},
+		{"group unpin", "unpin", group, 1},
+		{"group intrigue", "text", group, 1},
+		{"group redraw", "edit", group, 1},
+		{"player post", "photo", player, 1},
+		{"player intrigue and own result", "text", player, 1},
+		{"lone post and result", "photo", alone, 2},
+		{"lone intrigue", "text", alone, 1},
+		{"quiet gets no DM", "photo", quiet, 0},
+	} {
+		if got := fake.count(c.kind, c.chatID); got != c.want {
+			t.Errorf("%s: %d %s, want %d", c.name, got, c.kind, c.want)
+		}
+	}
+	uploads := 0
+	for _, m := range fake.log {
+		if m.upload {
+			uploads++
+		}
+	}
+	if uploads != 1 {
+		t.Errorf("photo uploaded %d times, want once and then by file id", uploads)
+	}
+	post := fake.log[0]
+	if !strings.Contains(post.text, "maply #1") {
+		t.Errorf("post caption = %q", post.text)
+	}
+	if edit := fake.last("edit", group); !strings.Contains(edit.text, "Pin") {
+		t.Errorf("redraw = %q, want the player named", edit.text)
+	}
+	if b := fake.last("photo", group).buttons; len(b) != 1 || !strings.HasPrefix(b[0][0].URL, "https://t.me/maplyin_bot/play?startapp=") {
+		t.Errorf("group button = %+v, want the signed link", b)
+	}
+	if b := fake.last("photo", alone).buttons; len(b) != 1 || b[0][0].WebApp != "https://maply.example/today" {
+		t.Errorf("DM button = %+v, want the Mini App on the day", b)
+	}
+	result := fake.last("photo", group).text
+	for _, want := range []string{"Lisbon", "Portugal", "Built on seven hills.", "🥇 Pin", "<b>🌍 Places in the world so far, of 1</b>\nPin #1"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("group result %q lacks %q", result, want)
+		}
+	}
+	if own := fake.last("text", player).text; !strings.Contains(own, "km") {
+		t.Errorf("player's own result = %q", own)
+	}
+	if intr := fake.last("text", group).text; !strings.Contains(intr, "−3") && !strings.Contains(intr, "-3") {
+		t.Errorf("group intrigue = %q, want the weather", intr)
+	}
+	// Once the day closes in every zone, the group's result gets the final
+	// world line by an edit, not a fourth message.
+	messages := len(fake.log)
+	clock = zones.LastReveal(d).Add(3 * time.Minute)
+	// Telegram is down for the first try: the edit is tried again.
+	fake.failKind = map[string]error{"edit": fmt.Errorf("telegram: 502 Bad Gateway")}
+	s.Step(ctx)
+	if len(fake.log) != messages {
+		t.Fatalf("a failed edit was logged")
+	}
+	delete(fake.failKind, "edit")
+	clock = clock.Add(time.Minute)
+	s.Step(ctx)
+	if edit := fake.last("edit", group); !strings.Contains(edit.text, "<b>🌍 Final places in the world, of 1</b>\nPin #1") || !strings.Contains(edit.text, "🥇 Pin") {
+		t.Errorf("final world edit = %q", edit.text)
+	}
+	// Only the world line changes: the rest is the caption that went out.
+	evening := strings.Replace(result, "<b>🌍 Places in the world so far, of 1</b>", "<b>🌍 Final places in the world, of 1</b>", 1)
+	if edit := fake.last("edit", group); edit.text != evening {
+		t.Errorf("final world edit = %q, want the evening's caption with the line made final: %q", edit.text, evening)
+	}
+	if got := fake.count("photo", group) + fake.count("text", group); got != 3 {
+		t.Errorf("the group got %d messages, want 3", got)
+	}
+	if len(fake.log) != messages+1 {
+		t.Errorf("closing the day sent %d calls, want the one edit", len(fake.log)-messages)
+	}
+	// The next day's jobs are planned by now; the day itself is done.
+	var open int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM maply.job WHERE date = $1 AND status NOT IN ('done', 'skipped')`, d.Time()).Scan(&open); err != nil || open != 0 {
+		t.Errorf("%d jobs left open (%v)", open, err)
+	}
+}
+
+// A group that lets maply write but not send pictures still plays: the post
+// and the result go out as text, and the redraw and the final world line
+// edit that text.
+func TestGroupWithoutPictureRights(t *testing.T) {
+	store, pool := testDB(t)
+	ctx := context.Background()
+	images := t.TempDir()
+	if err := os.WriteFile(filepath.Join(images, "k1"), []byte("jpeg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+	                                       country_iso, continent, city, fact, difficulty, reviewed_at)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe',
+	                       '{"en":"Lisbon"}', '{"en":"Built on seven hills."}', 2, now())`)
+	if err := store.Touch(ctx, tg.User{ID: player, FirstName: "Pin"}, &tg.Chat{ID: group, Type: "supergroup", Title: "Maps"}); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.chat_settings (chat_id, kind, timezone) VALUES ($1, 'group', 'Europe/Kyiv')`, group)
+	zones, _ := round.LoadZones()
+	countries, _ := geo.World()
+	kyiv, _ := time.LoadLocation("Europe/Kyiv")
+	noPictures := &tg.APIError{StatusCode: 400, ErrorCode: 400, Description: "Bad Request: not enough rights to send photos to the chat"}
+	fake := &fakeTG{fail: map[int64]error{}, failKind: map[string]error{"photo": noPictures, "animation": noPictures}}
+	clock := time.Date(2026, 11, 2, 5, 0, 0, 0, kyiv)
+	s := &Scheduler{Store: store, TG: fake, Weather: fakeWeather{}, Payloads: auth.NewSigner("123:abc"),
+		Zones: zones, Countries: countries, ImagesDir: images, Username: "maplyin_bot",
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return clock }}
+	d := round.DateIn(clock, kyiv)
+	for ; clock.Hour() < 21; clock = clock.Add(10 * time.Minute) {
+		if clock.Hour() == 10 && clock.Minute() == 0 {
+			exec(t, pool, `INSERT INTO maply.guess (date, user_id, context, lat, lon, answered_at, deadline_at)
+			               VALUES ($1, $2, 'dm', 40.4, -3.7, $3, $4)`, d.Time(), player, clock, d.Reveal(kyiv))
+		}
+		s.Step(ctx)
+	}
+	if got := fake.count("text", group); got != 3 {
+		t.Fatalf("the group got %d texts, want the post, the intrigue and the result: %+v", got, fake.log)
+	}
+	if post := fake.log[0]; post.kind != "text" || !strings.Contains(post.text, "maply #1") || len(post.buttons) != 1 {
+		t.Errorf("post = %+v, want the caption and the button as text", post)
+	}
+	if edit := fake.last("edit_text", group); !strings.Contains(edit.text, "Pin") {
+		t.Errorf("redraw = %q, want the player named in the text", edit.text)
+	}
+	if result := fake.last("text", group).text; !strings.Contains(result, "Lisbon") || !strings.Contains(result, "🥇 Pin") {
+		t.Errorf("result = %q", result)
+	}
+	clock = zones.LastReveal(d).Add(3 * time.Minute)
+	s.Step(ctx)
+	if edit := fake.last("edit_text", group); !strings.Contains(edit.text, "Final places in the world") {
+		t.Errorf("final world edit = %q", edit.text)
+	}
+}
+
+// A person who blocks maply before the post and unblocks it the same
+// morning still gets the day's post.
+func TestChatBackTheSameDayGetsThePost(t *testing.T) {
+	store, pool := testDB(t)
+	ctx := context.Background()
+	images := t.TempDir()
+	if err := os.WriteFile(filepath.Join(images, "k1"), []byte("jpeg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+	                                       country_iso, continent, difficulty, reviewed_at)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+	if err := store.Touch(ctx, tg.User{ID: alone, FirstName: "Solo"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	zones, _ := round.LoadZones()
+	countries, _ := geo.World()
+	kyiv, _ := time.LoadLocation("Europe/Kyiv")
+	clock := time.Date(2026, 11, 2, 9, 0, 0, 0, kyiv)
+	fake := &fakeTG{fail: map[int64]error{alone: &tg.APIError{StatusCode: 403, ErrorCode: 403, Description: "Forbidden: bot was blocked by the user"}}}
+	s := &Scheduler{Store: store, TG: fake, Payloads: auth.NewSigner("123:abc"), Zones: zones, Countries: countries,
+		ImagesDir: images, Username: "maplyin_bot", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now: func() time.Time { return clock }}
+	s.Step(ctx)
+	clock = clock.Add(time.Minute)
+	s.Step(ctx)
+	if n := len(fake.log); n != 0 {
+		t.Fatalf("sent %d messages while blocked", n)
+	}
+	fake.mu.Lock()
+	delete(fake.fail, alone)
+	fake.mu.Unlock()
+	if err := store.ReturnChat(ctx, alone); err != nil {
+		t.Fatal(err)
+	}
+	clock = time.Date(2026, 11, 2, 12, 0, 0, 0, kyiv)
+	s.Step(ctx)
+	clock = clock.Add(time.Minute)
+	s.Step(ctx)
+	if len(fake.log) == 0 || fake.log[0].chatID != alone || (fake.log[0].kind != "photo" && fake.log[0].kind != "animation") {
+		t.Fatalf("after the return = %+v, want the day's post", fake.log)
+	}
+	clock = clock.Add(time.Hour)
+	s.Step(ctx)
+	if n := fake.count(fake.log[0].kind, alone); n != 1 {
+		t.Fatalf("%d posts, want one", n)
+	}
+}
+
+// A chat that blocked maply is left, not retried, and so is a person who
+// opened the Mini App from a shared result but never started the bot.
+func TestBlockedChatIsLeft(t *testing.T) {
+	for _, desc := range []string{
+		"Forbidden: bot was blocked by the user",
+		"Forbidden: bot can't initiate conversation with a user",
+	} {
+		t.Run(desc, func(t *testing.T) {
+			store, pool := testDB(t)
+			ctx := context.Background()
+			images := t.TempDir()
+			if err := os.WriteFile(filepath.Join(images, "k1"), []byte("jpeg"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+			                                       country_iso, continent, difficulty, reviewed_at)
+			               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+			if err := store.Touch(ctx, tg.User{ID: alone, FirstName: "Solo"}, nil); err != nil {
+				t.Fatal(err)
+			}
+			zones, _ := round.LoadZones()
+			countries, _ := geo.World()
+			kyiv, _ := time.LoadLocation("Europe/Kyiv")
+			clock := time.Date(2026, 11, 2, 9, 0, 0, 0, kyiv)
+			fake := &fakeTG{fail: map[int64]error{alone: &tg.APIError{StatusCode: 403, ErrorCode: 403, Description: desc}}}
+			s := &Scheduler{Store: store, TG: fake, Payloads: auth.NewSigner("123:abc"), Zones: zones, Countries: countries,
+				ImagesDir: images, Username: "maplyin_bot", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+				Now: func() time.Time { return clock }}
+			s.Step(ctx)
+			clock = clock.Add(time.Minute)
+			s.Step(ctx)
+			if n := len(fake.log); n != 0 {
+				t.Fatalf("sent %d messages to a chat that refused maply", n)
+			}
+			chats, err := store.ActiveChats(ctx)
+			if err != nil || len(chats) != 0 {
+				t.Fatalf("active chats after the refusal = %+v, %v", chats, err)
+			}
+		})
+	}
+}
+
+// A stop in the middle of the morning batch lets the post in flight finish
+// and be recorded, and puts the claimed posts that never started back in the
+// queue: nothing is sent twice, and the rest go out at the next start.
+func TestStopFinishesTheJobInFlight(t *testing.T) {
+	store, pool := testDB(t)
+	images := t.TempDir()
+	if err := os.WriteFile(filepath.Join(images, "k1"), []byte("jpeg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+	                                       country_iso, continent, difficulty, reviewed_at)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+	for _, id := range []int64{player, quiet, alone} {
+		if err := store.Touch(context.Background(), tg.User{ID: id, FirstName: "P"}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	zones, _ := round.LoadZones()
+	countries, _ := geo.World()
+	kyiv, _ := time.LoadLocation("Europe/Kyiv")
+	clock := time.Date(2026, 11, 2, 9, 0, 0, 0, kyiv)
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	fake := &fakeTG{}
+	fake.onSend = func() { stop() }
+	s := &Scheduler{Store: store, TG: fake, Payloads: auth.NewSigner("123:abc"), Zones: zones, Countries: countries,
+		ImagesDir: images, Username: "maplyin_bot", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now: func() time.Time { return clock }}
+	s.Step(ctx)
+	if len(fake.log) != 1 {
+		t.Fatalf("sent %d posts after the stop, want the one in flight", len(fake.log))
+	}
+	var done, pending, maxAttempts int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT count(*) FILTER (WHERE status = 'done'), count(*) FILTER (WHERE status = 'pending'),
+		       coalesce(max(attempts) FILTER (WHERE status = 'pending'), 0)
+		  FROM maply.job WHERE kind = 'post'`).Scan(&done, &pending, &maxAttempts); err != nil {
+		t.Fatal(err)
+	}
+	if done != 1 || pending != 2 || maxAttempts != 0 {
+		t.Fatalf("posts done %d, pending %d, attempts %d", done, pending, maxAttempts)
+	}
+	fake.onSend = nil
+	s.Step(context.Background())
+	if len(fake.log) != 3 {
+		t.Fatalf("after the restart %d posts in all, want 3", len(fake.log))
+	}
+}
+
+// A DM that moves west after its day was planned still answers until its new
+// reveal: the result moves with the zone, and one that runs early anyway goes
+// back in the queue without a send.
+func TestResultFollowsAZoneMovedWest(t *testing.T) {
+	store, pool := testDB(t)
+	ctx := context.Background()
+	images := t.TempDir()
+	if err := os.WriteFile(filepath.Join(images, "k1"), []byte("jpeg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+	                                       country_iso, continent, difficulty, reviewed_at)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now())`)
+	if err := store.Touch(ctx, tg.User{ID: alone, FirstName: "Solo"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.chat_settings (chat_id, kind, timezone) VALUES ($1, 'dm', 'Europe/Kyiv')`, alone)
+	zones, _ := round.LoadZones()
+	countries, _ := geo.World()
+	clock := time.Date(2026, 11, 2, 7, 0, 0, 0, time.UTC)
+	fake := &fakeTG{fail: map[int64]error{}}
+	s := &Scheduler{Store: store, TG: fake, Payloads: auth.NewSigner("123:abc"), Zones: zones, Countries: countries,
+		ImagesDir: images, Username: "maplyin_bot", AppURL: "https://maply.example/", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now: func() time.Time { return clock }}
+	s.Step(ctx)
+	if got := fake.count("photo", alone); got != 1 {
+		t.Fatalf("morning: %d photos, want the post", got)
+	}
+	d := round.DateIn(clock, time.UTC)
+	key := fmt.Sprintf("result:%s:%d", d, alone)
+	berlinReveal := time.Date(2026, 11, 2, 19, 0, 0, 0, time.UTC)
+
+	// The person moves the DM to Berlin; at 20:05 Kyiv the day is still open there.
+	exec(t, pool, `UPDATE maply.chat_settings SET timezone = 'Europe/Berlin' WHERE chat_id = $1`, alone)
+	clock = time.Date(2026, 11, 2, 18, 5, 0, 0, time.UTC)
+	s.Step(ctx)
+	if got := fake.count("photo", alone); got != 1 {
+		t.Fatalf("20:05 Kyiv: %d photos, want no result before Berlin's reveal", got)
+	}
+	var runAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT run_at FROM maply.job WHERE key = $1`, key).Scan(&runAt); err != nil || !runAt.Equal(berlinReveal) {
+		t.Fatalf("result planned at %v (%v), want %v", runAt, err, berlinReveal)
+	}
+
+	// A job the planner could no longer move, being retried, runs early: it
+	// goes back to Berlin's reveal and sends nothing.
+	exec(t, pool, `UPDATE maply.job SET run_at = $2, attempts = 1 WHERE key = $1`, key, time.Date(2026, 11, 2, 18, 0, 0, 0, time.UTC))
+	clock = clock.Add(time.Minute)
+	s.Step(ctx)
+	var attempts int
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT run_at, attempts, status FROM maply.job WHERE key = $1`, key).Scan(&runAt, &attempts, &status); err != nil ||
+		!runAt.Equal(berlinReveal) || attempts != 1 || status != "pending" || fake.count("photo", alone) != 1 {
+		t.Fatalf("early job: %v %d %s (%v), %d photos", runAt, attempts, status, err, fake.count("photo", alone))
+	}
+
+	clock = berlinReveal.Add(time.Minute)
+	s.Step(ctx)
+	if got := fake.count("photo", alone); got != 2 {
+		t.Fatalf("after Berlin's reveal: %d photos, want the result", got)
+	}
+}
+
+// Without the right to pin, the admins hear it once, in the post: a failed
+// edit is left to the redraw, a flood wait asks nothing, and once the post
+// has said it the next days do not.
+func TestPinRequestComesOnce(t *testing.T) {
+	store, pool := testDB(t)
+	ctx := context.Background()
+	images := t.TempDir()
+	for _, k := range []string{"k1", "k2", "k3", "k4"} {
+		if err := os.WriteFile(filepath.Join(images, k), []byte("jpeg"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(t, pool, `INSERT INTO maply.place (status, source, source_id, license, kind, lat, lon, image_key,
+	                                       country_iso, continent, difficulty, reviewed_at)
+	               VALUES ('approved', 'mapillary', 'm1', 'CC-BY-SA-4.0', 'panorama', 38.72, -9.14, 'k1', 'PT', 'europe', 2, now()),
+	                      ('approved', 'mapillary', 'm2', 'CC-BY-SA-4.0', 'panorama', 50.45, 30.52, 'k2', 'UA', 'europe', 2, now()),
+	                      ('approved', 'mapillary', 'm3', 'CC-BY-SA-4.0', 'panorama', 48.85, 2.35, 'k3', 'FR', 'europe', 2, now()),
+	                      ('approved', 'mapillary', 'm4', 'CC-BY-SA-4.0', 'panorama', 52.52, 13.40, 'k4', 'DE', 'europe', 2, now())`)
+	if err := store.Touch(ctx, tg.User{ID: player, FirstName: "Pin", LanguageCode: "en"}, &tg.Chat{ID: group, Type: "supergroup", Title: "Maps"}); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, pool, `INSERT INTO maply.chat_settings (chat_id, kind, timezone) VALUES ($1, 'group', 'Europe/Kyiv')`, group)
+	zones, _ := round.LoadZones()
+	countries, _ := geo.World()
+	kyiv, _ := time.LoadLocation("Europe/Kyiv")
+	noRight := &tg.APIError{StatusCode: 400, ErrorCode: 400, Description: "Bad Request: not enough rights to manage pinned messages in the chat"}
+	fake := &fakeTG{fail: map[int64]error{}, failKind: map[string]error{"pin": noRight}}
+	var clock time.Time
+	s := &Scheduler{Store: store, TG: fake, Payloads: auth.NewSigner("123:abc"), Zones: zones, Countries: countries,
+		ImagesDir: images, Username: "maplyin_bot", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now: func() time.Time { return clock }}
+	morning := func(day int) {
+		t.Helper()
+		clock = time.Date(2026, 11, day, 8, 55, 0, 0, kyiv)
+		for range 12 {
+			s.Step(ctx)
+			clock = clock.Add(time.Minute)
+		}
+	}
+	ask := i18n.T("en", "group.pin_rights")
+	// The morning posts; a day's result going out late the next morning is not one.
+	posts := func() int {
+		n := 0
+		for _, e := range fake.log {
+			if e.chatID == group && e.kind == "photo" && strings.Contains(e.text, i18n.T("en", "post.hint")) {
+				n++
+			}
+		}
+		return n
+	}
+	asked := func() int {
+		n := 0
+		for _, e := range fake.log {
+			if e.chatID == group && (e.kind == "edit" || e.kind == "photo") && strings.Contains(e.text, ask) {
+				n++
+			}
+		}
+		return n
+	}
+
+	// Day one: Telegram floods; that is not the admins' to fix.
+	fake.failKind["pin"] = &tg.APIError{StatusCode: 429, ErrorCode: 429, Description: "Too Many Requests: retry after 5", RetryAfter: 5 * time.Second}
+	morning(2)
+	if posts() != 1 || asked() != 0 {
+		t.Fatalf("day one: %d posts, asked %d times", posts(), asked())
+	}
+
+	// Day two: no right, and the edit fails; the redraw puts the request in.
+	fake.failKind["pin"] = noRight
+	fake.failKind["edit"] = fmt.Errorf("telegram: 502 Bad Gateway")
+	clock = time.Date(2026, 11, 3, 8, 55, 0, 0, kyiv)
+	for range 6 {
+		s.Step(ctx)
+		clock = clock.Add(time.Minute)
+	}
+	if posts() != 2 || asked() != 0 {
+		t.Fatalf("day two before the redraw: %d posts, asked %d times", posts(), asked())
+	}
+	delete(fake.failKind, "edit")
+	for range 6 {
+		s.Step(ctx)
+		clock = clock.Add(time.Minute)
+	}
+	if asked() != 1 {
+		t.Fatalf("day two: the redraw did not ask, log %+v", fake.log)
+	}
+
+	// Day three: the redraw asked but did not mark it, so the post asks again,
+	// and this time it is marked.
+	morning(4)
+	if asked() != 2 {
+		t.Fatalf("day three: asked %d times", asked())
+	}
+	// Day four: heard already.
+	morning(5)
+	if posts() != 4 || asked() != 2 {
+		t.Fatalf("day four: %d posts, asked %d times", posts(), asked())
+	}
+}

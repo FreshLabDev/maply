@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>maply · стенд</title>
+<style>
+:root { --bg:#eef3ef; --card:#fff; --ink:#15301f; --muted:#56705f; --line:#cbd8cf; --accent:#245a3c; --ok:#2f7d4a; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0f1a14; --card:#17241c; --ink:#e3eee6; --muted:#9db3a4; --line:#2a3d31; --accent:#7fc79a; --ok:#7fc79a; color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, sans-serif; padding: 20px max(16px, env(safe-area-inset-left)); }
+main { max-width: 1100px; margin: 0 auto; display: grid; gap: 16px; }
+h1 { font-size: 22px; margin: 0; }
+h2 { font-size: 16px; margin: 0 0 10px; }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.muted { color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button, .btn { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 5px 10px; cursor: pointer; text-decoration: none; display: inline-block; }
+button:hover, .btn:hover { border-color: var(--accent); }
+form { display: inline; margin: 0; }
+table { width: 100%; border-collapse: collapse; }
+td, th { text-align: left; padding: 7px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); border-top: 0; }
+.ok { color: var(--ok); font-weight: 600; }
+.note { background: var(--card); border-left: 4px solid var(--accent); padding: 8px 12px; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.wrap { overflow-x: auto; }
+code { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<header class="row" style="justify-content:space-between">
+  <h1>maply · локальный стенд</h1>
+  <span class="muted">{{.Now.Format "Mon 2 Jan 15:04:05 MST"}} · сдвиг {{.Shift}}</span>
+</header>
+{{if .Note}}<div class="note">{{.Note}}</div>{{end}}
+
+<section>
+  <h2>Часы</h2>
+  <div class="row">
+    <form method="post" action="/dev/clock"><input type="hidden" name="add" value="10"><button>+10 мин</button></form>
+    <form method="post" action="/dev/clock"><input type="hidden" name="add" value="60"><button>+1 ч</button></form>
+    <form method="post" action="/dev/clock"><input type="hidden" name="add" value="360"><button>+6 ч</button></form>
+    <form method="post" action="/dev/clock"><input type="hidden" name="to" value="before-reveal"><button>За 2 мин до 20:00</button></form>
+    <form method="post" action="/dev/clock"><input type="hidden" name="to" value="reveal"><button>20:00 в «Карте друзей»</button></form>
+    <form method="post" action="/dev/clock"><input type="hidden" name="to" value="lastreveal"><button>День закрыт везде</button></form>
+    <form method="post" action="/dev/clock"><input type="hidden" name="to" value="morning"><button>Завтра 07:00</button></form>
+    <form method="post" action="/dev/clock"><input type="hidden" name="reset" value="1"><button>Настоящее время</button></form>
+  </div>
+  <p class="muted">Часы двигают только сервер стенда. Телефон и браузер живут по своему времени, поэтому отсчёты в приложении после сдвига обновятся при следующем запросе.</p>
+</section>
+
+<section>
+  <h2>Группы</h2>
+  <div class="wrap"><table>
+    <tr><th>Группа</th><th>Пояс</th><th>День</th><th>20:00</th><th></th></tr>
+    {{range .Groups}}
+    <tr>
+      <td>{{.Title}} <span class="muted">{{.ID}}</span></td>
+      <td>{{.Zone}}</td>
+      <td>{{if .DayNo}}#{{.DayNo}} · {{end}}{{.Date}}</td>
+      <td>{{.Reveal}}{{if .Revealed}} <span class="ok">открыто</span>{{end}}</td>
+      <td><form method="post" action="/dev/answer-all"><input type="hidden" name="chat" value="{{.ID}}"><button>Все, кроме тебя, ответили</button></form></td>
+    </tr>
+    {{end}}
+  </table></div>
+</section>
+
+<section>
+  <h2>Игроки</h2>
+  <p class="muted">Ссылка открывает Mini App так, как его открыл бы Telegram: подписанный запуск этого человека из этой группы или из лички. «Desktop» притворяется Telegram Desktop.</p>
+  <div class="wrap"><table>
+    <tr><th>Кто</th><th>Где играет</th><th>Сегодня</th><th>Открыть Mini App</th><th></th></tr>
+    {{range .Rows}}
+    <tr>
+      <td>{{.Name}}{{if .Owner}} <span class="muted">(ты)</span>{{end}}<br><span class="muted">{{.ID}} · {{.Lang}}</span></td>
+      <td>{{.Where}}</td>
+      <td>{{if .Answered}}<span class="ok">ответил</span>{{else}}<span class="muted">нет</span>{{end}}</td>
+      <td><div class="row">{{range .Links}}<a class="btn" href="{{.URL}}" target="_blank" rel="noopener">{{.Label}}</a>{{end}}</div></td>
+      <td>{{if not .Answered}}<form method="post" action="/dev/answer"><input type="hidden" name="user" value="{{.ID}}"><input type="hidden" name="chat" value="{{.AnswerChat}}"><button>Ответить за него</button></form>{{end}}</td>
+    </tr>
+    {{end}}
+  </table></div>
+</section>
+
+<section>
+  <h2>Сайт</h2>
+  <div class="row">
+    <a class="btn" href="/" target="_blank" rel="noopener">Сайт гостем</a>
+  </div>
+  <p class="muted">Гость сайта живёт в cookie этого браузера. Второго гостя даёт окно инкогнито.</p>
+</section>
+
+{{range .Extra}}{{.}}{{end}}
+
+<section>
+  <h2>Стенд</h2>
+  <p class="muted">Закрытых дней: {{.Days}}. Места: {{range $k, $v := .Places}}{{$k}} {{$v}} · {{end}}</p>
+  <form method="post" action="/dev/fresh"><button>Стереть и засеять заново</button></form>
+</section>
+</main>
+</body>
+</html>

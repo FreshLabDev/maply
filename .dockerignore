@@ -11,3 +11,5 @@ out
 curation
 scripts
 web/prototype
+internal/geo/ne_*.geojson
+internal/geo/countries.geojson

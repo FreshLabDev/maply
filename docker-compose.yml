@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: Apache-2.0
+# Local development. Production joins core_net and connects as maply_core; see
+# deploy/ws04/compose.yaml.
+name: maply
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: maply
+      POSTGRES_PASSWORD: maply
+      POSTGRES_DB: maply
+    volumes:
+      - maply-postgres:/var/lib/postgresql/data
+      - ./deploy/core-init.sql:/docker-entrypoint-initdb.d/00-core-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maply -d maply"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  bot:
+    build:
+      context: .
+      args:
+        VERSION: ${BUILD_VERSION:-dev}
+        COMMIT: ${BUILD_COMMIT:-none}
+        DATE: ${BUILD_DATE:-unknown}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://maply:maply@postgres:5432/maply?sslmode=disable
+      HTTP_ADDR: :8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  maply-postgres:

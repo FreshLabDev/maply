@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package card
+
+import (
+	"fmt"
+	"html"
+	"strings"
+
+	"golang.org/x/text/language"
+	"golang.org/x/text/language/display"
+
+	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/i18n"
+)
+
+// Place is "Lisbon, Portugal" in lang, or whatever of the two the place has.
+func Place(lang string, a db.Answer) string {
+	place := localized(a.City, lang)
+	if country := countryName(a.CountryISO, lang); country != "" {
+		if place != "" {
+			place += ", "
+		}
+		place += country
+	}
+	return place
+}
+
+// Head is "maply #12 · Lisbon, Portugal" and the fact under it, as the HTML
+// Telegram takes in a caption.
+func Head(lang string, dayNo int, a db.Answer) string {
+	head := fmt.Sprintf("<b>maply #%d</b>", dayNo)
+	if place := Place(lang, a); place != "" {
+		head += " · " + html.EscapeString(place)
+	}
+	if fact := localized(a.Fact, lang); fact != "" {
+		head += "\n<i>" + html.EscapeString(fact) + "</i>"
+	}
+	return head
+}
+
+// Quoted is the share's head: "maply #12" with the place and its fact set
+// apart in a quote, so a forwarded card reads as the day's answer and then
+// the sender's line.
+func Quoted(lang string, dayNo int, a db.Answer) string {
+	head := fmt.Sprintf("<b>maply #%d</b>", dayNo)
+	var quote []string
+	if place := Place(lang, a); place != "" {
+		quote = append(quote, html.EscapeString(place))
+	}
+	if fact := clip(localized(a.Fact, lang), factMax); fact != "" {
+		quote = append(quote, "<i>"+html.EscapeString(fact)+"</i>")
+	}
+	if len(quote) > 0 {
+		head += "\n<blockquote>" + strings.Join(quote, "\n") + "</blockquote>"
+	}
+	return head
+}
+
+// factMax is the most of a fact a caption carries. Telegram takes 1,024
+// characters; the head always fits with room left for the table, and a
+// caption that drops lines from the end never has to drop the head.
+const factMax = 600
+
+// clip cuts s to n characters at a word, with an ellipsis.
+func clip(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	cut := string(r[:n])
+	if i := strings.LastIndexByte(cut, ' '); i > n/2 {
+		cut = cut[:i]
+	}
+	// Dashes are trimmed too; written as escapes, since no dash is ever shown.
+	return strings.TrimRight(cut, " ,.;:\u2014\u2013-") + "…"
+}
+
+// Score is a person's day for a forwarded message: the distance and the
+// points each on a line of its own and in bold, so neither is mistaken for
+// the other. Labels instead of units keep "points" out of plural forms.
+func Score(lang string, km float64, points int) string {
+	return "📍 " + i18n.T(lang, "share.distance", "km", "<b>"+i18n.FormatDistance(lang, km)+"</b>") +
+		"\n⭐ " + i18n.T(lang, "share.points", "points", "<b>"+i18n.FormatNumber(lang, points)+"</b>")
+}
+
+// City is the place's city in lang, or in the default language.
+func City(lang string, a db.Answer) string { return localized(a.City, lang) }
+
+// Country is the place's country in lang.
+func Country(lang string, a db.Answer) string { return countryName(a.CountryISO, lang) }
+
+func localized(m map[string]string, lang string) string {
+	if v := m[lang]; v != "" {
+		return v
+	}
+	return m[i18n.DefaultLang]
+}
+
+func countryName(iso, lang string) string {
+	region, err := language.ParseRegion(iso)
+	if err != nil {
+		return ""
+	}
+	return display.Regions(language.Make(lang)).Name(region)
+}

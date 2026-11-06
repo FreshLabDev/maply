@@ -1,0 +1,330 @@
+// SPDX-License-Identifier: Apache-2.0
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/exec"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/FreshLabDev/tg"
+
+	"github.com/FreshLabDev/maply/internal/account"
+	"github.com/FreshLabDev/maply/internal/api"
+	"github.com/FreshLabDev/maply/internal/auth"
+	"github.com/FreshLabDev/maply/internal/avatar"
+	"github.com/FreshLabDev/maply/internal/bot"
+	"github.com/FreshLabDev/maply/internal/card"
+	"github.com/FreshLabDev/maply/internal/config"
+	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/free"
+	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/FreshLabDev/maply/internal/health"
+	"github.com/FreshLabDev/maply/internal/profile"
+	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/FreshLabDev/maply/internal/schedule"
+	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/FreshLabDev/maply/internal/thumb"
+	"github.com/FreshLabDev/maply/internal/world"
+	"github.com/FreshLabDev/maply/migrations"
+	"github.com/FreshLabDev/maply/web"
+)
+
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
+func main() {
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLevel(os.Getenv("LOG_LEVEL"))}))
+	if err := run(log); err != nil {
+		log.Error("exit", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run(log *slog.Logger) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	zones, err := round.LoadZones()
+	if err != nil {
+		return err
+	}
+	countries, err := geo.World()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	store, err := connect(ctx, cfg.DatabaseURL, log)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	if cfg.AutoMigrate {
+		if err := store.Migrate(ctx, migrations.FS); err != nil {
+			return err
+		}
+	}
+	if err := store.CheckCore(ctx); err != nil {
+		return err
+	}
+
+	client := tg.New(cfg.TelegramBotToken,
+		tg.WithAPIBase(cfg.TelegramAPIBase),
+		// my_chat_member is what tells core which groups maply is in; Telegram
+		// leaves it out of the default set, so it has to be asked for.
+		tg.WithAllowedUpdates("message", "callback_query", "my_chat_member"),
+		tg.WithLogger(log),
+	)
+	me, err := client.Preflight(ctx, tg.Needs{})
+	if err != nil {
+		return err
+	}
+	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
+	tgc := telegram.New(client)
+	tgc.Upload = &telegram.Uploader{Base: cfg.TelegramAPIBase, Token: cfg.TelegramBotToken}
+	// ffmpeg encodes the animated posts and the statistics picture. Without
+	// it posts go out as photos and text, and the statistics as text.
+	var ffmpeg string
+	if cfg.Animations {
+		if path, err := exec.LookPath(cfg.FFmpeg); err != nil {
+			log.Warn("ffmpeg not found, posts go out as photos and text", "ffmpeg", cfg.FFmpeg, "error", err)
+		} else {
+			ffmpeg = path
+			log.Info("animated posts on", "ffmpeg", path)
+		}
+	}
+	opts := bot.Options{
+		Username: me.Username,
+		Version:  version,
+		AppURL:   cfg.AppURL,
+		Zones:    zones,
+	}
+	// The public profile's preview is one frame, drawn without ffmpeg.
+	profiles := &profile.Service{Store: store, Zones: zones, FFmpeg: ffmpeg, Log: log}
+	if ffmpeg != "" {
+		opts.Profiles = profiles
+		go profiles.Run(ctx, 10*time.Minute)
+	}
+	if cfg.ImagesDir != "" {
+		// The days page's strips, drawn once a day is over in every zone.
+		thumbs := &thumb.Service{Store: store, ImagesDir: cfg.ImagesDir, Log: log}
+		go thumbs.Run(ctx, 2*time.Minute)
+	}
+	// The players' photos for the pins and tables of the results.
+	avatars := &avatar.Service{Store: store, TG: tgc, Log: log}
+
+	signer := auth.NewSigner(cfg.TelegramBotToken)
+	// Without a renderer the result goes out with the place's photo and the
+	// Mini App shares through t.me/share, as before the card existed.
+	var cards *card.Service
+	if cfg.CardRendererURL != "" {
+		cards = &card.Service{
+			Store:     store,
+			Signer:    signer,
+			Zones:     zones,
+			Shot:      card.NewChrome(cfg.CardRendererURL),
+			PageURL:   cfg.CardPageURL,
+			PublicURL: cfg.AppURL,
+			Username:  me.Username,
+			TG:        tgc,
+			Avatars:   avatars,
+			Log:       log,
+		}
+		log.Info("result cards on", "renderer", cfg.CardRendererURL, "sharing", cards.CanShare())
+	}
+
+	var sched *schedule.Scheduler
+	if cfg.Schedule {
+		sched = &schedule.Scheduler{
+			Store:     store,
+			TG:        tgc,
+			Weather:   schedule.OpenMeteo{},
+			Payloads:  signer,
+			Zones:     zones,
+			Countries: countries,
+			ImagesDir: cfg.ImagesDir,
+			Username:  me.Username,
+			AppURL:    cfg.AppURL,
+			Avatars:   avatars,
+			Log:       log,
+		}
+		if cards != nil {
+			sched.Cards = cards
+		}
+		if ffmpeg != "" {
+			sched.Anim = &schedule.Animator{FFmpeg: ffmpeg}
+			// A DM's result is the whole world's day on one globe.
+			sched.World = &world.Service{Store: store, Zones: zones, FFmpeg: ffmpeg, Avatars: avatars, Log: log}
+			opts.World = sched
+		}
+	}
+	b := bot.New(store, tgc, log, opts)
+
+	// The free game: alone or with friends, apart from the day's ranking.
+	freeGame := &free.Service{Store: store, Countries: countries, ImageKey: signer.Key("maply-free-img-v1"), Zones: zones, Log: log}
+	go freeGame.Run(ctx, time.Minute)
+
+	gameAPI := &api.Server{
+		Store:       store,
+		InitData:    auth.NewVerifier(cfg.TelegramBotToken),
+		Payloads:    signer,
+		Members:     auth.NewMembers(client),
+		Zones:       zones,
+		Countries:   countries,
+		ImagesDir:   cfg.ImagesDir,
+		BotUsername: me.Username,
+		AppURL:      cfg.AppURL,
+		Avatars:     avatars,
+		Free:        freeGame,
+		People:      store,
+		Invites:     tgc,
+		Stills:      profiles,
+		Log:         log,
+	}
+	if cards != nil {
+		gameAPI.Shares = cards
+	}
+	accounts := account.New(account.Config{
+		Store: store, Key: signer.Key("maply-auth-flow-v1"), InitData: gameAPI.InitData,
+		Zones: zones, AppURL: cfg.AppURL, Log: log,
+	})
+	if cfg.TelegramLogin() {
+		accounts.SetTelegram(account.Telegram(account.TelegramIssuer, cfg.AppURL, cfg.TelegramLoginClientID, cfg.TelegramLoginClientSecret))
+	}
+	if cfg.GoogleLogin() {
+		accounts.SetGoogle(account.Google(account.GoogleIssuer, cfg.AppURL, cfg.GoogleClientID, cfg.GoogleClientSecret))
+	}
+	log.Info("site sign-in", "telegram", cfg.TelegramLogin(), "google", cfg.GoogleLogin())
+	gameAPI.Accounts = accounts
+	game := gameAPI.Handler()
+
+	// A closed day's page carries its preview for links shared to it.
+	app, err := web.HandlerWithMeta(gameAPI.PageMeta)
+	if err != nil {
+		return err
+	}
+
+	started := time.Now()
+	mux := http.NewServeMux()
+	mux.Handle("/api/", game)
+	mux.Handle("/img/", game)
+	mux.Handle("/auth/", accounts.Middleware(accounts.Handler()))
+	mux.Handle("GET /privacy", accounts.Privacy())
+	mux.Handle("/thumb/", game)
+	mux.Handle("/og/", game)
+	if cards != nil {
+		// The card page is for the renderer, behind a signed link and the
+		// chat's reveal; the shared images are what Telegram fetches.
+		mux.Handle("/card/", cards.Handler())
+	}
+	mux.Handle("/", app)
+	mux.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
+		Version: version, Commit: commit, Date: date,
+	}, log))
+	srv := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	errCh := make(chan error, 3)
+	go func() {
+		log.Info("http listening", "addr", cfg.HTTPAddr, "version", version)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+	}()
+	go func() {
+		log.Info("telegram polling starting")
+		if err := b.Run(ctx); err != nil {
+			errCh <- err
+		}
+	}()
+
+	// The scheduler finishes the job it is in before it returns: a result
+	// cut off after Telegram had it would go out again after the restart.
+	schedDone := make(chan struct{})
+	if sched != nil {
+		go func() {
+			defer close(schedDone)
+			log.Info("scheduler starting")
+			if err := sched.Run(ctx); err != nil {
+				errCh <- err
+			}
+		}()
+	} else {
+		close(schedDone)
+	}
+
+	var runErr error
+	select {
+	case <-ctx.Done():
+	case runErr = <-errCh:
+		stop()
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil && runErr == nil {
+		runErr = err
+	}
+	// Under the 90 s the compose file gives the container to stop.
+	select {
+	case <-schedDone:
+	case <-time.After(75 * time.Second):
+		log.Warn("scheduler still in a job at exit")
+	}
+	return runErr
+}
+
+// connect retries the first PostgreSQL connection. Container DNS inside the
+// shared core_net is not always resolvable the instant the process starts, and
+// exiting there turns a two-second blip into a restart loop.
+func connect(ctx context.Context, url string, log *slog.Logger) (*db.Store, error) {
+	const maxAttempts = 8
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		store, err := db.Connect(ctx, url)
+		if err == nil {
+			return store, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		delay := time.Duration(1<<min(attempt-1, 4)) * time.Second
+		log.Warn("database connect failed; retrying", "attempt", attempt, "retry_in", delay, "error", err)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return nil, lastErr
+}
+
+func parseLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}

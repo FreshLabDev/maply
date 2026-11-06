@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+# Both bases are pinned by digest as well as tag, so a tag moved upstream
+# never slips into a release; Dependabot moves the pair together.
+FROM golang:1.26.10-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS build
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+    -o /out/maply ./cmd/maply
+
+FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+
+# ffmpeg encodes the animated posts; without it they go out as photos.
+RUN apk add --no-cache ca-certificates tzdata ffmpeg \
+    && adduser -D -H -u 10001 maply
+
+WORKDIR /app
+
+# Migrations are embedded in the binary; there is nothing else to copy.
+COPY --from=build /out/maply /app/maply
+
+# docker inspect answers which build is running without starting it.
+ARG VERSION=dev
+ARG COMMIT=none
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.source="https://github.com/FreshLabDev/maply"
+USER maply
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/maply"]

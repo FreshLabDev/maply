@@ -1,0 +1,336 @@
+// SPDX-License-Identifier: Apache-2.0
+package db
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/FreshLabDev/maply/internal/scoring"
+)
+
+// Puzzle is what anyone playing may see before the reveal.
+type Puzzle struct {
+	ImageKey string
+	Kind     string
+	// Heading is where the frame centre points, clockwise from north; nil
+	// when the source did not say.
+	Heading *float64
+}
+
+func (s *Store) Puzzle(ctx context.Context, placeID int64) (Puzzle, error) {
+	var p Puzzle
+	err := s.pool.QueryRow(ctx, `SELECT image_key, kind, heading FROM place WHERE id = $1`, placeID).Scan(&p.ImageKey, &p.Kind, &p.Heading)
+	if err != nil {
+		return Puzzle{}, fmt.Errorf("puzzle %d: %w", placeID, err)
+	}
+	return p, nil
+}
+
+// Answer is the place after the reveal. Fact and City hold one string per
+// interface language.
+type Answer struct {
+	Point      geo.Point
+	CountryISO string
+	Continent  string
+	City       map[string]string
+	CityShape  geo.Shape
+	Fact       map[string]string
+	Author     string
+	License    string
+	Source     string
+}
+
+func (s *Store) Answer(ctx context.Context, placeID int64) (Answer, error) {
+	s.answersMu.Lock()
+	k, ok := s.answers[placeID]
+	s.answersMu.Unlock()
+	if ok && time.Since(k.at) < answerFor {
+		return k.answer, nil
+	}
+	a, err := s.readAnswer(ctx, placeID)
+	if err != nil {
+		return Answer{}, err
+	}
+	s.answersMu.Lock()
+	// A few days' places at a time; the map starts over rather than grow.
+	if s.answers == nil || len(s.answers) >= 16 {
+		s.answers = map[int64]keptAnswer{}
+	}
+	s.answers[placeID] = keptAnswer{at: time.Now(), answer: a}
+	s.answersMu.Unlock()
+	return a, nil
+}
+
+// answerFor is how long a place read once is used again. Callers only read
+// the answer they get: it is shared.
+const answerFor = 10 * time.Minute
+
+type keptAnswer struct {
+	at     time.Time
+	answer Answer
+}
+
+func (s *Store) readAnswer(ctx context.Context, placeID int64) (Answer, error) {
+	var (
+		a                Answer
+		city, poly, fact []byte
+		author           *string
+	)
+	err := s.pool.QueryRow(ctx, `
+		SELECT lat, lon, country_iso, continent, city, city_poly, fact, author, license, source
+		  FROM place WHERE id = $1`, placeID).
+		Scan(&a.Point.Lat, &a.Point.Lon, &a.CountryISO, &a.Continent, &city, &poly, &fact, &author, &a.License, &a.Source)
+	if err != nil {
+		return Answer{}, fmt.Errorf("answer %d: %w", placeID, err)
+	}
+	if author != nil {
+		a.Author = *author
+	}
+	if err := decodeLangs(city, &a.City); err != nil {
+		return Answer{}, fmt.Errorf("answer %d city: %w", placeID, err)
+	}
+	if err := decodeLangs(fact, &a.Fact); err != nil {
+		return Answer{}, fmt.Errorf("answer %d fact: %w", placeID, err)
+	}
+	if len(poly) > 0 {
+		if a.CityShape, err = geo.ParseGeometry(poly); err != nil {
+			return Answer{}, fmt.Errorf("answer %d city polygon: %w", placeID, err)
+		}
+	}
+	return a, nil
+}
+
+func decodeLangs(raw []byte, out *map[string]string) error {
+	if len(raw) == 0 {
+		*out = map[string]string{}
+		return nil
+	}
+	return json.Unmarshal(raw, out)
+}
+
+// ErrAlreadyAnswered means the person has an answer for the date already,
+// from this chat or any other.
+var ErrAlreadyAnswered = errors.New("already answered")
+
+type NewGuess struct {
+	Date       round.Date
+	UserID     int64
+	Context    string // dm, group, site
+	ChatID     int64  // groups only
+	Pin        geo.Point
+	AnsweredAt time.Time
+	Deadline   time.Time
+}
+
+// InsertGuess stores the person's one answer of the day. A site answer of
+// the day that their account holds is that answer already: it stayed a site
+// row because it came, or was taken in, after their deadline, when they may
+// have seen the place in a chat, and a second answer in a chat could be one
+// given knowing it.
+func (s *Store) InsertGuess(ctx context.Context, g NewGuess) error {
+	var chatID any
+	if g.Context == "group" {
+		chatID = g.ChatID
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("insert guess: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockPerson(ctx, tx, g.UserID); err != nil {
+		return fmt.Errorf("insert guess: %w", err)
+	}
+	var site bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (`+personSiteGuess+`)`, g.Date.Time(), g.UserID).Scan(&site); err != nil {
+		return fmt.Errorf("insert guess: %w", err)
+	}
+	if site {
+		return ErrAlreadyAnswered
+	}
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO guess (date, user_id, context, chat_id, lat, lon, answered_at, deadline_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (date, user_id) DO NOTHING`,
+		g.Date.Time(), g.UserID, g.Context, chatID, g.Pin.Lat, g.Pin.Lon, g.AnsweredAt, g.Deadline)
+	if err != nil {
+		return fmt.Errorf("insert guess: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrAlreadyAnswered
+	}
+	return tx.Commit(ctx)
+}
+
+// personSiteGuess is the site rows of date $1 held by the account of the
+// Telegram person $2.
+const personSiteGuess = `
+	SELECT sg.lat, sg.lon FROM site_guess sg
+	  JOIN site_player sp ON sp.id = sg.player
+	  JOIN account a ON a.id = sp.account_id
+	 WHERE sg.date = $1 AND a.telegram_user_id = $2`
+
+// lockPerson holds the person's answers until the transaction ends. An
+// answer in a chat and a sign-in that settles the site's rows into Telegram
+// take turns: without it each could miss the other's uncommitted row, and
+// the day would end with two answers of one person.
+func lockPerson(ctx context.Context, tx pgx.Tx, userID int64) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('maply.person.' || $1::bigint::text, 0))`, userID)
+	return err
+}
+
+// PersonSitePin is the pin of the site answer of d that the Telegram
+// person's account holds, the earliest when there are several.
+func (s *Store) PersonSitePin(ctx context.Context, d round.Date, userID int64) (geo.Point, bool, error) {
+	var p geo.Point
+	err := s.pool.QueryRow(ctx, personSiteGuess+` ORDER BY sg.answered_at, sg.player LIMIT 1`, d.Time(), userID).Scan(&p.Lat, &p.Lon)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return geo.Point{}, false, nil
+	}
+	if err != nil {
+		return geo.Point{}, false, fmt.Errorf("person site pin: %w", err)
+	}
+	return p, true, nil
+}
+
+// Guess is one stored answer. Score fields are nil until it is scored, which
+// the Mini App does the moment the answer comes in.
+type Guess struct {
+	UserID     int64
+	FirstName  string
+	Pin        geo.Point
+	AnsweredAt time.Time
+	Km         *float64
+	PtsKm      *int
+	PtsBonus   *int
+	// PtsSpeed is nil for answers scored before the speed bonus existed.
+	PtsSpeed *int
+}
+
+func (g Guess) Total() int {
+	if g.PtsKm == nil || g.PtsBonus == nil {
+		return 0
+	}
+	return *g.PtsKm + *g.PtsBonus + g.Speed()
+}
+
+// Speed is the bonus for answering early, 0 when there is none.
+func (g Guess) Speed() int {
+	if g.PtsSpeed == nil {
+		return 0
+	}
+	return *g.PtsSpeed
+}
+
+func (s *Store) GuessOf(ctx context.Context, d round.Date, userID int64) (Guess, bool, error) {
+	rows, err := s.pool.Query(ctx, guessSelect+` WHERE g.date = $1 AND g.user_id = $2`, d.Time(), userID)
+	if err != nil {
+		return Guess{}, false, fmt.Errorf("guess of %d: %w", userID, err)
+	}
+	list, err := pgx.CollectRows(rows, scanGuess)
+	if err != nil || len(list) == 0 {
+		return Guess{}, false, err
+	}
+	return list[0], true, nil
+}
+
+// ChatGuesses is the day's table for a group: the answers of everyone core has
+// seen there with maply, wherever they answered from. Best score first; on a
+// tie the closer pin, then the earlier answer.
+func (s *Store) ChatGuesses(ctx context.Context, d round.Date, chatID int64) ([]Guess, error) {
+	rows, err := s.pool.Query(ctx, guessSelect+`
+		 WHERE g.date = $1
+		   AND EXISTS (SELECT 1 FROM core.maply_presence p
+		                WHERE p.telegram_user_id = g.user_id AND p.chat_id = $2)
+		 ORDER BY COALESCE(g.pts_km + g.pts_bonus + COALESCE(g.pts_speed, 0), -1) DESC, g.km NULLS LAST, g.answered_at`, d.Time(), chatID)
+	if err != nil {
+		return nil, fmt.Errorf("chat guesses %d: %w", chatID, err)
+	}
+	return pgx.CollectRows(rows, scanGuess)
+}
+
+// ResultCounts is how many in chatID have answered d (0 for no chat) and how
+// many answers the world ranks: what a result's version is made of, counted
+// without reading either list.
+func (s *Store) ResultCounts(ctx context.Context, d round.Date, chatID int64) (chat, world int, err error) {
+	// $2 is typed by its first use: compared to a bare 0 it would be int4,
+	// which a supergroup id (-100…) overflows.
+	err = s.pool.QueryRow(ctx, `
+		SELECT (SELECT count(*) FROM guess g
+		         WHERE $2::bigint <> 0 AND g.date = $1
+		           AND EXISTS (SELECT 1 FROM core.maply_presence p
+		                        WHERE p.telegram_user_id = g.user_id AND p.chat_id = $2)),
+		       (SELECT count(*) FROM day_score WHERE date = $1)`, d.Time(), chatID).Scan(&chat, &world)
+	if err != nil {
+		return 0, 0, fmt.Errorf("result counts %d: %w", chatID, err)
+	}
+	return chat, world, nil
+}
+
+const guessSelect = `
+	SELECT g.user_id, COALESCE(pe.first_name, ''), g.lat, g.lon, g.answered_at, g.km, g.pts_km, g.pts_bonus, g.pts_speed
+	  FROM guess g
+	  LEFT JOIN core.person pe ON pe.telegram_user_id = g.user_id`
+
+func scanGuess(row pgx.CollectableRow) (Guess, error) {
+	var g Guess
+	err := row.Scan(&g.UserID, &g.FirstName, &g.Pin.Lat, &g.Pin.Lon, &g.AnsweredAt, &g.Km, &g.PtsKm, &g.PtsBonus, &g.PtsSpeed)
+	return g, err
+}
+
+// ScoreDue scores every answer for d that has no score yet. A Telegram
+// answer is scored at once: the person sees the place the moment they have
+// answered, and a person has one answer a day. A site answer waits for its
+// deadline, since a guest can always come back as another guest.
+// judge scores the pin; the speed bonus comes from the answer's own times.
+func (s *Store) ScoreDue(ctx context.Context, d round.Date, now time.Time, judge func(geo.Point) scoring.Score) (int, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT user_id, lat, lon, answered_at, deadline_at FROM guess
+		 WHERE date = $1 AND km IS NULL`, d.Time())
+	if err != nil {
+		return 0, fmt.Errorf("due guesses: %w", err)
+	}
+	type due struct {
+		user               int64
+		pin                geo.Point
+		answered, deadline time.Time
+	}
+	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (due, error) {
+		var x due
+		err := row.Scan(&x.user, &x.pin.Lat, &x.pin.Lon, &x.answered, &x.deadline)
+		return x, err
+	})
+	if err != nil {
+		return 0, err
+	}
+	for _, x := range list {
+		sc := judge(x.pin)
+		speed := scoring.SpeedBonus(x.answered, x.deadline)
+		if _, err := s.pool.Exec(ctx, `
+			UPDATE guess SET km = $3, pts_km = $4, pts_bonus = $5, pts_speed = $6
+			 WHERE date = $1 AND user_id = $2 AND km IS NULL`,
+			d.Time(), x.user, sc.Km, sc.Distance, sc.Bonus, speed); err != nil {
+			return 0, fmt.Errorf("score guess of %d: %w", x.user, err)
+		}
+	}
+	site, err := s.scoreSite(ctx, d, now, judge)
+	return len(list) + site, err
+}
+
+// UserLang is what core resolves for the person, empty when it has nothing.
+func (s *Store) UserLang(ctx context.Context, userID int64) (string, error) {
+	var lang *string
+	if err := s.pool.QueryRow(ctx, `SELECT core.effective_language($1, NULL, 'user')`, userID).Scan(&lang); err != nil {
+		return "", fmt.Errorf("user lang %d: %w", userID, err)
+	}
+	if lang == nil {
+		return "", nil
+	}
+	return *lang, nil
+}

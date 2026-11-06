@@ -20,3 +20,8 @@ __pycache__/
 
 # Promo cards and posts made for a release; kept outside git
 /outputs/
+
+# Natural Earth source and the uncompressed output of go generate; only
+# countries.geojson.gz is committed.
+/internal/geo/ne_*.geojson
+/internal/geo/countries.geojson

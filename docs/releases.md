@@ -9,7 +9,7 @@ pre-releases are tagged on `dev` and stable versions on `main`.
 ## The changelog is the release notes
 
 `CHANGELOG.md` is the source of truth for history, and the release workflow reads
-it directly — the GitHub Release body is the `## <tag>` section, copied verbatim.
+it directly: the GitHub Release body is the `## <tag>` section, copied verbatim.
 There is no second place to write release notes, and no step where the two can
 disagree.
 
@@ -22,8 +22,8 @@ Which means the changelog has to be written for somebody else to read:
   whether to upgrade. Not every refactor.
 - Say what changed and why it mattered, concretely. "Fixed a bug" tells nobody
   anything.
-- Call out anything an operator must act on — a new or renamed environment
-  variable, a migration, a changed deployment assumption — explicitly, in its
+- Call out anything an operator must act on (a new or renamed environment
+  variable, a migration, a changed deployment assumption) explicitly, in its
   own entry.
 - Exactly one `## Unreleased` section, always at the top. Two of them means the
   next release renames the wrong one.
@@ -101,8 +101,8 @@ release itself says it was not checked.
 ## Rolling back
 
 Do not retag and do not delete a published release. Roll back by deploying the
-previous version — the images are pinned by digest, so the previous digest is
-the whole rollback — and then publish a new patch that fixes what went wrong.
+previous version (the images are pinned by digest, so the previous digest is
+the whole rollback), and then publish a new patch that fixes what went wrong.
 
 A version that was published is a fact about what existed. Rewriting it makes
 every other record of it wrong.
@@ -155,7 +155,7 @@ pulling the tag first always cleared it.
 The cause was the account doing the deploying. `ws04 deploy` runs as root, and
 root's stored GHCR credential could not read the private package; the
 pull-by-tag only worked because it was run as the login user, whose credential
-can — which left the image in the shared local store for `up` to find. The
+can, which left the image in the shared local store for `up` to find. The
 registry says which is which: asked for a manifest digest as if it were a blob,
 an account that can read the package answers `404`, one that cannot answers
 `403`. A `403` here is an access problem wearing a not-found costume.
@@ -177,14 +177,14 @@ it, rather than quietly starting something else.
 ### Rolling back
 
 Set `MAPLY_IMAGE` to the previous digest and deploy again. That is the whole
-rollback — the images are still on the host, and nothing is rebuilt. Then publish
+rollback: the images are still on the host, and nothing is rebuilt. Then publish
 a patch that fixes what went wrong; never retag or delete the bad release.
 
 ### What this stack needs to exist
 
 | | |
 |:--|:--|
-| Stack | `maply` — `/opt/stacks/maply` |
+| Stack | `maply`, `/opt/stacks/maply` |
 | Manifest | [`deploy/ws04/compose.yaml`](../deploy/ws04/compose.yaml) in this repository |
 | Env file | `.env` on the host, never in git |
 | Networks | `core_net` (core-postgres), the Cloudflare Tunnel network for `maply.ws04.cc` |
@@ -202,10 +202,12 @@ gone cannot be shown again. Restore both from the same backup.
 ```sh
 ws04 container list                    # health of everything
 ws04 logs maply-bot --since 1h
+# every container's log, those before the last deploy too
+ws04 run journalctl CONTAINER_NAME=maply-bot --since -2d
 ws04 container inspect maply-bot     # includes the image digest
 ```
 
-The bot also reports its own version — from the About card in Telegram, and from
+The bot also reports its own version: from the About card in Telegram, and from
 its health endpoint where it has one. Those two and `docker inspect` should
 agree; if they do not, something was deployed by hand.
 

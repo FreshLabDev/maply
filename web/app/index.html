@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#245A3C">
+<title>maply</title>
+<link rel="icon" href="/icon/maply.svg" type="image/svg+xml">
+<link rel="icon" href="/icon/maply-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/icon/maply-180.png">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="/vendor/maplibre-gl-5.6.0/maplibre-gl.css">
+<link rel="stylesheet" href="/vendor/pannellum-2.5.6/pannellum.css">
+<link rel="stylesheet" href="/fonts.css">
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/desktop.css">
+<link rel="stylesheet" href="/account.css">
+<link rel="stylesheet" href="/days.css">
+<link rel="stylesheet" href="/free.css">
+<link rel="stylesheet" href="/profile.css">
+<link rel="stylesheet" href="/leaders.css">
+<link rel="stylesheet" href="/menu.css">
+<script defer src="/vendor/maplibre-gl-5.6.0/maplibre-gl.js"></script>
+<script defer src="/vendor/pannellum-2.5.6/pannellum.js"></script>
+</head>
+<body>
+<header class="top">
+  <button class="logo" id="logo" aria-label="maply"><b>maply</b><span class="up" id="day"></span></button>
+  <nav class="nav" id="nav" data-aria="desk.nav"></nav>
+  <div class="timer" id="timer"><span class="up" data-t="until_truth"></span><b id="left">…</b></div>
+  <button class="fs hidden" id="fs" data-aria="desk.fullscreen"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M1.5 6V1.5H6M10 1.5h4.5V6M14.5 10v4.5H10M6 14.5H1.5V10" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+  <div class="acct" id="acct"></div>
+  <button class="mebtn" id="meBtn" data-aria="prof.aria_open"></button>
+  <div class="prog" id="prog"><b class="lbh up" id="lbH"></b><div class="lb" id="lb"></div><div class="foot"><button class="more hidden" id="more" aria-haspopup="dialog"></button><span class="none hidden" id="none" data-t="no_answer"></span><button class="info hidden" id="rulesBtn" aria-expanded="false" aria-controls="rules" data-aria="rules"><i>i</i></button><button class="fold hidden" id="foldBtn" aria-expanded="true" aria-controls="lb"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 10l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button></div><div class="rules hidden" id="rules" role="note"></div><div class="tip" id="tip"></div></div>
+</header>
+
+<main class="stage">
+  <div id="pano" role="region" data-aria="desk.pano"></div>
+  <button class="compass" id="compass" data-aria="aria_north"><svg id="tape"></svg></button>
+  <div class="hint up" id="hint"><i class="touch" data-t="hint_drag"></i><i class="mouse" data-t="desk.hint_drag"></i><i class="touch" data-t="hint_pinch"></i><i class="mouse" data-t="desk.hint_wheel"></i><i class="dk" data-t="desk.hint_map"></i><i class="dk" data-t="desk.hint_keys"></i></div>
+</main>
+
+<div id="map"></div>
+<div class="mapctl" id="mapCtl"><button id="mapLess" data-aria="desk.map_smaller">−</button><button id="mapMore" data-aria="desk.map_bigger">+</button><button id="mapHold" data-aria="desk.map_hold" aria-pressed="false"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M5 1.5h6M6 1.5v5L3.5 9.5h9L10 6.5v-5M8 9.5V15" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button></div>
+<div class="cross" id="cross"></div>
+<button class="globe-hit" id="globeHit" data-aria="aria_globe"></button>
+<div class="call" id="call"><b id="callB"></b><span class="up" id="callS"></span></div>
+<div class="act" id="act"><button id="look" data-t="look_more"></button><button id="go" data-t="final"></button></div>
+<div class="ov-top" id="ovTop"></div>
+<div class="ov-bot" id="ovBot"></div>
+<aside class="side" id="side" data-aria="day_result" tabindex="-1"><div class="score" id="score"></div><button class="side-days" id="sideDays"></button></aside>
+<div class="keys hidden" id="keys" role="dialog" aria-labelledby="keysH" tabindex="-1"></div>
+<section class="sheet" id="sheet" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="shTitle"></section>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<footer class="credits" id="credits"></footer>
+
+<div class="loader" id="loader"><div>
+  <canvas id="loadglobe" aria-hidden="true"></canvas>
+  <b class="mark">maply</b>
+  <span class="up" id="loadtext"></span>
+</div></div>
+<!-- The loading screen runs first; MapLibre, Pannellum and the app are deferred, so it turns while they load. -->
+<script src="/land.js"></script>
+<script src="/loader.js"></script>
+<script src="/ready.js"></script>
+
+<!-- The router first: every screen's file registers itself with it, and app.js starts it. -->
+<script defer src="/router.js"></script>
+<script defer src="/tg.js"></script>
+<script defer src="/mapstyle.js"></script>
+<script defer src="/pano.js"></script>
+<script defer src="/globe.js"></script>
+<!-- The computer's layout: which one is on, the header, the map's panel, the side panel and the keys. -->
+<script defer src="/desk.js"></script>
+<script defer src="/account.js"></script>
+<!-- The free game before app.js: the app opens on it instead of the day when the address or the invitation says so. -->
+<script defer src="/free.js"></script>
+<script defer src="/party.js"></script>
+<script defer src="/app.js"></script>
+<!-- The menu at "/" and the leaderboards' page: the day is /today. -->
+<script defer src="/menu.js"></script>
+<script defer src="/days.js"></script>
+<script defer src="/profland.js"></script>
+<script defer src="/profile.js"></script>
+<script defer src="/leaders.js"></script>
+</body>
+</html>

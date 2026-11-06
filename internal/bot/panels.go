@@ -1,0 +1,505 @@
+// SPDX-License-Identifier: Apache-2.0
+package bot
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/FreshLabDev/tg"
+
+	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/FreshLabDev/maply/internal/schedule"
+	"github.com/FreshLabDev/maply/internal/telegram"
+)
+
+// isStart reports whether a message is /start for maply. In a group a bare
+// /start is for every bot there, and /start@another is not ours. An admin
+// who writes anonymously writes as a bot too, on the group's behalf.
+func (b *Bot) isStart(m *tg.Message) bool {
+	if m.From == nil || (m.From.IsBot && !anonymousAdmin(m)) {
+		return false
+	}
+	head, _, _ := strings.Cut(strings.TrimSpace(m.Text), " ")
+	cmd, at, addressed := strings.Cut(head, "@")
+	if cmd != "/start" {
+		return false
+	}
+	return !addressed || strings.EqualFold(at, b.opts.Username)
+}
+
+// anonymousAdmin reports whether a message comes from an admin who writes
+// as the group. Telegram signs it with GroupAnonymousBot in From and the
+// group itself in sender_chat; only an admin can write so. A channel's post
+// carried into its discussion group names the channel, not the group.
+func anonymousAdmin(m *tg.Message) bool {
+	if m.From == nil || m.From.ID != groupAnonymousBot || len(m.Raw) == 0 {
+		return false
+	}
+	var raw struct {
+		SenderChat *struct {
+			ID int64 `json:"id"`
+		} `json:"sender_chat"`
+	}
+	return json.Unmarshal(m.Raw, &raw) == nil && raw.SenderChat != nil && raw.SenderChat.ID == m.Chat.ID
+}
+
+// groupAnonymousBot is the user Telegram puts in From for an anonymous
+// admin. A panel opened by one belongs to every admin of the group.
+const groupAnonymousBot = 1087968824
+
+// threadOf is the forum topic a message is in, so a reply lands there and
+// not in General. Telegram also numbers reply chains outside forums, and
+// only is_topic_message tells a topic apart.
+func threadOf(m tg.Message) int {
+	if m.MessageThreadID == 0 || len(m.Raw) == 0 {
+		return 0
+	}
+	var raw struct {
+		IsTopicMessage bool `json:"is_topic_message"`
+	}
+	if json.Unmarshal(m.Raw, &raw) != nil || !raw.IsTopicMessage {
+		return 0
+	}
+	return m.MessageThreadID
+}
+
+// publishCommands sets /start's description and the bot's profile texts in
+// every language. A failure is
+// logged and polling starts anyway: the command works without a description.
+func (b *Bot) publishCommands(ctx context.Context) {
+	for _, code := range append([]string{""}, i18n.Codes()...) {
+		lang := code
+		if lang == "" {
+			lang = i18n.DefaultLang
+		}
+		cmds := []tg.BotCommand{{Command: "start", Description: i18n.T(lang, "cmd.start")}}
+		if err := b.tg.SetMyCommandsForScope(ctx, cmds, &tg.BotCommandScope{Type: "default", LanguageCode: code}); err != nil {
+			b.log.Warn("bot commands not published", "language", code, "error", err)
+			return
+		}
+		if err := b.tg.SetDescriptions(ctx, code, i18n.T(lang, "bot.description"), i18n.T(lang, "bot.short")); err != nil {
+			b.log.Warn("bot description not published", "language", code, "error", err)
+			return
+		}
+	}
+}
+
+// personLang is what core resolves for the person, or their client's
+// language. It is the raw code: a zone follows it before the interface
+// narrows it to one of the sixteen.
+func (b *Bot) personLang(ctx context.Context, u tg.User) (string, error) {
+	lang, err := b.store.UserLang(ctx, u.ID)
+	if err != nil {
+		return "", err
+	}
+	if lang == "" {
+		lang = u.LanguageCode
+	}
+	return lang, nil
+}
+
+// groupLang is the group's language in core, or the reader's while the group
+// has none, so a panel is never drawn in a language nobody asked for.
+func (b *Bot) groupLang(ctx context.Context, chatID int64, reader string) (chat string, panel string, err error) {
+	chat, err = b.store.ChatLang(ctx, chatID)
+	if err != nil {
+		return "", "", err
+	}
+	if chat != "" {
+		return chat, i18n.Resolve(chat), nil
+	}
+	return "", i18n.Resolve(reader), nil
+}
+
+// isAdmin asks Telegram on every use: rights change, and nothing is cached.
+func (b *Bot) isAdmin(ctx context.Context, chatID, userID int64) (bool, error) {
+	member, err := b.tg.GetChatMember(ctx, chatID, userID)
+	if err != nil {
+		return false, err
+	}
+	return member.Status == "administrator" || member.Status == "creator", nil
+}
+
+// adopt fixes a group's zone from its language, or the language of whoever
+// set maply up while the group has none. A zone already there stays.
+func (b *Bot) adopt(ctx context.Context, chatID int64, chatLang, personLang string) error {
+	lang := chatLang
+	if lang == "" {
+		lang = personLang
+	}
+	return b.store.AdoptChatZone(ctx, chatID, round.DefaultName(lang))
+}
+
+func (b *Bot) sendHome(ctx context.Context, m *tg.Message) error {
+	raw, err := b.personLang(ctx, *m.From)
+	if err != nil {
+		return err
+	}
+	v := view{lang: i18n.Resolve(raw), owner: m.From.ID, sc: scopeOf(m.Chat)}
+	// The panel names the reveal in the chat's zone. A DM's is keyed by the
+	// person and follows their language until they pick one.
+	zone, err := b.store.ChatZone(ctx, m.Chat.ID)
+	if err != nil {
+		return err
+	}
+	zoneLang := raw
+	admin := false
+	if v.sc == scopeGroup {
+		chatLang, panelLang, err := b.groupLang(ctx, m.Chat.ID, raw)
+		if err != nil {
+			return err
+		}
+		v.lang = panelLang
+		// A group maply joined before it set zones up gets one now.
+		if zone == "" {
+			if err := b.adopt(ctx, m.Chat.ID, chatLang, raw); err != nil {
+				return err
+			}
+		}
+		zoneLang = chatLang
+		if zoneLang == "" {
+			zoneLang = raw
+		}
+		if anonymousAdmin(m) {
+			admin = true
+		} else if admin, err = b.isAdmin(ctx, m.Chat.ID, m.From.ID); err != nil {
+			// The member's panel is the safe one to show.
+			b.log.Warn("admin check failed", "chat", m.Chat.ID, "error", err)
+		}
+	}
+	text, markup := v.home(b.opts.AppURL, admin, round.Name(zone, zoneLang))
+	if _, err := b.tg.SendTextIn(ctx, m.Chat.ID, threadOf(*m), text, markup); err != nil {
+		return fmt.Errorf("send home to %d: %w", m.Chat.ID, err)
+	}
+	return nil
+}
+
+// isPanel reports whether a callback may act on the message it came from.
+// Telegram lets a client send any callback data against any message it can
+// see, and the owner id stops only one person driving another's panel. A
+// panel is a text message; the morning post and the result are photos, and
+// a forged Close must not delete them.
+func isPanel(m tg.Message) bool {
+	return m.MessageID != 0 && m.Chat.ID != 0 && m.Text != "" && len(m.Photo) == 0
+}
+
+// pressedHere reports whether the message carries the button pressed. The
+// message in a callback is Telegram's copy, so its buttons are the real
+// ones: a forged Close against the group's intrigue, or against a post sent
+// as text, names a button that is not there.
+func pressedHere(m tg.Message, data string) bool {
+	var raw struct {
+		ReplyMarkup struct {
+			InlineKeyboard [][]struct {
+				CallbackData string `json:"callback_data"`
+			} `json:"inline_keyboard"`
+		} `json:"reply_markup"`
+	}
+	if len(m.Raw) == 0 || json.Unmarshal(m.Raw, &raw) != nil {
+		return false
+	}
+	for _, row := range raw.ReplyMarkup.InlineKeyboard {
+		for _, b := range row {
+			if b.CallbackData == data {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
+	if d, ok := schedule.WorldCallback(cq.Data); ok {
+		return b.onRefreshWorld(ctx, cq, d)
+	}
+	owner, action, ok := parseMenuCB(cq.Data)
+	if !ok {
+		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
+	}
+	raw, err := b.personLang(ctx, cq.From)
+	if err != nil {
+		_ = b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
+		return err
+	}
+	reader := i18n.Resolve(raw)
+	if cq.From.ID != owner {
+		mine := false
+		if owner == groupAnonymousBot && scopeOf(cq.Message.Chat) == scopeGroup {
+			if mine, err = b.isAdmin(ctx, cq.Message.Chat.ID, cq.From.ID); err != nil {
+				_ = b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
+				return err
+			}
+		}
+		if !mine {
+			return b.tg.AnswerCallbackQueryAlert(ctx, cq.ID, i18n.T(reader, "msg.not_yours"))
+		}
+	}
+	if (!isPanel(cq.Message) && !b.isCard(cq.Message)) || !pressedHere(cq.Message, cq.Data) {
+		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
+	}
+	alert, err := b.runAction(ctx, cq, owner, action, raw)
+	if alert != "" {
+		return b.tg.AnswerCallbackQueryAlert(ctx, cq.ID, alert)
+	}
+	// Also after a failure: a button that spins for half a minute is worse
+	// than one that does nothing.
+	if answerErr := b.tg.AnswerCallbackQuery(ctx, cq.ID, ""); err == nil {
+		err = answerErr
+	}
+	return err
+}
+
+// runAction does what the button says and redraws the panel. It returns an
+// alert to show instead when the press is refused. The panel keeps its
+// owner: one an anonymous admin opened stays every admin's.
+func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, owner int64, action, raw string) (string, error) {
+	chat := cq.Message.Chat
+	v := view{lang: i18n.Resolve(raw), owner: owner, sc: scopeOf(chat)}
+	if action == actClose {
+		if v.sc != scopeGroup {
+			return "", nil
+		}
+		return "", b.tg.DeleteMessage(ctx, chat.ID, cq.Message.MessageID)
+	}
+
+	var chatLang string
+	admin := false
+	if v.sc == scopeGroup {
+		var err error
+		if chatLang, v.lang, err = b.groupLang(ctx, chat.ID, raw); err != nil {
+			return "", err
+		}
+		if adminOnly(action) || action == actHome {
+			if admin, err = b.isAdmin(ctx, chat.ID, cq.From.ID); err != nil {
+				return "", err
+			}
+		}
+		if adminOnly(action) && !admin {
+			return i18n.T(i18n.Resolve(raw), "msg.admin_only"), nil
+		}
+	}
+	// A DM's zone is keyed by the person and follows their language until
+	// they pick one; a group's follows the group's.
+	zoneLang := raw
+	if v.sc == scopeGroup {
+		zoneLang = chatLang
+	}
+
+	msgID := cq.Message.MessageID
+	show := func(text string, markup telegram.Markup) (int64, error) {
+		if !b.isCard(cq.Message) {
+			// Pressing what the panel already shows (the current language,
+			// −1:00 at 05:00) changes nothing, and that is no error.
+			if err := b.tg.EditText(ctx, chat.ID, msgID, text, markup); err != nil && !tg.IsMessageNotModified(err) {
+				return 0, err
+			}
+			b.screens.set(chat.ID, msgID, action, false, b.opts.Now())
+			return msgID, nil
+		}
+		// A picture cannot turn back into text: the panel comes again in a
+		// new message, and the picture goes.
+		msg, err := b.tg.SendTextIn(ctx, chat.ID, threadOf(cq.Message), text, markup)
+		if err != nil {
+			return 0, err
+		}
+		if err := b.tg.DeleteMessage(ctx, chat.ID, msgID); err != nil {
+			b.log.Info("statistics picture not deleted", "chat", chat.ID, "error", err)
+		}
+		b.screens.set(chat.ID, msg.MessageID, action, false, b.opts.Now())
+		return msg.MessageID, nil
+	}
+	edit := func(text string, markup telegram.Markup) (string, error) {
+		_, err := show(text, markup)
+		return "", err
+	}
+	settings := func() (string, error) {
+		zone, err := b.store.ChatZone(ctx, chat.ID)
+		if err != nil {
+			return "", err
+		}
+		var st *db.Settings
+		if v.sc == scopeGroup {
+			got, err := b.store.ChatSettings(ctx, chat.ID)
+			if err != nil {
+				return "", err
+			}
+			st = &got
+		}
+		return edit(v.settings(round.Name(zone, zoneLang), chatLang, st))
+	}
+	zonePanel := func() (string, error) {
+		zone, err := b.store.ChatZone(ctx, chat.ID)
+		if err != nil {
+			return "", err
+		}
+		return edit(v.zone(round.Name(zone, zoneLang), b.opts.Zones, b.opts.Now()))
+	}
+
+	switch action {
+	case actHome:
+		zone, err := b.store.ChatZone(ctx, chat.ID)
+		if err != nil {
+			return "", err
+		}
+		return edit(v.home(b.opts.AppURL, admin, round.Name(zone, zoneLang)))
+	case actHelp:
+		return edit(v.help())
+	case actAbout:
+		return edit(v.about(b.opts.Version))
+	case actStats:
+		st, err := b.store.Stats(ctx, cq.From.ID)
+		if err != nil {
+			return "", err
+		}
+		text, markup := v.stats(st)
+		if b.opts.Profiles == nil || st.Days == 0 {
+			return edit(text, markup)
+		}
+		return "", b.showStats(ctx, chat.ID, msgID, cq.From.ID, v.lang, text, markup, show)
+	case actLang:
+		return edit(v.language())
+	case actLangAuto:
+		if err := b.store.ClearUserLang(ctx, cq.From.ID); err != nil {
+			return "", err
+		}
+		// Ask core again rather than assume the client's code: another
+		// automatic source may still answer for this person.
+		raw, err := b.personLang(ctx, cq.From)
+		if err != nil {
+			return "", err
+		}
+		v.lang = i18n.Resolve(raw)
+		return edit(v.language())
+	case actSettings:
+		return settings()
+	case actZone:
+		return zonePanel()
+	case actGroupLang:
+		return edit(v.groupLanguage(chatLang))
+	case actGroupAuto:
+		if err := b.store.ClearChatLang(ctx, chat.ID); err != nil {
+			return "", err
+		}
+		// Core may still hold an automatic language for the group.
+		var err error
+		if chatLang, v.lang, err = b.groupLang(ctx, chat.ID, raw); err != nil {
+			return "", err
+		}
+		return edit(v.groupLanguage(chatLang))
+	}
+
+	if code, ok := strings.CutPrefix(action, actLang+":"); ok {
+		// The person's own language is set from their direct chat, where it
+		// is offered; in a group the language there is the group's.
+		if !i18n.IsSupported(code) || v.sc != scopePrivate {
+			return "", nil
+		}
+		if err := b.store.SetUserLang(ctx, cq.From.ID, code); err != nil {
+			return "", err
+		}
+		v.lang = code
+		return edit(v.language())
+	}
+	if code, ok := strings.CutPrefix(action, actGroupLang+":"); ok {
+		if !i18n.IsSupported(code) || v.sc != scopeGroup {
+			return "", nil
+		}
+		if err := b.store.SetChatLang(ctx, chat.ID, code); err != nil {
+			return "", err
+		}
+		v.lang = code
+		return edit(v.groupLanguage(code))
+	}
+	if step, ok := strings.CutPrefix(action, actPost+":"); ok {
+		minutes, err := strconv.Atoi(step)
+		if err != nil || !postSteps[minutes] || v.sc != scopeGroup {
+			return "", nil
+		}
+		if err := b.store.MovePost(ctx, chat.ID, minutes); err != nil {
+			return "", err
+		}
+		return settings()
+	}
+	if name, ok := strings.CutPrefix(action, actSwitch+":"); ok {
+		if (name != "intrigue" && name != "mentions") || v.sc != scopeGroup {
+			return "", nil
+		}
+		// The press flips what the database holds now, not what the panel
+		// showed: two admins pressing at once end where the second meant.
+		st, err := b.store.ChatSettings(ctx, chat.ID)
+		if err != nil {
+			return "", err
+		}
+		on := st.Intrigue
+		if name == "mentions" {
+			on = st.Mentions
+		}
+		if err := b.store.SetSwitch(ctx, chat.ID, name, !on); err != nil {
+			return "", err
+		}
+		return settings()
+	}
+	if name, ok := strings.CutPrefix(action, actZone+":"); ok {
+		if !round.IsChoice(name) {
+			return "", nil
+		}
+		// Today's place may already be out in this chat. A zone where today
+		// is still open would let whoever saw it answer it.
+		cur, err := b.store.ChatZone(ctx, chat.ID)
+		if err != nil {
+			return "", err
+		}
+		from, to := b.opts.Zones.For(cur, zoneLang), b.opts.Zones.For(name, zoneLang)
+		if round.Reopens(from, to, b.opts.Now()) {
+			return v.t("msg.zone_tomorrow"), nil
+		}
+		if round.Outruns(from, to, b.opts.Now()) {
+			return v.t("msg.zone_after_result"), nil
+		}
+		if err := b.store.SetChatZone(ctx, chat.ID, name); err != nil {
+			return "", err
+		}
+		return zonePanel()
+	}
+	return "", nil
+}
+
+// onMembership sets a group up when maply is added and marks it when maply
+// is removed. In a DM the same update says the person blocked or unblocked
+// maply. A restricted maply is still in the group: an admin who turned off
+// GIFs for it did not remove it, and what it may not send, Telegram refuses
+// when it is sent.
+func (b *Bot) onMembership(ctx context.Context, upd *tg.ChatMemberUpdated) error {
+	in := func(status string) bool {
+		return status == "member" || status == "administrator" || status == "restricted"
+	}
+	if upd.Chat.Type == "private" {
+		if in(upd.NewChatMember.Status) {
+			return b.store.ReturnChat(ctx, upd.Chat.ID)
+		}
+		return b.store.LeaveChat(ctx, upd.Chat.ID)
+	}
+	if upd.Chat.Type != "group" && upd.Chat.Type != "supergroup" {
+		return nil
+	}
+	switch {
+	case in(upd.NewChatMember.Status) && !in(upd.OldChatMember.Status):
+		chatLang, err := b.store.ChatLang(ctx, upd.Chat.ID)
+		if err != nil {
+			return err
+		}
+		raw, err := b.personLang(ctx, upd.From)
+		if err != nil {
+			return err
+		}
+		return b.adopt(ctx, upd.Chat.ID, chatLang, raw)
+	case !in(upd.NewChatMember.Status) && in(upd.OldChatMember.Status):
+		return b.store.LeaveChat(ctx, upd.Chat.ID)
+	}
+	return nil
+}
