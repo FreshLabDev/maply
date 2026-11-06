@@ -30,6 +30,8 @@ type Entry struct {
 	// both are inside Points.
 	Bonus int
 	Speed int
+	// At is when the answer was given.
+	At time.Time
 }
 
 // Site reports whether the answer came from the site.
@@ -82,7 +84,7 @@ func (s *Store) World(ctx context.Context, d round.Date) (World, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT dr.rank,
 		       COALESCE(dr.user_id, 0), COALESCE(dr.player::text, ''),
-		       COALESCE(pe.first_name, sp.name, ''), dr.km, dr.points, dr.pts_bonus, dr.pts_speed
+		       COALESCE(pe.first_name, sp.name, ''), dr.km, dr.points, dr.pts_bonus, dr.pts_speed, dr.answered_at
 		  FROM day_rank dr
 		  LEFT JOIN core.person pe ON pe.telegram_user_id = dr.user_id
 		  LEFT JOIN site_player sp ON sp.id = dr.player
@@ -93,7 +95,7 @@ func (s *Store) World(ctx context.Context, d round.Date) (World, error) {
 	}
 	entries, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Entry, error) {
 		var e Entry
-		err := row.Scan(&e.Rank, &e.UserID, &e.Player, &e.Name, &e.Km, &e.Points, &e.Bonus, &e.Speed)
+		err := row.Scan(&e.Rank, &e.UserID, &e.Player, &e.Name, &e.Km, &e.Points, &e.Bonus, &e.Speed, &e.At)
 		return e, err
 	})
 	if err != nil {

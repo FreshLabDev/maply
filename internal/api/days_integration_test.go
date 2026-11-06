@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/round"
 )
 
 const stripKey = "Qw7rT2yU9iO4pA6sD1fG"
@@ -177,4 +178,92 @@ func TestDaysShowAPuzzleOnlyWhereItsDayBegan(t *testing.T) {
 			t.Fatalf("%s at 14:00 = %+v", tz, got.Days)
 		}
 	}
+}
+
+// An account may hold two answers of a closed day: its Telegram one and a
+// guest's it took in after the day was over. The day's page and the site's
+// result show one of them as the viewer's, the earlier, as the days' list
+// does, with its pin; the other stays a guest's row, as the world sees it.
+func TestADayShowsOneAnswerAsTheViewers(t *testing.T) {
+	hs := setup(t)
+	ctx := context.Background()
+	store := hs.srv.Store.(*db.Store)
+	const guest = "44444444-4444-4444-8444-444444444444"
+	hs.person(1, "Oksana")
+	// Yesterday the Telegram answer came first; the day before, the guest's.
+	first := hs.seedPast(1, "JP", "asia", pastAnswer{user: 1, km: 276.8, points: 3700, bonus: 300}, pastAnswer{player: guest, km: 5538, points: 900})
+	second := hs.seedPast(2, "EG", "africa", pastAnswer{user: 1, km: 400, points: 2500, bonus: 300}, pastAnswer{player: guest, km: 3, points: 4990, bonus: 1500})
+	for d, shift := range map[round.Date]string{first: "1 hour", second: "-1 hour"} {
+		if _, err := hs.pool.Exec(ctx, `UPDATE maply.site_guess SET answered_at = answered_at + $2::interval, lat = 40, lon = 50
+			WHERE date = $1 AND player = $3`, d.Time(), shift, guest); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := hs.signIn(1, "Oksana")
+	acc, ok, err := store.AccountOf(ctx, db.Identity{Kind: db.KindTelegram, TelegramUserID: 1})
+	if err != nil || !ok {
+		t.Fatalf("account %v %v", ok, err)
+	}
+	if _, err := store.AdoptGuest(ctx, acc.ID, guest, db.Rules{Open: func(round.Date) bool { return false }}); err != nil {
+		t.Fatal(err)
+	}
+
+	type want struct {
+		date    round.Date
+		km      float64
+		lat     float64
+		siteRow bool
+		otherKm float64
+	}
+	check := func(who string, page dayResponse, w want) {
+		t.Helper()
+		var mine, others int
+		for _, l := range page.Ranking {
+			switch {
+			case l.Me:
+				mine++
+				if l.Km != w.km || l.Site != w.siteRow {
+					t.Errorf("%s %s: the own row = %+v", who, w.date, l)
+				}
+			case l.Km == w.otherKm:
+				others++
+				// As the world sees it: her name on the Telegram row, none on
+				// the guest's.
+				if l.Site == w.siteRow || (l.Name == "Oksana") == l.Site {
+					t.Errorf("%s %s: the other answer = %+v", who, w.date, l)
+				}
+			}
+		}
+		if mine != 1 || others != 1 {
+			t.Fatalf("%s %s: %d own rows, %d other: %+v", who, w.date, mine, others, page.Ranking)
+		}
+		if page.Me == nil || page.Me.Km != w.km || page.Me.Pin == nil || page.Me.Pin.Lat != w.lat {
+			t.Fatalf("%s %s: me = %+v", who, w.date, page.Me)
+		}
+	}
+	for _, w := range []want{
+		{date: first, km: 276.8, lat: 11, otherKm: 5538},
+		{date: second, km: 3, lat: 40, siteRow: true, otherKm: 400},
+	} {
+		path := "/api/day?date=" + w.date.String()
+		check("site", decode[dayResponse](t, hs.siteExpect("GET", path, session, "", http.StatusOK)), w)
+
+		// The site's result: one row of the board is the viewer's, and the
+		// table's line is that row, pin and all.
+		res := decode[resultResponse](t, hs.siteExpect("GET", "/api/site/result?lang=uk&date="+w.date.String(), session, "", http.StatusOK))
+		var mine []boardLine
+		for _, l := range res.Board {
+			if l.Me {
+				mine = append(mine, l)
+			}
+		}
+		if len(mine) != 1 || mine[0].Km != w.km || len(res.Table) != 1 || res.Table[0].Km == nil || *res.Table[0].Km != w.km ||
+			res.Table[0].Lat != w.lat || res.Table[0].Key != mine[0].Key {
+			t.Fatalf("site result %s: own rows %+v, table %+v", w.date, mine, res.Table)
+		}
+	}
+	// The Mini App knows the Telegram answer only.
+	app := initData(1, "Oksana", "uk", "")
+	page := decode[dayResponse](t, hs.expect("GET", "/api/day?date="+first.String(), app, "", http.StatusOK))
+	check("app", page, want{date: first, km: 276.8, lat: 11, otherKm: 5538})
 }

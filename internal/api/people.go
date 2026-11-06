@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/free"
+	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/people"
+	"github.com/FreshLabDev/maply/internal/round"
 )
 
 // Every player the API sends goes through dress: the tables of the day and
@@ -122,6 +125,30 @@ func (s *Server) facePhoto(w http.ResponseWriter, r *http.Request) {
 	h.Set("Cache-Control", "public, max-age=31536000, immutable")
 	h.Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write(b)
+}
+
+// ownRow is the row of the world's ranking that is the viewer's, -1 when
+// none is. An account may hold two answers of a date, from before its
+// players were one: the earlier is theirs, as the days' list shows it
+// (db.DaysPage), and the other stays as everyone else sees it.
+func ownRow(entries []db.Entry, owns func(db.Entry) bool) int {
+	own := -1
+	for i, e := range entries {
+		if owns(e) && (own < 0 || e.At.Before(entries[own].At)) {
+			own = i
+		}
+	}
+	return own
+}
+
+// pinOf is where an entry of the world's ranking put its pin.
+func (s *Server) pinOf(ctx context.Context, d round.Date, e db.Entry) (geo.Point, bool, error) {
+	if e.UserID != 0 {
+		g, ok, err := s.Store.GuessOf(ctx, d, e.UserID)
+		return g.Pin, ok, err
+	}
+	g, ok, err := s.Store.SiteGuessOf(ctx, d, e.Player)
+	return g.Pin, ok, err
 }
 
 // writeTogether sends a party or a challenge with its players' faces. Their

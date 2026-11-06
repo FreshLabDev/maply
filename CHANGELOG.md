@@ -11,6 +11,14 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Fixed
+
+- An account that holds two answers of one day, a Telegram one and a guest's
+  it took in after the day was over, is "you" on one row only: the earlier
+  answer, the one the days page shows. The day's page and the site's result
+  take its pin and numbers from that row; the other answer stays as everyone
+  sees it.
+
 ## v0.0.1-alpha.18 - 2026-11-06
 
 For the operator: migration 027 gives each kept photo an address; it runs by

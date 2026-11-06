@@ -280,9 +280,10 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 		resp.Thumb = thumbPath(more.Thumb, true)
 	}
 	misses := make([]float64, len(world.Entries))
+	own := ownRow(world.Entries, func(e db.Entry) bool { return v.owns(e.UserID, e.Player) })
 	for i, e := range world.Entries {
 		misses[i] = e.Km
-		me := v.owns(e.UserID, e.Player)
+		me := i == own
 		if i < rankShown || me {
 			l := rankLine{Rank: e.Rank, Km: e.Km, Points: e.Points}
 			if e.Site() {
@@ -311,22 +312,9 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 	resp.Misses = sample(misses, missesShown)
 	if resp.Me != nil {
 		// The viewer's own pin is theirs to see on the map.
-		var p *pin
-		switch {
-		case v.user != 0:
-			if g, ok, err := s.Store.GuessOf(ctx, d, v.user); err == nil && ok {
-				p = &pin{Lat: g.Pin.Lat, Lon: g.Pin.Lon}
-			}
-		case v.account != "":
-			if g, ok, err := s.Store.AccountSiteGuessOf(ctx, d, v.account); err == nil && ok {
-				p = &pin{Lat: g.Pin.Lat, Lon: g.Pin.Lon}
-			}
-		case v.player != "":
-			if g, ok, err := s.Store.SiteGuessOf(ctx, d, v.player); err == nil && ok {
-				p = &pin{Lat: g.Pin.Lat, Lon: g.Pin.Lon}
-			}
+		if pt, ok, err := s.pinOf(ctx, d, world.Entries[own]); err == nil && ok {
+			resp.Me.Pin = &pin{Lat: pt.Lat, Lon: pt.Lon}
 		}
-		resp.Me.Pin = p
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

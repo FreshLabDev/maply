@@ -158,9 +158,10 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	isMe := func(e db.Entry) bool {
+	own := ownRow(world.Entries, func(e db.Entry) bool {
 		return (v.TelegramUserID != 0 && e.UserID == v.TelegramUserID) || (e.Player != "" && mine[e.Player])
-	}
+	})
+	isMe := func(e db.Entry) bool { return own >= 0 && e.Rank == world.Entries[own].Rank }
 	secret := s.boardSecret()
 	resp.Board = board(secret, d, 0, world, isMe, nil, true, true)
 	who := make([]*people.Person, len(resp.Board))
@@ -172,6 +173,22 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp.Players = world.Players()
+	if own >= 0 {
+		// The viewer's line is their row of the ranking, the pin with it.
+		e := world.Entries[own]
+		pt, ok, err := s.pinOf(ctx, d, e)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if ok {
+			km, total, bonus := e.Km, e.Points, e.Bonus
+			resp.Table = append(resp.Table, line{Key: boardKey(secret, d, 0, e), Lat: pt.Lat, Lon: pt.Lon,
+				Km: &km, Points: &total, Bonus: &bonus, Speed: e.Speed, Person: people.Person{Me: true}})
+			writeJSON(w, http.StatusOK, resp)
+			return
+		}
+	}
 	if g, ok, err := s.siteGuessOf(r, d, v); err != nil {
 		s.fail(w, r, err)
 		return
