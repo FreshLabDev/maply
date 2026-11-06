@@ -15,14 +15,17 @@ test bot on another address registers its own.
 1. Open @BotFather's Mini App (the Open button in its chat), pick
    @maplyin_bot, then Bot Settings, then Web Login (Telegram's own guide
    names it so; some versions of the Mini App call it Login Widget).
-2. Under Allowed URLs add the site and its callback, exactly:
-   - `https://maply.ws04.cc`
-   - `https://maply.ws04.cc/auth/telegram/callback`
-
-   Telegram sends the browser back only to an address on this list.
-3. Under Advanced keep the signing algorithm at **RS256**. maply accepts RS256
-   only.
-4. Copy the Client ID, which is the bot's numeric id, and the Client Secret.
+2. Under Redirect URIs add the callback, exactly:
+   `https://maply.ws04.cc/auth/telegram/callback`. Telegram sends the
+   browser back only to an address on this list. Older versions of the page
+   call the list Allowed URLs.
+3. Leave Trusted Origins and Native Login empty. maply's server exchanges the
+   code with Telegram itself, so no browser asks Telegram for a token, and
+   there is no native app.
+4. If the page has an Advanced section, keep the signing algorithm at
+   **RS256**. maply accepts RS256 only.
+5. Copy the Client ID, which is the bot's numeric id, and the Client Secret.
+   Revoke makes a new secret and stops the old one.
 
 maply asks Telegram for `openid profile`: the id, the name and the username.
 It does not ask for the phone number or for permission to write to the
