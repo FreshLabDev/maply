@@ -114,3 +114,35 @@ func TestNewestRunsAheadOfUTC(t *testing.T) {
 		t.Errorf("Newest with no zones = %v, want the UTC date %v", got, want)
 	}
 }
+
+// A browser's zone outside the span of the choices plays in the nearer
+// edge: UTC+14 would reveal before every chat.
+func TestWithinKeepsTheSpanOfTheChoices(t *testing.T) {
+	z, err := LoadZones()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.December, 10, 9, 0, 0, 0, time.UTC)
+	for device, want := range map[string]string{
+		"Europe/Minsk":       "Europe/Minsk",
+		"Asia/Yekaterinburg": "Asia/Yekaterinburg",
+		"America/Denver":     "America/Denver",
+		"Etc/GMT-14":         "Australia/Sydney",
+		"Pacific/Kiritimati": "Australia/Sydney",
+		"Pacific/Auckland":   "Australia/Sydney",
+		"Pacific/Honolulu":   "America/Los_Angeles",
+		"Etc/GMT+12":         "America/Los_Angeles",
+	} {
+		loc, err := time.LoadLocation(device)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := z.Within(loc, now).String(); got != want {
+			t.Errorf("Within(%s) = %s, want %s", device, got, want)
+		}
+		d := DateIn(now, z.Within(loc, now))
+		if r := d.Reveal(z.Within(loc, now)); r.Before(z.FirstReveal(d)) || r.After(z.LastReveal(d)) {
+			t.Errorf("%s reveals %v, outside the chats' %v to %v", device, r, z.FirstReveal(d), z.LastReveal(d))
+		}
+	}
+}

@@ -54,8 +54,17 @@ const (
 	// is opened daily, and Telegram asks the phone at every sign-in.
 	SessionLife = 90 * 24 * time.Hour
 	// GuestCookie is the site player of a browser without an account; the
-	// api package sets it on the first answer.
-	GuestCookie = "maply_player"
+	// api package sets it on the first answer. With the prefix, another
+	// site under the same parent domain cannot plant a guest that a new
+	// account would then take in.
+	GuestCookie = "__Host-maply_player"
+	// OldGuestCookie is the guest's cookie from before the prefix. It is
+	// read when GuestCookie is missing, and Middleware moves it to
+	// GuestCookie. It can go a year after the prefix came in, when the last
+	// old cookie has expired.
+	OldGuestCookie = "maply_player"
+	// GuestLife is how long the guest's cookie lasts from its last answer.
+	GuestLife = 365 * 24 * time.Hour
 	// TicketLife is how long the Mini App's ticket to Google lasts.
 	TicketLife = 5 * time.Minute
 
@@ -289,6 +298,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			writeError(w, http.StatusServiceUnavailable, "unavailable")
 			return
 		}
+		moveGuest(w, r, v)
 		next.ServeHTTP(w, r.WithContext(WithViewer(r.Context(), v)))
 	})
 }
@@ -304,7 +314,7 @@ func (s *Service) viewer(r *http.Request) (Viewer, error) {
 				Via: sa.Via, hash: hash, google: sa.Account.Has(db.KindGoogle)}, nil
 		}
 	}
-	guest := guestID(r)
+	guest := GuestID(r)
 	if guest == "" {
 		return Viewer{}, nil
 	}
@@ -316,6 +326,18 @@ func (s *Service) viewer(r *http.Request) (Viewer, error) {
 		return Viewer{}, nil
 	}
 	return Viewer{Player: guest}, nil
+}
+
+// moveGuest gives a browser that has only the old guest cookie the new one,
+// with the same player. Once moved, an old cookie planted later is not read.
+func moveGuest(w http.ResponseWriter, r *http.Request, v Viewer) {
+	if v.Player == "" || v.SignedIn() {
+		return
+	}
+	if c, err := r.Cookie(GuestCookie); err == nil && uuidPattern.MatchString(c.Value) {
+		return
+	}
+	SetGuest(w, r, v.Player)
 }
 
 func (s *Service) lookup(ctx context.Context, hash [32]byte) (db.SessionAccount, bool, error) {

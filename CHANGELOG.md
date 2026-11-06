@@ -145,7 +145,10 @@ For the operator:
   already existed.
 - An accounts page: link and unlink Telegram and Google, sign out here or on
   every device, delete the account. Two accounts merge when one's sign-in is
-  linked to the other; a closed day is never rewritten. In the Mini App,
+  linked to the other; a closed day is never rewritten. A guest's answer
+  that an account with Telegram takes in after the person's deadline stays
+  a site row, marked late, and the bot takes no other answer that day. In
+  the Mini App,
   linking Google opens the phone's browser with a five-minute ticket that
   names the Telegram account before going to Google; a Google that has an
   account of its own is linked from the site instead, so a ticket never
@@ -252,6 +255,17 @@ For the operator:
 - A click or a double click on the computer's map panel while it was opening
   left the globe small in the panel's corner. Once the camera stops, the
   globe comes back to the middle at its size, closer if the player zoomed in.
+
+### Security
+
+- The site took any zone the browser named. One east of every chat's, such
+  as UTC+14, closed and scored a guest's answer before any chat's reveal. A
+  zone outside the span of the zones a chat may pick now plays in the nearer
+  of them: Honolulu in Los Angeles, Auckland in Sydney.
+- The guest's cookie is `__Host-maply_player`, which another site under the
+  same parent domain cannot set. A browser that has the old `maply_player`
+  keeps its guest and gets the new cookie on its next visit; after that an
+  old one is ignored.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

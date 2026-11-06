@@ -55,6 +55,7 @@ type Store interface {
 	Deadline(context.Context, round.Zones, int64, round.Date, *time.Location) (time.Time, error)
 	InsertGuess(context.Context, db.NewGuess) error
 	GuessOf(context.Context, round.Date, int64) (db.Guess, bool, error)
+	PersonSitePin(context.Context, round.Date, int64) (geo.Point, bool, error)
 	ChatGuesses(context.Context, round.Date, int64) ([]db.Guess, error)
 	ScoreDue(context.Context, round.Date, time.Time, func(geo.Point) scoring.Score) (int, error)
 	ChatLang(context.Context, int64) (string, error)
@@ -569,12 +570,23 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 	if p.kind == "site" {
 		resp.Bot = s.BotUsername
 	}
-	// Their own pin is theirs to see; it says nothing about the place.
-	if g, ok, err := s.Store.GuessOf(ctx, p.date, p.user.ID); err != nil {
+	// Their own pin is theirs to see; it says nothing about the place. A
+	// site answer their account holds is the day's answer as well, and
+	// /api/guess takes no other: the app waits for the result with it.
+	g, ok, err := s.Store.GuessOf(ctx, p.date, p.user.ID)
+	if err != nil {
 		s.fail(w, r, err)
 		return
-	} else if ok {
-		resp.Answer = &pin{Lat: g.Pin.Lat, Lon: g.Pin.Lon}
+	}
+	at := g.Pin
+	if !ok {
+		if at, ok, err = s.Store.PersonSitePin(ctx, p.date, p.user.ID); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	if ok {
+		resp.Answer = &pin{Lat: at.Lat, Lon: at.Lon}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

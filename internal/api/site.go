@@ -28,19 +28,21 @@ func (s *Server) latestReveal(d round.Date) time.Time { return s.Zones.LastRevea
 func (s *Server) firstDate() round.Date { return s.Zones.Newest(s.Now()) }
 
 // siteZone is the visitor's zone as the browser names it, or the default.
+// A zone east or west of every zone maply offers plays in the nearer one.
 func (s *Server) siteZone(r *http.Request) *time.Location {
 	if name := r.URL.Query().Get("tz"); name != "" && len(name) < 64 {
 		if loc, err := time.LoadLocation(name); err == nil {
-			return loc
+			return s.Zones.Within(loc, s.Now())
 		}
 	}
 	return s.Zones.For("", "")
 }
 
 // siteDay is the date a browser plays, its round and when its answers close.
-// A browser may claim any zone. It gets no date that has not begun in some
-// zone maply offers, so the site never shows a photo before a chat could
-// have it, and no deadline after the latest reveal.
+// A browser may claim any zone between the westmost and the eastmost maply
+// offers (siteZone). It gets no date that has not begun in some zone maply
+// offers, so the site never shows a photo before a chat could have it, and
+// no deadline after the latest reveal.
 func (s *Server) siteDay(r *http.Request) (round.Date, db.Round, time.Time, *time.Location, error) {
 	loc := s.siteZone(r)
 	d := round.DateIn(s.Now(), loc)

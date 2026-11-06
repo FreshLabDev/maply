@@ -173,9 +173,11 @@ func (s *Store) SitePlayer(ctx context.Context, id string, name *string) error {
 			n = clean
 		}
 	}
+	// A player an account has taken in is named by the account alone.
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO site_player (id, name) VALUES ($1, $2)
-		ON CONFLICT (id) DO UPDATE SET name = CASE WHEN $3 THEN EXCLUDED.name ELSE site_player.name END`, id, n, name != nil)
+		ON CONFLICT (id) DO UPDATE SET name = CASE WHEN $3 THEN EXCLUDED.name ELSE site_player.name END
+		 WHERE site_player.account_id IS NULL`, id, n, name != nil)
 	if err != nil {
 		return fmt.Errorf("site player: %w", err)
 	}
@@ -206,16 +208,40 @@ type NewSiteGuess struct {
 	Late bool
 }
 
-// InsertSiteGuess stores the site player's one answer of the day.
+// ErrPlayerTaken is a guest's answer for a site player an account has taken
+// in: the browser signed in while the answer was on its way.
+var ErrPlayerTaken = errors.New("the site player belongs to an account")
+
+// InsertSiteGuess stores a guest's one answer of the day. The player's row
+// is held while the answer goes in: a sign-in taking the player in at the
+// same moment either comes first, and the answer is refused, or waits and
+// settles this answer with the rest. Without the hold the answer could land
+// in the account after the merge rules ran.
 func (s *Store) InsertSiteGuess(ctx context.Context, g NewSiteGuess) error {
-	tag, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("insert site guess: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var guest bool
+	err = tx.QueryRow(ctx, `SELECT account_id IS NULL FROM site_player WHERE id = $1 FOR SHARE`, g.Player).Scan(&guest)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("site guess for an unknown player")
+	}
+	if err != nil {
+		return fmt.Errorf("insert site guess: %w", err)
+	}
+	if !guest {
+		return ErrPlayerTaken
+	}
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO site_guess (date, player, lat, lon, answered_at, deadline_at, late)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (date, player) DO NOTHING`,
 		g.Date.Time(), g.Player, g.Pin.Lat, g.Pin.Lon, g.AnsweredAt, g.Deadline, g.Late)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-		return fmt.Errorf("site guess for an unknown player or date: %w", err)
+		return fmt.Errorf("site guess for an unknown date: %w", err)
 	}
 	if err != nil {
 		return fmt.Errorf("insert site guess: %w", err)
@@ -223,7 +249,7 @@ func (s *Store) InsertSiteGuess(ctx context.Context, g NewSiteGuess) error {
 	if tag.RowsAffected() == 0 {
 		return ErrAlreadyAnswered
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // SiteGuess is a site player's answer of d with its score once scored.
