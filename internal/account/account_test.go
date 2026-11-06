@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/FreshLabDev/maply/internal/i18n"
 )
 
 func TestReturnToStaysAPathOnTheSite(t *testing.T) {
@@ -111,6 +113,25 @@ func TestTelegramClaimsMakeAUser(t *testing.T) {
 		_ = json.Unmarshal([]byte(bad), &tc)
 		if _, err := tc.user(true); err == nil {
 			t.Errorf("%s gave a user", bad)
+		}
+	}
+}
+
+// The privacy page names the owner's Telegram for erasing answers, as a link,
+// in every language, and its text stays text.
+func TestPrivacyGivesTheOwnersTelegram(t *testing.T) {
+	svc := New(Config{Key: []byte("k1")})
+	for _, lang := range i18n.Codes() {
+		rec := httptest.NewRecorder()
+		svc.Privacy().ServeHTTP(rec, httptest.NewRequest("GET", "/privacy?lang="+lang, nil))
+		body := rec.Body.String()
+		if rec.Code != http.StatusOK || strings.Count(body, `<a href="https://t.me/amtiyo" dir="ltr">@amtiyo</a>`) != 1 ||
+			strings.Contains(body, "{contact}") || strings.Contains(body, "github.com") || strings.Contains(body, "&lt;a") {
+			t.Errorf("privacy in %s = %d, the contact is missing or broken", lang, rec.Code)
+		}
+		// Navigation is not CSP's to stop, and nothing here may name a target.
+		if csp := rec.Header().Get("Content-Security-Policy"); strings.Contains(csp, "navigate-to") || strings.Contains(body, "target=") {
+			t.Errorf("privacy in %s: CSP %q or a target on a link", lang, csp)
 		}
 	}
 }
