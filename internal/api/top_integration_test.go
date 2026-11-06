@@ -89,6 +89,7 @@ type topBody struct {
 		Who   string `json:"who"`
 		Me    bool   `json:"me"`
 		Anon  bool   `json:"anon"`
+		Photo string `json:"photo"`
 	} `json:"rows"`
 }
 
@@ -214,6 +215,85 @@ func TestFreeLeaderboards(t *testing.T) {
 	}](t, hs.expect("GET", "/api/profile", oksana, "", http.StatusOK))
 	if got := fmt.Sprint(own.Top); got != "[{streak 30 0 1 3 5} {timed 180 0 2 2 12} {blitz 30 3 1 1 9000} {blitz 30 5 3 3 11000}]" {
 		t.Fatalf("her places = %s", got)
+	}
+}
+
+// photosAsked keeps a photo for everyone and remembers whom it was asked for.
+type photosAsked struct{ calls [][]int64 }
+
+func (p *photosAsked) Kept(_ context.Context, ids []int64) map[int64][]byte {
+	p.calls = append(p.calls, append([]int64(nil), ids...))
+	out := map[int64][]byte{}
+	for _, id := range ids {
+		out[id] = []byte{0xff, 0xd8, byte(id)}
+	}
+	return out
+}
+
+// A board's photos are the mini profile's: only to someone who opened the
+// Mini App from a group, only of the players that group has seen, all in
+// one ask, and never on an anonymous row.
+func TestFreeLeaderboardPhotos(t *testing.T) {
+	hs := setup(t)
+	photos := &photosAsked{}
+	hs.srv.Avatars = photos
+	hs.person(1, "Oksana", kyivGroup)
+	hs.person(2, "Ivan", kyivGroup)
+	hs.person(3, "Lena", minskGroup)
+	hs.person(4, "Taras", minskGroup)
+	hs.expect("POST", "/api/profile/settings", initData(3, "Lena", "en", ""), `{"hide_me":true}`, http.StatusOK)
+	for i, id := range []int64{3, 2, 1, 4} {
+		hs.freeGame(id, "solo", "streak", 30, 0, 9-i, hs.now.Add(-time.Hour))
+	}
+	faces := func(b topBody) string {
+		var out []string
+		for _, r := range b.Rows {
+			face := r.Name + " -"
+			if r.Photo != "" {
+				face = r.Name + " photo"
+				if !strings.HasPrefix(r.Photo, "data:image/jpeg;base64,") {
+					t.Fatalf("photo of %s = %q", r.Name, r.Photo)
+				}
+			}
+			out = append(out, face)
+		}
+		return strings.Join(out, ", ")
+	}
+	get := func(auth string) string {
+		t.Helper()
+		return faces(decode[topBody](t, hs.expect("GET", "/api/top?board=streak&seconds=30", auth, "", http.StatusOK)))
+	}
+
+	// Opened from the DM: no photo, and nothing asked.
+	if got := get(initData(1, "Oksana", "en", "")); got != "Anonymous -, Ivan -, Oksana -, Taras -" {
+		t.Fatalf("from the DM: %s", got)
+	}
+	if len(photos.calls) != 0 {
+		t.Fatalf("photos asked from the DM: %v", photos.calls)
+	}
+	// Opened from the Kyiv group: its players have theirs, Oksana too;
+	// Taras is outside it and Lena is "Anonymous".
+	if got := get(initData(1, "Oksana", "en", hs.payload(kyivGroup))); got != "Anonymous -, Ivan photo, Oksana photo, Taras -" {
+		t.Fatalf("from the group: %s", got)
+	}
+	if fmt.Sprint(photos.calls) != "[[2 1]]" {
+		t.Fatalf("photos asked: %v", photos.calls)
+	}
+	// A guest on the site sees no photo.
+	rr := httptest.NewRecorder()
+	hs.h.ServeHTTP(rr, httptest.NewRequest("GET", "/api/top?board=streak&seconds=30&lang=en", nil))
+	if got := faces(decode[topBody](t, rr.Body.String())); got != "Anonymous -, Ivan -, Oksana -, Taras -" {
+		t.Fatalf("a guest: %s", got)
+	}
+	// Seen in the Kyiv group, Lena is named there and has her photo; to
+	// someone who shares no group with her she is still "Anonymous".
+	hs.person(3, "Lena", kyivGroup)
+	if got := get(initData(1, "Oksana", "en", hs.payload(kyivGroup))); got != "Lena photo, Ivan photo, Oksana photo, Taras -" {
+		t.Fatalf("Lena in the group: %s", got)
+	}
+	hs.person(7, "Marta")
+	if got := get(initData(7, "Marta", "en", "")); got != "Anonymous -, Ivan -, Oksana -, Taras -" {
+		t.Fatalf("Marta from the DM: %s", got)
 	}
 }
 

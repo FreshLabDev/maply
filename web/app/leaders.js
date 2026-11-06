@@ -151,14 +151,17 @@ window.Leaders = (() => {
     list.removeAttribute("aria-busy");
     ready();
     const me = d.rows.find((r) => r.me);
-    let h = '<div class="lead-th up"><span>#</span><span>' + esc(T("lead.player")) + '</span><span>' + esc(T(b.unit)) + '</span></div>';
+    let h = '<div class="lead-th up"><span>#</span><span></span><span>' + esc(T("lead.player")) + '</span><span>' + esc(T(b.unit)) + '</span></div>';
     if (!d.rows.length) h += '<p class="lead-wait">' + esc(T(d.period === "week" ? "lead.empty_week" : "lead.empty")) + '</p>';
     else h += '<ol class="lead-rows">' + d.rows.map((r, i) => {
       // A rank that skips ahead: a dashed line says there are rows between.
       const cls = [r.me ? "me" : "", r.rank === 1 ? "m1" : "", i && r.rank > d.rows[i - 1].rank + 1 ? "skip" : ""].filter(Boolean).join(" ");
       const name = r.me ? T("you") : r.name || T("guest");
-      return '<li' + (cls ? ' class="' + cls + '"' : "") + '><em>' + fmt(r.rank) + '</em><span class="lead-n"' +
-        (r.who && !r.me ? ' data-who="' + esc(r.who) + '" role="button" tabindex="0"' : "") + '>' + (r.anon && !r.me ? SRC_ANON : "") +
+      // The day's table's faces: a photo only when the server sent one (opened from a group the player is in), else
+      // the letter; "Anonymous" has the plain face and never a photo.
+      const face = r.anon && !r.me ? anonAv() : av(r.name || name, r.me, r.photo);
+      return '<li' + (cls ? ' class="' + cls + '"' : "") + '><em>' + fmt(r.rank) + '</em><span class="lead-a">' + face + '</span><span class="lead-n"' +
+        (r.who && !r.me ? ' data-who="' + esc(r.who) + '" role="button" tabindex="0"' : "") + '>' +
         // A name in its own direction, inside a row that keeps the page's: an Arabic name stays at the start.
         (r.me ? esc(name) : '<bdi lang="' + nameLang() + '">' + esc(name) + '</bdi>') + '</span><b>' + fmt(r.score) + '</b></li>';
     }).join("") + '</ol>';

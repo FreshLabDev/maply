@@ -38,7 +38,7 @@
 
 .lead-list { min-height: 160px; }
 .lead-list[aria-busy="true"] .lead-rows { opacity: .6; }
-.lead-th, .lead-rows li { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.lead-th, .lead-rows li { display: grid; grid-template-columns: 40px 26px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
 .lead-th { padding: 0 10px 6px; color: var(--ink-muted); font-size: 11px; }
 .lead-th span:first-child, .lead-th span:last-child { text-align: end; }
 .lead-rows { list-style: none; margin: 0; padding: 0; }
@@ -47,8 +47,10 @@
 .lead-rows b { font: 700 21px/1 var(--display); letter-spacing: .02em; text-align: end; }
 .lead-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .lead-n[data-who] { cursor: pointer; }
-/* An anonymous row's plain mark before the name, as on the days page. */
-.lead-n .src { width: 16px; height: 16px; margin-inline-end: 8px; vertical-align: -3px; }
+/* A face as in the day's table: a photo, a letter, or the plain one of "Anonymous". */
+.lead-a { width: 26px; height: 26px; }
+.lead-a .av { width: 26px; height: 26px; font: 700 15px/1 var(--display); outline: 0; }
+.lead-rows li.me .lead-a .av { background: var(--field); color: var(--ink); }
 .lead-n[data-who]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .lead-rows li.m1 em, .lead-rows li.m1 b { color: var(--speed); }
 .lead-rows li.me { background: var(--ink); color: var(--field-deep); }
@@ -100,6 +102,9 @@ html.desk .lead-wide .lead-side { grid-area: side; display: grid; gap: 14px; ali
 html.desk .lead-wide .lead-you { padding: 20px; }
 html.desk .lead-wide .lead-you b { font-size: 34px; }
 html.desk .lead-wide .lead-rows li { padding: 11px 14px; }
+html.desk .lead-wide .lead-th, html.desk .lead-wide .lead-rows li { grid-template-columns: 44px 32px minmax(0, 1fr) auto; gap: 14px; }
+html.desk .lead-wide .lead-a, html.desk .lead-wide .lead-a .av { width: 32px; height: 32px; }
+html.desk .lead-wide .lead-a .av { font-size: 18px; }
 html.desk .lead-wide .lead-th { padding: 0 14px 8px; }
 @media (min-width: 1280px) {
   html.desk .lead-wide { grid-template-columns: 280px minmax(0, 1fr) 300px; grid-template-rows: auto 1fr; grid-template-areas: "head head head" "boards main side"; }

@@ -2,9 +2,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"html/template"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"math"
 	"math/rand/v2"
 	"net/http"
@@ -14,6 +18,7 @@ import (
 	"github.com/FreshLabDev/tg"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/FreshLabDev/maply/internal/avatar"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/round"
@@ -152,6 +157,9 @@ func seedTop(ctx context.Context, e *Env) error {
 			}
 		}
 		all = append(all, topPlayer{userID: p.ID, name: p.Name, strength: s.Strength, owner: p.Owner})
+		if err := keepTopPhoto(ctx, e, p.ID); err != nil {
+			return err
+		}
 	}
 	now := e.Clock.Now()
 	for _, g := range topGoogle {
@@ -168,6 +176,35 @@ func seedTop(ctx context.Context, e *Env) error {
 		return err
 	}
 	return topDays(ctx, e, now)
+}
+
+// keepTopPhoto keeps a made-up profile photo for one of the stand's players
+// on the boards, so /top opened from a group has faces to show. The fake
+// Telegram has no photos; the photo is checked "a year from now", so the
+// avatar service never asks it and keeps this one.
+func keepTopPhoto(ctx context.Context, e *Env, id int64) error {
+	hue := []color.RGBA{{0xc2, 0x6a, 0x4a, 0xff}, {0x4a, 0x6f, 0xc2, 0xff}, {0x9a, 0x5c, 0xb8, 0xff}, {0xc9, 0x9a, 0x2e, 0xff}}[id%4]
+	img := image.NewRGBA(image.Rect(0, 0, avatar.Side, avatar.Side))
+	const n = float64(avatar.Side)
+	for y := range avatar.Side {
+		for x := range avatar.Side {
+			c := hue
+			// A head and shoulders in a lighter shade, as a portrait.
+			fx, fy := float64(x)/n, float64(y)/n
+			head := math.Hypot(fx-.5, fy-.4) < .18
+			body := math.Hypot((fx-.5)/.36, (fy-1.02)/.36) < 1
+			if head || body {
+				c = color.RGBA{uint8(min(255, int(c.R)+70)), uint8(min(255, int(c.G)+70)), uint8(min(255, int(c.B)+70)), 0xff}
+			}
+			shade := 1 - .25*fy
+			img.Set(x, y, color.RGBA{uint8(float64(c.R) * shade), uint8(float64(c.G) * shade), uint8(float64(c.B) * shade), 0xff})
+		}
+	}
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: 85}); err != nil {
+		return err
+	}
+	return e.Store.SetAvatar(ctx, id, db.Avatar{UniqueID: fmt.Sprintf("dev-top-%d", id), JPEG: out.Bytes(), CheckedAt: e.Clock.Now().AddDate(1, 0, 0)})
 }
 
 // topSlug is a made-up player's public page: fixed, so the stand's panel can
