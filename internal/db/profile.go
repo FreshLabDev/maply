@@ -50,7 +50,7 @@ type Profile struct {
 // have closed.
 func (s *Store) ProfileOf(ctx context.Context, userID int64, today round.Date, n int) (Profile, error) {
 	var p Profile
-	err := s.pool.QueryRow(ctx, `SELECT COALESCE(first_name, '') FROM core.person WHERE telegram_user_id = $1`, userID).Scan(&p.Name)
+	err := s.pool.QueryRow(ctx, `SELECT COALESCE(first_name, '') FROM person_shown WHERE telegram_user_id = $1`, userID).Scan(&p.Name)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return Profile{}, fmt.Errorf("name of %d: %w", userID, err)
 	}

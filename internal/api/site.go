@@ -168,7 +168,7 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 	for i := range resp.Board {
 		who[i] = &resp.Board[i].Person
 	}
-	if err := s.dress(ctx, dressAsk{viewer: v.TelegramUserID, lang: lang, scope: handleScope("site", d, 0)}, who...); err != nil {
+	if err := s.dress(ctx, dressAsk{viewer: v.TelegramUserID, lang: lang, guest: !v.SignedIn()}, who...); err != nil {
 		s.fail(w, r, err)
 		return
 	}

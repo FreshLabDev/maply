@@ -215,7 +215,7 @@ func (s *Store) LastRounds(ctx context.Context, upTo round.Date, n int) ([]Round
 // NameOf is a Telegram person's first name, empty when core has none.
 func (s *Store) NameOf(ctx context.Context, userID int64) (string, error) {
 	var name string
-	err := s.pool.QueryRow(ctx, `SELECT COALESCE(first_name, '') FROM core.person WHERE telegram_user_id = $1`, userID).Scan(&name)
+	err := s.pool.QueryRow(ctx, `SELECT COALESCE(first_name, '') FROM person_shown WHERE telegram_user_id = $1`, userID).Scan(&name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}

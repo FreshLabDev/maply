@@ -1,8 +1,9 @@
 /* ---------- Profile ---------- */
-// The player's own profile opens from the letter at the end of the header; the logo still opens the days. Any element
-// with data-who="<handle>" opens that player's mini profile: the server puts a handle next to a name only, so a row
-// without a name has nothing to tap. Charts are drawn here in SVG, without a library.
-// PROF is the player's own profile, VIEW the one on show: the own one or a public page.
+// Every player's profile has one address, /u/<username>, the player's own too: the letter at the end of the header goes
+// to /me, which moves to the player's own address once it is known. Any element with data-u="<username>" opens that
+// player's profile over what it was tapped in: the server sends a username next to a name only, so a row without a
+// name has nothing to tap. Charts are drawn here in SVG, without a library.
+// PROF is the player's own profile, VIEW the one on show: the own one or someone else's.
 let PROF = null, VIEW = null, PROF_TAB = "ranked";
 try { PROF_TAB = localStorage.getItem("maply.prof.tab") === "free" ? "free" : "ranked"; } catch {}
 
@@ -13,11 +14,13 @@ function meLetter(name) {
   $("meBtn").innerHTML = MY_FACE ? '<img src="' + MY_FACE + '" alt="">' : n ? esc(initial(n)) : FIGURE;
 }
 meLetter();
-// The profile is the page /me and a public profile /p/<slug>: the letter goes to /me, and × goes back to the page before.
+// The profile is the page /u/<username>; /me is the own one before its address is known, and an old public link
+// /p/<slug> goes on to its owner's. × goes back to the page before.
 $("meBtn").addEventListener("click", () => Router.go("/me"));
 const leavePage = () => Router.back("/");
 // Back from a day comes to the profile where it was; any other way in starts at the top.
 Router.screen("me", /^\/me$/, { open(m, from) { if (from !== "days") PROF_AT = null; openProfile(); }, close() { closeDays(); } });
+Router.screen("u", /^\/u\/([\w-]+)$/, { open(m, from) { if (from !== "days") PROF_AT = null; openUser(m[1]); }, close() { closeDays(); } });
 Router.screen("p", /^\/p\/([\w-]+)$/, { open(m) { openPublic(m[1]); }, close() { closeDays(); } });
 
 // A sheet put aside to come back to: its own nodes, so whatever it bound keeps working, and where it was scrolled.
@@ -45,49 +48,109 @@ const backTo = (saved) => saved ? () => restoreSheet(saved) : null;
 
 const wait = () => '<p class="sh-wait up">' + esc(lines("loading")[0]) + '</p>';
 
-// From the router, or from a mini profile that is the viewer's own, over the sheet it came from. Anything else, the
-// avatar's menu say, goes through the address.
-async function openProfile(saved) {
-  if (!saved && Router.current !== "me") { Router.go("/me"); return; }
+// The own profile, read now. On its page /me the address moves to the player's own, /u/<username>, which draws what
+// was just read. A guest of the site has no username and stays on /me.
+async function openProfile() {
   haptic("light");
-  saved = saved || null;
-  const ticket = sheet(esc(T("prof.title")), wait(), backTo(saved), leavePage);
+  const ticket = sheet(esc(T("prof.title")), wait(), null, leavePage);
   $("sheet").dataset.kind = "profile";
   let d;
   try { d = await getJSON("/api/profile"); } catch (e) {
-    if (ticket === SHEET) sheet(esc(T("prof.title")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', backTo(saved), leavePage);
+    if (ticket === SHEET) sheet(esc(T("prof.title")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', null, leavePage);
     return;
   }
   if (ticket !== SHEET) return;
-  PROF = Object.assign(d, { saved });
-  if (d.name) meLetter(d.name);
+  ownRead(d, null);
+  if (PROF.edit && Router.current === "me") { Router.go("/u/" + PROF.edit.username, { replace: true }); return; }
   showProfile();
   profileAt();
 }
+// The own profile as the server sent it, kept for the settings and the editor; saved is the sheet it opened over.
+function ownRead(d, saved) {
+  PROF = Object.assign(d, { me: true, saved, at: Date.now() });
+  if (d.name) meLetter(d.name);
+  if (typeof profileAsk === "function") profileAsk(PROF);
+}
 
-function showProfile() { drawProfile(PROF, backTo(PROF.saved), "profile"); }
-function drawProfile(d, back, kind) {
+// A profile by its username: from its address (saved undefined), or tapped in a list over the sheet it is in (saved
+// is that sheet, or null over no sheet), whose Back comes back to it. A username its owner has left leads on to the new
+// one. The own profile comes whole, with the settings and the editor.
+async function openUser(name, saved) {
+  const u = String(name || "").toLowerCase(), page = saved === undefined;
+  // The own profile just read on /me draws at once.
+  if (page && PROF && PROF.edit && PROF.edit.username === u && Date.now() - PROF.at < 10000) { showProfile(); profileAt(); return; }
+  haptic("light");
+  const back = page ? null : backTo(saved), close = page ? leavePage : undefined;
+  const ticket = sheet(esc(T("prof.title")), wait(), back, close);
+  $("sheet").dataset.kind = "user";
+  let d;
+  try { d = await getJSON("/api/u/" + encodeURIComponent(u)); } catch (e) {
+    if (ticket === SHEET) sheet(esc(T("prof.title")), '<p class="sh-wait">' + esc(e.message === "not_found" ? T("prof.user_gone") : errorText(e)) + '</p>', back, close);
+    return;
+  }
+  if (ticket !== SHEET) return;
+  if (d.moved) {
+    if (page) Router.go("/u/" + d.moved, { replace: true });
+    else { SHEET++; openUser(d.moved, saved); }
+    return;
+  }
+  if (d.me) { ownRead(d, page ? null : saved); showProfile(); profileAt(); return; }
+  drawProfile(Object.assign(d, { other: true }), back, "user", close);
+  profileAt();
+}
+
+function showProfile() { drawProfile(PROF, backTo(PROF.saved), "profile", PROF.saved ? undefined : leavePage); }
+function drawProfile(d, back, kind, close) {
   VIEW = d;
-  sheet(esc(T("prof.title")), '<div class="prof">' + cardHTML(d) + tabsHTML() + '<div id="profTab"></div></div>', back, leavePage);
+  sheet(esc(T("prof.title")), '<div class="prof">' + cardHTML(d) + tabsHTML() + '<div id="profTab"></div></div>', back, close);
   $("sheet").dataset.kind = kind;
   $("sheet").querySelectorAll(".ptabs button").forEach((b) => { b.onclick = () => { haptic("select"); setTab(b.dataset.tab); }; });
   $("sheet").querySelector(".ptabs").onkeydown = tabKey;
   const signIn = $("profSignIn");
   if (signIn) signIn.onclick = () => acctDialog();
+  const edit = $("profEdit");
+  if (edit && typeof openEdit === "function") edit.onclick = () => openEdit();
+  const share = $("profShare");
+  if (share) share.onclick = () => shareProfile(d);
   setTab(PROF_TAB, true);
 }
 
+// The head of a profile: the face, the name and the username, and what to do with it. The own profile is the player's
+// and someone else's is theirs: each with the face the server sent, none to a guest of the site.
 function cardHTML(d) {
-  const name = d.name || (d.guest ? T("guest") : d.site ? T("acct.google_account") : "");
-  // The own profile is yours and a public page its owner's: each with the face the server sent.
-  let h = '<div class="pcard">' + faceOf({ ...personOf(d), name: name || "?" }) + '<div><b lang="' + nameLang() + '" dir="auto">' + esc(name) + '</b>' +
+  const name = nameOf(d), u = d.u || (d.edit && d.edit.username) || "";
+  let h = '<div class="phead">' + faceOf({ ...personOf(d), name }, "big") + '<div class="phead-t"><b lang="' + nameLang() + '" dir="auto">' + esc(name) + '</b>' +
+    (u ? '<span class="phead-u" dir="ltr">@' + esc(u) + '</span>' : "") +
     '<span class="up">' + esc(T(d.guest || d.site ? "from_site" : "from_tg")) + '</span></div></div>';
+  const acts = [];
+  if (d.me && d.edit && typeof openEdit === "function") acts.push('<button class="pbtn" id="profEdit">' + esc(T("prof.edit")) + '</button>');
+  if (u) acts.push('<button class="pbtn" id="profShare">' + esc(T("prof.share")) + '</button>');
+  if (acts.length) h += '<div class="pacts">' + acts.join("") + '</div>';
+  if (d.duel) h += '<div class="pbig"><b>' + esc(T("prof.duel", { closer: fmt(d.duel.closer), of: fmt(d.duel.of) })) + '</b></div>';
   if (d.guest) {
     // The sign-in comes from the accounts' dialog; a site without accounts has the note alone.
     const btn = typeof acctDialog === "function" && typeof ME !== "undefined" && ME ? '<button class="pbtn" id="profSignIn">' + esc(T("prof.sign_in")) + '</button>' : "";
     h += '<div class="pnote"><p>' + esc(T("prof.guest_note")) + '</p>' + btn + '</div>';
   }
   return h;
+}
+
+// A profile's link to pass on. In Telegram it opens the app on the profile; on the site it is the page, whose preview
+// is the profile's picture.
+function shareProfile(d) {
+  const u = d.u || (d.edit && d.edit.username);
+  if (!u) return;
+  haptic("light");
+  const text = T("prof.share_text", { name: nameOf(d) }), bot = TODAY && TODAY.bot;
+  if (inTg && tg.initData && bot && typeof tgAt === "function" && tgAt("6.1")) {
+    tg.openTelegramLink("https://t.me/share/url?" + new URLSearchParams({ url: "https://t.me/" + bot + "/play?startapp=u_" + u, text }));
+    return;
+  }
+  const url = location.origin + "/u/" + u;
+  if (navigator.share) { navigator.share({ text, url }).catch(() => {}); return; }
+  const pick = () => toast(url);
+  if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => toast(T("prof.copied")), pick);
+  else pick();
 }
 
 function tabsHTML() {
@@ -153,7 +216,7 @@ const profFlag = (iso) => !iso ? "" : typeof FLAGS !== "undefined" && FLAGS.has(
 
 function rankedHTML(d) {
   const r = d.ranked;
-  if (!r.days) return '<p class="sh-wait">' + esc(T(d.guest || d.site || d.pub ? "prof.no_days_guest" : "prof.no_days")) + '</p>' + settingsHTML(d);
+  if (!r.days) return '<p class="sh-wait">' + esc(T(d.guest || d.site || d.other ? "prof.no_days_guest" : "prof.no_days")) + '</p>' + settingsHTML(d);
   let h = '';
   if (r.percentile != null) h += '<div class="pbig"><b>' + esc(T("prof.better", { pct: fmt(r.percentile) })) + '</b><span>' + esc(T("prof.better_note")) + '</span></div>';
   // The month's season so far stands with the numbers, its note under them all.
@@ -175,8 +238,8 @@ function rankedHTML(d) {
   h += section(T("prof.chart_points"), seriesSVG(r.series, r.median30));
   h += section(T("prof.chart_misses"), missesSVG(r.misses));
   h += section(T("prof.chart_continents"), continentsHTML(r));
-  // One map of the world: the found countries in gold and, for the owner, their pins over them. A public page has
-  // no pins and no history.
+  // One map of the world: the found countries in gold and the pins over them: all the owner's, and the days over
+  // everywhere on someone else's.
   h += section(T("prof.passport"), passportHTML(r.passport, r.history), "wide");
   h += '</div>';
   // The settings come before the history, which grows by a row a day.
@@ -196,10 +259,6 @@ function bindRanked(box) {
 function bindSettings() {
   const hide = $("hideMe");
   if (hide) hide.onchange = () => saveHide(hide);
-  const pub = $("pubOn");
-  if (pub) pub.onchange = () => savePublic(pub.checked, false, "pubOn");
-  if ($("pubNew")) $("pubNew").onclick = () => savePublic(true, true, "pubNew");
-  if ($("pubCopy")) $("pubCopy").onclick = copyPublic;
 }
 
 // A closed day's page, by its address; its Back comes back to the profile, where it was, with the focus on what was
@@ -309,8 +368,8 @@ const pinClass = (km) => PIN_BINS.find(([top]) => km <= top)[1];
 
 const PROFILE_LAND_STEP = () => typeof PROFILE_LAND === "undefined" ? 2 : PROFILE_LAND.step;
 
-// The passport: the world's land dots, a found country's in gold, the owner's pins over them, then the flags and the
-// two stamps. A public page and a stranger have no pins.
+// The passport: the world's land dots, a found country's in gold, the pins over them, then the flags and the two
+// stamps.
 function passportHTML(p, history) {
   // A found country's dots are drawn larger: a small country has only a few.
   const found = new Set(p.countries), dot = (PROFILE_LAND_STEP() * .62).toFixed(2), big = (PROFILE_LAND_STEP() * 1.05).toFixed(2);
@@ -408,9 +467,9 @@ document.addEventListener("click", (e) => {
 
 /* ---------- Settings ---------- */
 function settingsHTML(d) {
-  if (!d.settings) return "";
+  if (!d.settings || !d.me) return "";
   let h = '<label class="pswitch"><input type="checkbox" id="hideMe"' + (d.settings.hide_me ? " checked" : "") + '><span><b>' + esc(T("prof.hide_me")) + '</b>' +
-    '<small>' + esc(T("prof.hide_me_note")) + '</small></span></label>' + publicHTML(d.settings);
+    '<small>' + esc(T("prof.hide_me_note")) + '</small></span></label>';
   // Linked accounts live on the accounts screen; the profile only points there.
   if (typeof openAccounts === "function") h += '<button class="pbtn wide" id="profAccounts">' + esc(T("prof.accounts")) + ' ' + fwd() + '</button>';
   return section(T("prof.settings"), h);
@@ -438,90 +497,31 @@ document.addEventListener("click", (e) => {
   openAccounts(() => restoreSheet(saved));
 });
 
-/* ---------- Public page ---------- */
-// The link to a page anyone may open: on, off, or a new one, which ends the old.
-const publicURL = (path) => location.origin + path;
-// While the player is hidden the page does not open: the switch waits, and the note on hiding above says so.
-function publicHTML(set) {
-  let h = '<label class="pswitch' + (set.hide_me ? ' held' : '') + '"><input type="checkbox" id="pubOn"' + (set.public ? " checked" : "") + (set.hide_me ? " disabled" : "") + '><span><b>' + esc(T("prof.public")) + '</b>' +
-    '<small>' + esc(T("prof.public_note")) + '</small></span></label>';
-  if (set.public && !set.hide_me) h += '<div class="plink"><input id="pubUrl" readonly dir="ltr" value="' + esc(publicURL(set.public)) + '" aria-label="' + esc(T("prof.public")) + '">' +
-    '<button class="pbtn" id="pubCopy">' + esc(T("prof.copy")) + '</button><button class="pbtn" id="pubNew">' + esc(T("prof.public_new")) + '</button></div>';
-  return h;
-}
-// A second tap while the first is on its way would end the link just made.
-async function savePublic(on, renew, from) {
-  haptic("select");
-  ["pubOn", "pubNew", "pubCopy"].forEach((id) => { if ($(id)) $(id).disabled = true; });
-  try {
-    PROF.settings = await api("/api/profile/public", { on });
-    if (renew) toast(T("prof.public_renewed"));
-  } catch (e) { toast(errorText(e)); }
-  redrawSettings($(from) ? from : "pubOn");
-}
-function copyPublic() {
-  const url = $("pubUrl");
-  if (!url) return;
-  const pick = () => { url.focus(); url.select(); };
-  if (navigator.clipboard) navigator.clipboard.writeText(url.value).then(() => toast(T("prof.copied")), pick);
-  else pick();
-}
-
-// A public page, as anyone with its link sees it: the closed days, without pins, history or settings.
+/* ---------- An old public link ---------- */
+// /p/<slug> was a page its owner turned on before profiles had one address: it goes on to the owner's profile.
 async function openPublic(slug) {
   const ticket = sheet(esc(T("prof.title")), wait(), null, leavePage);
   let d;
-  try { d = await reply(await get("/api/p/" + encodeURIComponent(slug) + "?lang=" + encodeURIComponent(LANG))); } catch (e) {
-    if (ticket === SHEET) sheet(esc(T("prof.title")), '<p class="sh-wait">' + esc(e.message === "not_found" ? T("prof.public_gone") : errorText(e)) + '</p>', null, leavePage);
+  try { d = await reply(await get("/api/p/" + encodeURIComponent(slug))); } catch (e) {
+    if (ticket === SHEET) sheet(esc(T("prof.title")), '<p class="sh-wait">' + esc(e.message === "not_found" ? T("prof.user_gone") : errorText(e)) + '</p>', null, leavePage);
     return;
   }
-  if (ticket === SHEET) drawProfile(Object.assign(d, { pub: true }), null, "public");
+  if (ticket === SHEET && d.moved) Router.go("/u/" + d.moved, { replace: true });
 }
 
-/* ---------- Mini profile ---------- */
-// A tap on a name: what anyone who sees the name may know. Under the map the table's own taps stay as they were.
-// In the sheets a name is a button for the keyboard too: Enter or Space opens it.
-const whoOf = (e) => { const w = e.target.closest && e.target.closest("[data-who]"); return w && !w.closest("#lb") ? w : null; };
+/* ---------- A name tapped ---------- */
+// A tap on a name opens that player's profile over what it was in. Under the map the table's own taps stay as they
+// were. In the sheets a name is a button for the keyboard too: Enter or Space opens it.
+const userOf = (e) => { const w = e.target.closest && e.target.closest("[data-u]"); return w && !w.closest("#lb") ? w : null; };
 document.addEventListener("click", (e) => {
-  const w = whoOf(e);
+  const w = userOf(e);
   if (!w) return;
   e.preventDefault(); e.stopPropagation();
-  openMini(w.dataset.who);
+  openUser(w.dataset.u, keepSheet());
 }, true);
 document.addEventListener("keydown", (e) => {
-  const w = (e.key === "Enter" || e.key === " ") && whoOf(e);
+  const w = (e.key === "Enter" || e.key === " ") && userOf(e);
   if (!w) return;
   e.preventDefault(); e.stopPropagation();
-  openMini(w.dataset.who);
+  openUser(w.dataset.u, keepSheet());
 }, true);
-
-async function openMini(handle) {
-  if (!handle) return;
-  haptic("light");
-  const saved = keepSheet(), back = backTo(saved);
-  const ticket = sheet(esc(T("prof.title")), wait(), back);
-  $("sheet").dataset.kind = "mini";
-  let d;
-  try { d = await getJSON("/api/profile/who?id=" + encodeURIComponent(handle)); } catch (e) {
-    if (ticket === SHEET) sheet(esc(T("prof.title")), '<p class="sh-wait">' + esc(errorText(e)) + '</p>', back);
-    return;
-  }
-  if (ticket !== SHEET) return;
-  // Your own name opens your whole profile.
-  if (d.me) { SHEET++; return openProfile(saved); }
-  let h = '<div class="prof mini"><div class="pcard">' + faceOf(d) + '<div><b lang="' + nameLang() + '" dir="auto">' + esc(nameOf(d)) + '</b><span class="up">' + esc(T("from_tg")) + '</span></div></div>';
-  if (d.duel) h += '<div class="pbig"><b>' + esc(T("prof.duel", { closer: fmt(d.duel.closer), of: fmt(d.duel.of) })) + '</b></div>';
-  h += tilesHTML([
-    tile(T("prof.days"), fmt(d.days)),
-    tile(T("prof.streak"), fmt(d.streak)),
-    tile(T("prof.avg30"), d.avg30 != null ? fmt(d.avg30) : none),
-    tile(T("prof.best_place"), d.best_place ? placeOf(d.best_place) : none, d.best_place ? dayLink(d.best_place.day, d.best_place.date) : ""),
-    tile(T("prof.countries"), fmt(d.countries)),
-  ]);
-  if (d.free) {
-    h += section(T("prof.tab_free"), tilesHTML([tile(T("prof.free_avg"), d.free.avg != null ? fmt(d.free.avg) : none, esc(T("prof.free_avg_note"))),
-      d.free.duels && tile(T("prof.duels"), fmt(d.free.duels.won) + ' : ' + fmt(d.free.duels.lost), esc(T("prof.duels_note")))]));
-  }
-  sheet(esc(T("prof.title")), h + '</div>', back);
-  $("sheet").dataset.kind = "mini";
-}

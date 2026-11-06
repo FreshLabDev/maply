@@ -26,7 +26,8 @@ const pick = (a) => a[Math.floor(Math.random() * a.length)];
 // player their photo, anyone else their first letter. cls adds classes to the square.
 // A photo is a kept picture at /face/<key>.jpg; anything else keeps the letter.
 const PHOTO = /^\/face\/[0-9a-f]{32}\.jpg$/;
-// MY_FACE is the person's own Telegram photo: their own face is it wherever it is drawn, the letter until it comes.
+// MY_FACE is the person's own photo, the one they chose or Telegram's: their own face is it wherever it is drawn, the
+// letter until it comes.
 let MY_FACE = "";
 const FIGURE = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="5.2" r="3" fill="currentColor"/><path d="M2 15c0-3.4 2.7-5.6 6-5.6s6 2.2 6 5.6z" fill="currentColor"/></svg>';
 function faceOf(p, cls) {
@@ -42,10 +43,10 @@ function faceOf(p, cls) {
 // it is not out yet.
 const nameOf = (p) => p.hidden ? "" : p.name || (p.site ? T("guest") : "?");
 // The person of a row the API sent, without the rest of the row.
-const personOf = (r) => ({ name: r.name || "", photo: r.photo || "", me: !!r.me, site: !!r.site, anon: !!r.anon, hidden: !!r.hidden });
+const personOf = (r) => ({ name: r.name || "", photo: r.photo || "", u: r.u || "", me: !!r.me, site: !!r.site, anon: !!r.anon, hidden: !!r.hidden });
 // The own photo is asked for once a launch, beside everything else; the faces already drawn take it when it comes.
 function loadFace() {
-  const site = typeof ME !== "undefined" && ME && ME.account && ME.account.telegram;
+  const site = typeof ME !== "undefined" && ME && ME.account;
   if (inTg ? !tg.initData : !site) return;
   getJSON("/api/face").then((d) => {
     if (!d || !d.photo || !PHOTO.test(d.photo)) return;
@@ -443,7 +444,7 @@ function boardRow(r, i, cls, count) {
   const wait = T(r.grp && PHASE === "live" ? "anon_row" : "anon_world");
   const label = r.hidden ? ' aria-label="' + esc([wait, r.grp ? T("in_group") : "", kmT(r.d), fmt(r.pts)].filter(Boolean).join(", ")) + '"' : "";
   return '<div class="r' + (r.me ? " me" : "") + (r.hidden ? " anon" : "") + cls + '" data-key="' + esc(r.key || "") + '"' + label + '><em' + (n <= 3 ? ' class="m' + n + '"' : "") + '>' + (typeof n === "number" ? fmt(n) : n) + '</em>' + face +
-    '<span' + (r.handle && !r.hidden ? ' data-who="' + esc(r.handle) + '"' + (count ? '' : ' role="button" tabindex="0"') : '') + '>' + (r.hidden ? "•••" : esc(r.who)) + '</span>' +
+    '<span' + (r.u && !r.hidden ? ' data-u="' + esc(r.u) + '"' + (count ? '' : ' role="button" tabindex="0"') : '') + '>' + (r.hidden ? "•••" : esc(r.who)) + '</span>' +
     '<span class="hit" data-rest="' + esc(r.hidden ? wait : T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + barOf(r) + '</span></span>' +
     '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '" data-sp="' + r.sp + '">' + v(r.pts) + '</b><span class="k">' + kmT(r.d) + '</span></div>';
 }
@@ -693,7 +694,7 @@ const rowsOf = (res) => res.table.map((r) => ({ ...personOf(r), who: r.me ? T("y
 function boardOf(res) {
   const rows = (res.board || []).map((r) => ({ ...personOf(r), who: r.me ? T("you") : nameOf(r),
     d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0, grp: !!r.group,
-    key: r.key, rank: r.rank, handle: r.who || "" }));
+    key: r.key, rank: r.rank, u: r.u || "" }));
   // An answer the site kept only in the browser is scored on the spot and has no place in the world: it shows as your
   // row without a rank, rather than "you didn't answer".
   const own = !rows.some((r) => r.me) && (res.table || []).find((r) => r.me && r.points != null);
@@ -957,7 +958,10 @@ async function boot() {
   Desk.start({ view: () => view, state: () => state, open: toMap, close: toPhoto, pin: (lngLat, point) => { if (state === "guess") putPin(lngLat, point); }, globe, pano });
   // A group's post opens the app with its signed payload and no address of its own: that is the day, not the menu.
   // A DM's post names /today itself; the bot's menu button and /start open the menu.
-  if (!Router.current && inTg && tg.initDataUnsafe.start_param && /^\/(?:index\.html)?$/.test(location.pathname)) Router.go("/today", { replace: true });
+  // A profile's link opens the app on that profile: u_ and the username.
+  const sp = inTg && tg.initDataUnsafe.start_param || "", uLink = /^u_([a-z][a-z0-9_]{2,31})$/.exec(sp);
+  if (!Router.current && uLink && /^\/(?:index\.html)?$/.test(location.pathname)) Router.go("/u/" + uLink[1], { replace: true });
+  else if (!Router.current && sp && /^\/(?:index\.html)?$/.test(location.pathname)) Router.go("/today", { replace: true });
   // The day and the time of its result, before the first page: the menu writes them.
   $("day").textContent = "#" + TODAY.day;
   AT = new Intl.DateTimeFormat(numLang(), { timeZone: TODAY.zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(TODAY.reveal));

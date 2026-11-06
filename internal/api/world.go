@@ -180,6 +180,10 @@ type viewer struct {
 	zone *time.Location
 }
 
+// guest is a viewer who has not signed in: neither the Mini App nor a site
+// account.
+func (v viewer) guest() bool { return v.user == 0 && v.account == "" }
+
 func (s *Server) viewer(r *http.Request) (viewer, error) {
 	if r.Header.Get("Authorization") != "" {
 		p, err := s.resolve(r)

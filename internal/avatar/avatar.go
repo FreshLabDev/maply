@@ -9,6 +9,7 @@ package avatar
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/jpeg"
 	_ "image/png"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
 
 	"github.com/FreshLabDev/maply/internal/db"
 )
@@ -57,6 +59,12 @@ type Telegram interface {
 // batch is a Store that reads many kept photos in one query.
 type batch interface {
 	AvatarsOf(ctx context.Context, ids []int64) (map[int64][]byte, error)
+}
+
+// owned is a Store that keeps the photos people chose themselves, which
+// maply shows over Telegram's.
+type owned interface {
+	OwnPhotos(ctx context.Context, ids []int64) (map[int64][]byte, error)
 }
 
 // addressed is a Store that gives each kept photo an address of its own.
@@ -159,7 +167,8 @@ func (s *Service) addressed() (addressed, bool) {
 	return a, ok
 }
 
-// Fetch is the photos of ids, asking Telegram for the ones not asked today.
+// Fetch is the photos of ids, asking Telegram for the ones not asked today;
+// a photo a person chose themselves comes over Telegram's.
 // Whatever fails keeps the photo kept before, or none: a letter instead of a
 // face is never worth a missing result.
 func (s *Service) Fetch(ctx context.Context, ids []int64) map[int64][]byte {
@@ -189,6 +198,15 @@ func (s *Service) Fetch(ctx context.Context, ids []int64) map[int64][]byte {
 	}
 	close(work)
 	wg.Wait()
+	if o, ok := s.Store.(owned); ok && len(ids) > 0 {
+		own, err := o.OwnPhotos(ctx, ids)
+		if err != nil {
+			s.log().Warn("own photos not read", "users", len(ids), "error", err)
+		}
+		for id, b := range own {
+			out[id] = b
+		}
+	}
 	return out
 }
 
@@ -295,6 +313,51 @@ func Square(raw []byte) ([]byte, error) {
 	draw.CatmullRom.Scale(dst, dst.Bounds(), img, src, draw.Src, nil)
 	var out bytes.Buffer
 	if err := jpeg.Encode(&out, dst, &jpeg.Options{Quality: 88}); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+// OwnSide is the side of a photo a person chose themselves: the profile's
+// head draws it larger than any result does.
+const OwnSide = 256
+
+// OwnLimit bounds the side of a photo a person sends, before it is read
+// whole: a small file may claim a huge picture.
+const OwnLimit = 4096
+
+// ErrPhoto is a file that is not a JPEG, PNG or WebP picture maply takes.
+var ErrPhoto = errors.New("avatar: not a photo maply takes")
+
+// Own is a photo a person sent as their own, the middle square of it,
+// OwnSide pixels, as a JPEG without anything the file carried besides the
+// picture. A see-through part becomes white.
+func Own(raw []byte) ([]byte, error) {
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil, ErrPhoto
+	}
+	switch format {
+	case "jpeg", "png", "webp":
+	default:
+		return nil, ErrPhoto
+	}
+	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > OwnLimit || cfg.Height > OwnLimit {
+		return nil, ErrPhoto
+	}
+	img, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, ErrPhoto
+	}
+	b := img.Bounds()
+	n := min(b.Dx(), b.Dy())
+	x0, y0 := b.Min.X+(b.Dx()-n)/2, b.Min.Y+(b.Dy()-n)/2
+	src := image.Rect(x0, y0, x0+n, y0+n)
+	dst := image.NewRGBA(image.Rect(0, 0, OwnSide, OwnSide))
+	draw.Draw(dst, dst.Bounds(), image.White, image.Point{}, draw.Src)
+	draw.CatmullRom.Scale(dst, dst.Bounds(), img, src, draw.Over, nil)
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, dst, &jpeg.Options{Quality: 86}); err != nil {
 		return nil, err
 	}
 	return out.Bytes(), nil

@@ -47,6 +47,9 @@ var dayPath = regexp.MustCompile(`^/days/([1-9][0-9]{0,5})$`)
 // reader's Accept-Language; false for any other page, for a day still open
 // somewhere and for a day whose strip is not drawn yet.
 func (s *Server) PageMeta(r *http.Request, path string) (web.Meta, bool) {
+	if u, ok := strings.CutPrefix(path, "/u/"); ok {
+		return s.userMeta(r, u)
+	}
 	m := dayPath.FindStringSubmatch(path)
 	if m == nil || s.AppURL == "" {
 		return web.Meta{}, false
@@ -305,4 +308,48 @@ func firstOf(s ...string) string {
 		}
 	}
 	return ""
+}
+
+// userMeta is the preview of a link to a profile, /u/<username>: the name,
+// the username and the profile's picture, which has no photo. A profile
+// hidden or not there is the plain page.
+func (s *Server) userMeta(r *http.Request, username string) (web.Meta, bool) {
+	st, ps := s.personaStore(), s.profileStore()
+	if s.AppURL == "" || st == nil || ps == nil || !s.metaLimit.allowIP(clientIP(r)) {
+		return web.Meta{}, false
+	}
+	ctx := r.Context()
+	p, _, ok, err := st.PersonaByUsername(ctx, username)
+	if err != nil {
+		s.Log.Warn("profile preview not read", "error", err)
+	}
+	if !ok {
+		return web.Meta{}, false
+	}
+	lang := pageLang(r)
+	name := ""
+	if p.UserID != 0 {
+		set, err := ps.ProfileSettingOf(ctx, p.UserID)
+		if err != nil || set.HideMe {
+			return web.Meta{}, false
+		}
+		if name, err = ps.NameOf(ctx, p.UserID); err != nil {
+			return web.Meta{}, false
+		}
+	} else if _, name, err = s.Store.FreeAccountPlayer(ctx, p.AccountID); err != nil {
+		return web.Meta{}, false
+	}
+	if p.Name != "" {
+		name = p.Name
+	}
+	if name == "" {
+		name = i18n.T(lang, "app.guest")
+	}
+	base := strings.TrimRight(s.AppURL, "/")
+	m := web.Meta{Title: name + " · maply", Description: "@" + p.Username + " · " + i18n.T(lang, "app.prof.og_line"),
+		URL: base + "/u/" + p.Username, NoIndex: true}
+	if p.UserID != 0 {
+		m.Image = base + "/api/u/" + p.Username + "/card.png"
+	}
+	return m, true
 }

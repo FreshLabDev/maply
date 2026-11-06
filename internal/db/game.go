@@ -276,7 +276,7 @@ func (s *Store) ResultCounts(ctx context.Context, d round.Date, chatID int64) (c
 const guessSelect = `
 	SELECT g.user_id, COALESCE(pe.first_name, ''), g.lat, g.lon, g.answered_at, g.km, g.pts_km, g.pts_bonus, g.pts_speed
 	  FROM guess g
-	  LEFT JOIN core.person pe ON pe.telegram_user_id = g.user_id`
+	  LEFT JOIN person_shown pe ON pe.telegram_user_id = g.user_id`
 
 func scanGuess(row pgx.CollectableRow) (Guess, error) {
 	var g Guess

@@ -33,30 +33,26 @@ func (s *stillsSeen) Kept(userID int64, lang string) []byte {
 	return nil
 }
 
-type publicView struct {
-	Name   string `json:"name"`
-	Ranked struct {
-		Days       int  `json:"days"`
-		Points     int  `json:"points"`
-		Percentile *int `json:"percentile"`
-	} `json:"ranked"`
-	Error string `json:"error"`
-}
-
-// A public page opens for anyone with its link, holds only the days over
-// everywhere and nothing that finds the person, and a new link or turning
-// it off ends the old one.
-func TestPublicPage(t *testing.T) {
+// The old public page /p/<slug> is a link some players turned on before
+// profiles had one address. It answers with where the player's profile is
+// now, shows no data, and stops when they hide themselves. A link's preview
+// picture follows to the profile's.
+func TestOldPublicLinkLeadsToTheProfile(t *testing.T) {
 	hs := setup(t)
 	stills := &stillsSeen{}
 	hs.srv.Stills = stills
 	hs.person(1, "Oksana", kyivGroup, moscowGroup)
 	hs.person(2, "Ivan", moscowGroup)
 	hs.seedPast(2, "EG", "africa", pastAnswer{user: 1, km: 400, points: 2500, bonus: 300}, pastAnswer{user: 2, km: 100, points: 3800, bonus: 800})
-	hs.seedPast(1, "JP", "asia", pastAnswer{user: 1, km: 5, points: 4950, bonus: 1500}, pastAnswer{user: 2, km: 2000, points: 900})
 	oksana := initData(1, "Oksana", "uk", "")
 	hs.expect("GET", "/api/today", oksana, "", http.StatusOK)
-	hs.expect("POST", "/api/guess", oksana, `{"lat":40,"lon":-3}`, http.StatusOK)
+	hs.setUsername(oksana, "oksana_pub")
+	const slug = "AbCdEfGhIjKlMnOpQrStUv"
+	if _, err := hs.pool.Exec(context.Background(), `
+		INSERT INTO maply.profile_setting (user_id, public_slug) VALUES (1, $1)
+		ON CONFLICT (user_id) DO UPDATE SET public_slug = EXCLUDED.public_slug`, slug); err != nil {
+		t.Fatal(err)
+	}
 
 	get := func(path string) *httptest.ResponseRecorder {
 		rr := httptest.NewRecorder()
@@ -66,49 +62,57 @@ func TestPublicPage(t *testing.T) {
 	if rr := get("/api/p/AAAAAAAAAAAAAAAAAAAAAA"); rr.Code != http.StatusNotFound || rr.Header().Get("X-Robots-Tag") != "noindex, nofollow" {
 		t.Fatalf("a page nobody turned on = %d %v", rr.Code, rr.Header())
 	}
-	// Only a Telegram player has a page to turn on, and the body says what.
-	hs.expect("POST", "/api/profile/public", "", `{"on":true}`, http.StatusUnauthorized)
-	hs.expect("POST", "/api/profile/public", oksana, `{}`, http.StatusBadRequest)
-	hs.expect("POST", "/api/profile/public", oksana, `{"on":"yes"}`, http.StatusBadRequest)
-
-	on := decode[ownView](t, `{"settings":`+hs.expect("POST", "/api/profile/public", oksana, `{"on":true}`, http.StatusOK)+`}`)
-	slug, ok := strings.CutPrefix(on.Settings.Public, "/p/")
-	if !ok || !slugForm.MatchString(slug) {
-		t.Fatalf("public = %q", on.Settings.Public)
+	if rr := get("/api/p/short"); rr.Code != http.StatusNotFound {
+		t.Fatalf("a slug of the wrong form = %d", rr.Code)
 	}
-	if own := decode[ownView](t, hs.expect("GET", "/api/profile", oksana, "", http.StatusOK)); own.Settings.Public != on.Settings.Public {
-		t.Fatalf("the profile's settings say %q", own.Settings.Public)
+	// The page cannot be turned on any more, and the mini profile is gone.
+	for method, path := range map[string]string{"POST": "/api/profile/public", "GET ": "/api/profile/who?id=AAAAAAAAAAAAAAAAAAAAAA"} {
+		if code, body := hs.do(strings.TrimSpace(method), path, oksana, `{"on":true}`); code != http.StatusNotFound && code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s %s = %d %s", method, path, code, body)
+		}
 	}
 
 	rr := get("/api/p/" + slug)
-	page := decode[publicView](t, rr.Body.String())
-	// Her answer of today is not there: the page counts the days over
-	// everywhere, as a stranger's view of a profile does.
-	if rr.Code != http.StatusOK || rr.Header().Get("X-Robots-Tag") != "noindex, nofollow" ||
-		page.Name != "Oksana" || page.Ranked.Days != 2 || page.Ranked.Points != 2500+4950 || page.Ranked.Percentile != nil {
-		t.Fatalf("page = %d %+v", rr.Code, page)
+	// Nothing but where to go: not a number, a name or a photo.
+	if rr.Code != http.StatusOK || rr.Header().Get("X-Robots-Tag") != "noindex, nofollow" || strings.TrimSpace(rr.Body.String()) != `{"moved":"oksana_pub"}` {
+		t.Fatalf("old link = %d %v %s", rr.Code, rr.Header(), rr.Body.String())
 	}
-	for _, leak := range []string{`"history"`, `"lat"`, hs.date.String(), `"who"`, `"id"`, "telegram", "username", "photo", "answered_at"} {
-		if strings.Contains(rr.Body.String(), leak) {
-			t.Fatalf("the public page carries %s: %s", leak, rr.Body.String())
-		}
+	// It follows her when she takes another username.
+	hs.setUsername(oksana, "oksana_two")
+	if rr := get("/api/p/" + slug); rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != `{"moved":"oksana_two"}` {
+		t.Fatalf("old link after a rename = %d %s", rr.Code, rr.Body.String())
 	}
-	// The picture is in the owner's language, whatever the fetch asks: one
-	// picture per player for the edge to keep. A query would be a new key
-	// at the edge, so it goes back to the address without one.
-	if rr := get("/api/p/" + slug + "/card.png?lang=en"); rr.Code != http.StatusMovedPermanently ||
-		rr.Header().Get("Location") != "/api/p/"+slug+"/card.png" || len(stills.users) != 0 {
+	// The preview picture is the profile's.
+	card := get("/api/p/" + slug + "/card.png")
+	if card.Code != http.StatusFound || card.Header().Get("Location") != "/api/u/oksana_two/card.png" ||
+		card.Header().Get("X-Robots-Tag") != "noindex, nofollow" || len(stills.users) != 0 {
+		t.Fatalf("old card = %d %v", card.Code, card.Header())
+	}
+	// The slug is the link's key: it stays out of the log.
+	if strings.Contains(hs.logs.String(), slug) {
+		t.Fatalf("the log names the slug: %s", hs.logs.String())
+	}
+
+	// The profile's picture is in the owner's language, whatever the fetch
+	// asks: one picture per player for the edge to keep. A query would be a
+	// new key at the edge, so it goes back to the address without one.
+	if rr := get("/api/u/oksana_two/card.png?lang=en"); rr.Code != http.StatusMovedPermanently ||
+		rr.Header().Get("Location") != "/api/u/oksana_two/card.png" || len(stills.users) != 0 {
 		t.Fatalf("card with a query = %d %v", rr.Code, rr.Header())
 	}
-	card := get("/api/p/" + slug + "/card.png")
+	card = get("/api/u/oksana_two/card.png")
 	if card.Code != http.StatusOK || card.Header().Get("Content-Type") != "image/png" || card.Header().Get("X-Robots-Tag") != "noindex, nofollow" ||
 		len(stills.users) != 1 || stills.users[0] != 1 || stills.langs[0] != "uk" {
 		t.Fatalf("card = %d %v, drawn for %v in %v", card.Code, card.Header(), stills.users, stills.langs)
 	}
+	// An address she left leads to the picture at the new one.
+	if rr := get("/api/u/oksana_pub/card.png"); rr.Code != http.StatusFound || rr.Header().Get("Location") != "/api/u/oksana_two/card.png" {
+		t.Fatalf("card of an old username = %d %v", rr.Code, rr.Header())
+	}
 	// Once drawn it is served to any number of fetches: only a drawing
 	// counts against the limit from everyone.
 	for i := range 70 {
-		req := httptest.NewRequest("GET", "/api/p/"+slug+"/card.png", nil)
+		req := httptest.NewRequest("GET", "/api/u/oksana_two/card.png", nil)
 		req.Header.Set("CF-Connecting-IP", "203.0.113."+strconv.Itoa(i+1))
 		rr := httptest.NewRecorder()
 		hs.h.ServeHTTP(rr, req)
@@ -119,44 +123,29 @@ func TestPublicPage(t *testing.T) {
 	if len(stills.users) != 1 {
 		t.Fatalf("a drawn card was drawn %d times", len(stills.users))
 	}
-	// The slug is the page's key: it stays out of the log.
-	if strings.Contains(hs.logs.String(), slug) {
-		t.Fatalf("the log names the slug: %s", hs.logs.String())
+	if rr := get("/api/u/nobody_here/card.png"); rr.Code != http.StatusNotFound {
+		t.Fatalf("card of nobody = %d", rr.Code)
 	}
 
-	// A new link ends the old one.
-	renewed := decode[ownView](t, `{"settings":`+hs.expect("POST", "/api/profile/public", oksana, `{"on":true}`, http.StatusOK)+`}`)
-	next := strings.TrimPrefix(renewed.Settings.Public, "/p/")
-	if next == slug || !slugForm.MatchString(next) {
-		t.Fatalf("renewed %q after %q", next, slug)
-	}
-	if rr := get("/api/p/" + slug); rr.Code != http.StatusNotFound || decode[publicView](t, rr.Body.String()).Error != "not_found" {
-		t.Fatalf("the old link = %d %s", rr.Code, rr.Body.String())
-	}
-	if rr := get("/api/p/" + slug + "/card.png"); rr.Code != http.StatusNotFound || len(stills.users) != 1 {
-		t.Fatalf("the old link's card = %d", rr.Code)
-	}
-	if rr := get("/api/p/" + next); rr.Code != http.StatusOK {
-		t.Fatalf("the new link = %d", rr.Code)
-	}
-	// "Hide me" closes the page, and showing again opens it at the same link.
+	// "Hide me" closes it all, and showing again opens it at the same link.
 	hs.expect("POST", "/api/profile/settings", oksana, `{"hide_me":true}`, http.StatusOK)
-	if rr := get("/api/p/" + next); rr.Code != http.StatusNotFound || decode[publicView](t, rr.Body.String()).Error != "not_found" {
-		t.Fatalf("a hidden player's page = %d %s", rr.Code, rr.Body.String())
+	for _, path := range []string{"/api/p/" + slug, "/api/p/" + slug + "/card.png", "/api/u/oksana_two/card.png", "/api/u/oksana_pub/card.png", "/api/u/oksana_two"} {
+		if rr := get(path); rr.Code != http.StatusNotFound || !strings.Contains(rr.Body.String(), `"error":"not_found"`) {
+			t.Fatalf("%s of a hidden player = %d %s", path, rr.Code, rr.Body.String())
+		}
 	}
-	if rr := get("/api/p/" + next + "/card.png"); rr.Code != http.StatusNotFound || len(stills.users) != 1 {
-		t.Fatalf("a hidden player's card = %d", rr.Code)
+	if len(stills.users) != 1 {
+		t.Fatalf("a hidden player's card was drawn: %v", stills.users)
 	}
 	hs.expect("POST", "/api/profile/settings", oksana, `{"hide_me":false}`, http.StatusOK)
-	if rr := get("/api/p/" + next); rr.Code != http.StatusOK || decode[publicView](t, rr.Body.String()).Name != "Oksana" {
-		t.Fatalf("the page after showing again = %d", rr.Code)
+	if rr := get("/api/p/" + slug); rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "oksana_two") {
+		t.Fatalf("the link after showing again = %d %s", rr.Code, rr.Body.String())
 	}
-	// Off, and nothing answers.
-	off := decode[ownView](t, `{"settings":`+hs.expect("POST", "/api/profile/public", oksana, `{"on":false}`, http.StatusOK)+`}`)
-	if off.Settings.Public != "" {
-		t.Fatalf("off = %+v", off.Settings)
+	// Off in the table, and nothing answers.
+	if _, err := hs.pool.Exec(context.Background(), `UPDATE maply.profile_setting SET public_slug = NULL WHERE user_id = 1`); err != nil {
+		t.Fatal(err)
 	}
-	if rr := get("/api/p/" + next); rr.Code != http.StatusNotFound {
+	if rr := get("/api/p/" + slug); rr.Code != http.StatusNotFound {
 		t.Fatalf("a link turned off = %d", rr.Code)
 	}
 }

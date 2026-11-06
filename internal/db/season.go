@@ -39,7 +39,7 @@ func (s *Store) Season(ctx context.Context, first, last round.Date, chatID int64
 		     AND ($3::bigint = 0 OR EXISTS (SELECT 1 FROM core.maply_presence p
 		                                     WHERE p.chat_id = $3 AND p.telegram_user_id = g.user_id)))
 		SELECT d.user_id, COALESCE(pe.first_name, ''), sum(d.points)::int, count(*)::int
-		  FROM d JOIN core.person pe ON pe.telegram_user_id = d.user_id
+		  FROM d JOIN person_shown pe ON pe.telegram_user_id = d.user_id
 		 WHERE d.k <= $4
 		 GROUP BY d.user_id, pe.first_name
 		 ORDER BY 3 DESC, 4, max(d.points) DESC, d.user_id

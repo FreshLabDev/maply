@@ -6,7 +6,7 @@
 //   Leaders.open({ board, seconds, rounds }) opens the page on a board, from the profile's places
 //   Leaders.label({ board, seconds, rounds }) "Blitz · 5 places": the name of a board and its setting
 //
-// A name with a handle opens the mini profile (profile.js listens for [data-who]). Everything else stays inside this
+// A name with a username opens the player's profile (profile.js listens for [data-u]). Everything else stays inside this
 // file: nothing here is a global but window.Leaders.
 window.Leaders = (() => {
   // The boards and the settings each keeps a table of, as internal/api/top.go has them; the first is the default.
@@ -159,7 +159,7 @@ window.Leaders = (() => {
       const name = r.me ? T("you") : nameOf(r);
       const face = faceOf(r);
       return '<li' + (cls ? ' class="' + cls + '"' : "") + '><em>' + fmt(r.rank) + '</em><span class="lead-a">' + face + '</span><span class="lead-n"' +
-        (r.who && !r.me ? ' data-who="' + esc(r.who) + '" role="button" tabindex="0"' : "") + '>' +
+        (r.u && !r.me ? ' data-u="' + esc(r.u) + '" role="button" tabindex="0"' : "") + '>' +
         // A name in its own direction, inside a row that keeps the page's: an Arabic name stays at the start.
         (r.me ? esc(name) : '<bdi lang="' + nameLang() + '">' + esc(name) + '</bdi>') + '</span><b>' + fmt(r.score) + '</b></li>';
     }).join("") + '</ol>';

@@ -43,27 +43,39 @@ func (s *Store) AvatarOf(ctx context.Context, userID int64) (Avatar, bool, error
 	return a, true, nil
 }
 
-// AvatarsOf is the kept photos of ids, leaving out the people without one.
+// AvatarsOf is the photos of ids as maply shows them, a person's own over
+// the one kept from Telegram, leaving out the people without either.
 func (s *Store) AvatarsOf(ctx context.Context, ids []int64) (map[int64][]byte, error) {
 	out := map[int64][]byte{}
 	if len(ids) == 0 {
 		return out, nil
 	}
-	rows, err := s.pool.Query(ctx, `SELECT user_id, jpeg FROM avatar WHERE user_id = ANY($1) AND jpeg IS NOT NULL`, ids)
+	rows, err := s.pool.Query(ctx, `
+		SELECT u.id, COALESCE(pa.photo, av.jpeg)
+		  FROM unnest($1::bigint[]) u(id)
+		  LEFT JOIN persona pa ON pa.user_id = u.id
+		  LEFT JOIN avatar av ON av.user_id = u.id
+		 WHERE pa.photo IS NOT NULL OR av.jpeg IS NOT NULL`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("avatars: %w", err)
 	}
 	return collectMap(rows, out, "avatars")
 }
 
-// FacesOf is the addresses of the kept photos of ids, leaving out the people
-// without one.
+// FacesOf is the addresses of the photos of ids as maply shows them, a
+// person's own over the one kept from Telegram, leaving out the people
+// without either.
 func (s *Store) FacesOf(ctx context.Context, ids []int64) (map[int64]string, error) {
 	out := map[int64]string{}
 	if len(ids) == 0 {
 		return out, nil
 	}
-	rows, err := s.pool.Query(ctx, `SELECT user_id, face FROM avatar WHERE user_id = ANY($1) AND jpeg IS NOT NULL AND face IS NOT NULL`, ids)
+	rows, err := s.pool.Query(ctx, `
+		SELECT u.id, COALESCE(pa.face, av.face)
+		  FROM unnest($1::bigint[]) u(id)
+		  LEFT JOIN persona pa ON pa.user_id = u.id
+		  LEFT JOIN avatar av ON av.user_id = u.id AND av.jpeg IS NOT NULL
+		 WHERE pa.face IS NOT NULL OR av.face IS NOT NULL`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("faces: %w", err)
 	}
@@ -89,11 +101,15 @@ func collectMap[V any](rows pgx.Rows, out map[int64]V, what string) (map[int64]V
 	return out, nil
 }
 
-// FaceJPEG is the photo at /face/<face>.jpg; ok is false when no kept photo
-// has that address.
+// FaceJPEG is the photo at /face/<face>.jpg, kept from Telegram or the
+// person's own; ok is false when no photo has that address.
 func (s *Store) FaceJPEG(ctx context.Context, face string) ([]byte, bool, error) {
 	var b []byte
-	err := s.pool.QueryRow(ctx, `SELECT jpeg FROM avatar WHERE face = $1 AND jpeg IS NOT NULL`, face).Scan(&b)
+	err := s.pool.QueryRow(ctx, `
+		SELECT jpeg FROM avatar WHERE face = $1 AND jpeg IS NOT NULL
+		UNION ALL
+		SELECT photo FROM persona WHERE face = $1
+		LIMIT 1`, face).Scan(&b)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}

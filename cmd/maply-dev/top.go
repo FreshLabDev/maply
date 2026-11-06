@@ -208,7 +208,7 @@ func keepTopPhoto(ctx context.Context, e *Env, id int64) error {
 }
 
 // topSlug is a made-up player's public page: fixed, so the stand's panel can
-// link it. A real slug is random (profile.NewSlug).
+// link it.
 func topSlug(id int64) string { return fmt.Sprintf("devtop-%015d", id) }
 
 // topDays answers the days over in every zone for topPeople, each from their

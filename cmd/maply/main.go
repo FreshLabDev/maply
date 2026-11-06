@@ -78,6 +78,12 @@ func run(log *slog.Logger) error {
 	if err := store.CheckCore(ctx); err != nil {
 		return err
 	}
+	// The people met before profiles existed get theirs; a no-op after.
+	if n, err := store.BackfillPersonas(ctx); err != nil {
+		return err
+	} else if n > 0 {
+		log.Info("profiles made for earlier players", "people", n)
+	}
 
 	client := tg.New(cfg.TelegramBotToken,
 		tg.WithAPIBase(cfg.TelegramAPIBase),

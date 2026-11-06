@@ -170,7 +170,8 @@ func (s *Server) top(w http.ResponseWriter, r *http.Request) {
 		if row.UserID != 0 {
 			l.Person = people.Telegram(row.UserID, row.Name, v.ownsTop(row))
 		} else {
-			l.Person = people.SitePlayer(row.Name, v.ownsTop(row))
+			l.Person = people.SitePlayer("", row.Name, v.ownsTop(row))
+			l.Person.Account = row.Account
 		}
 		out.Rows = append(out.Rows, l)
 	}
@@ -178,8 +179,7 @@ func (s *Server) top(w http.ResponseWriter, r *http.Request) {
 	for i := range out.Rows {
 		who[i] = &out.Rows[i].Person
 	}
-	scope := "top:" + board + ":" + strconv.Itoa(b.Seconds) + ":" + strconv.Itoa(b.Rounds) + ":" + period + ":" + strconv.FormatInt(v.chatID, 10)
-	if err := s.dress(ctx, dressAsk{chatID: v.chatID, viewer: v.user, lang: v.lang, scope: scope}, who...); err != nil {
+	if err := s.dress(ctx, dressAsk{chatID: v.chatID, viewer: v.user, lang: v.lang, guest: v.guest()}, who...); err != nil {
 		s.fail(w, r, err)
 		return
 	}

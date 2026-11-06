@@ -282,6 +282,13 @@ func (s *Store) link(ctx context.Context, accountID string, id Identity, merge b
 		if _, err := tx.Exec(ctx, `UPDATE account SET player = COALESCE(player, $2::uuid) WHERE id = $1`, a.ID, nullUUID(b.Player)); err != nil {
 			return "", fmt.Errorf("link: main player: %w", err)
 		}
+		// b without Telegram had a profile of its own, which goes over to
+		// a's Telegram person before it would go with b.
+		if b.TelegramUserID == 0 && a.TelegramUserID != 0 {
+			if err := s.mergePersona(ctx, tx, b.ID, a.TelegramUserID); err != nil {
+				return "", err
+			}
+		}
 		// Its sessions and tickets go with it.
 		if _, err := tx.Exec(ctx, `DELETE FROM account WHERE id = $1`, b.ID); err != nil {
 			return "", fmt.Errorf("link: drop merged account: %w", err)
@@ -290,6 +297,13 @@ func (s *Store) link(ctx context.Context, accountID string, id Identity, merge b
 	}
 	if _, err := tx.Exec(ctx, `UPDATE account SET `+id.column()+` = $2 WHERE id = $1`, a.ID, id.key()); err != nil {
 		return "", fmt.Errorf("link: %w", err)
+	}
+	// An account that gets Telegram has its person's profile from now on,
+	// with what it chose itself where the person chose nothing.
+	if id.Kind == KindTelegram {
+		if err := s.mergePersona(ctx, tx, a.ID, id.TelegramUserID); err != nil {
+			return "", err
+		}
 	}
 	if err := s.unifyNames(ctx, tx, a.ID); err != nil {
 		return "", err
@@ -654,8 +668,9 @@ func (s *Store) PlayerOwned(ctx context.Context, player string) (bool, error) {
 // AccountView is what the account's page shows of it.
 type AccountView struct {
 	Account
-	// TelegramName and TelegramUsername are core's, for the account's own
-	// page only.
+	// TelegramName is the linked Telegram player's name as maply shows it,
+	// their own one over Telegram's, and TelegramUsername Telegram's: for
+	// the account's own page only.
 	TelegramName     string
 	TelegramUsername string
 	// Name is what the site's rows of the account are called, empty for
@@ -674,7 +689,7 @@ func (s *Store) AccountView(ctx context.Context, accountID string) (AccountView,
 		       btrim(COALESCE(pe.first_name, '') || ' ' || COALESCE(pe.last_name, '')), COALESCE(pe.username, ''),
 		       COALESCE((SELECT p.name FROM site_player p WHERE p.id = a.player), '')
 		  FROM account a
-		  LEFT JOIN core.person pe ON pe.telegram_user_id = a.telegram_user_id
+		  LEFT JOIN person_shown pe ON pe.telegram_user_id = a.telegram_user_id
 		 WHERE a.id = $1`, accountID).
 		Scan(&v.ID, &v.TelegramUserID, &v.GoogleSub, &v.Player, &v.CreatedAt, &v.TelegramName, &v.TelegramUsername, &v.Name)
 	if errors.Is(err, pgx.ErrNoRows) {

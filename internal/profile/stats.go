@@ -364,26 +364,6 @@ func localized(m map[string]string, lang string) string {
 	return m["en"]
 }
 
-// Mini is what anyone who sees a player's name may learn by tapping it:
-// numbers over the days that are over everywhere, no pins and no history.
-type Mini struct {
-	Days      int    `json:"days"`
-	Streak    int    `json:"streak"`
-	Avg30     *int   `json:"avg30"`
-	BestPlace *Place `json:"best_place"`
-	Countries int    `json:"countries"`
-	Free      *Brief `json:"free,omitempty"`
-}
-
-// MiniOf cuts the ranked numbers down to the mini profile's.
-func MiniOf(r Ranked, free Free) Mini {
-	m := Mini{Days: r.Days, Streak: r.Streak, Avg30: r.Avg30, BestPlace: r.BestPlace, Countries: len(r.Passport.Countries)}
-	if free.Games > 0 {
-		m.Free = &Brief{Avg: free.Avg, Duels: free.Duels}
-	}
-	return m
-}
-
 // LatestClosed is the newest date over in every zone at now.
 func LatestClosed(z round.Zones, now time.Time) round.Date {
 	d := z.Newest(now)

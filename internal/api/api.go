@@ -233,11 +233,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/me", s.accounts)
 	mux.HandleFunc("/api/account/", s.accounts)
 	mux.HandleFunc("GET /api/profile", s.profile)
-	mux.HandleFunc("GET /api/profile/who", s.mini)
 	mux.HandleFunc("GET /api/face", s.face)
 	mux.HandleFunc("POST /api/profile/settings", s.profileSettings)
-	mux.HandleFunc("POST /api/profile/public", s.profilePublic)
+	mux.HandleFunc("GET /api/profile/edit", s.profileEditGet)
+	mux.HandleFunc("POST /api/profile/edit", s.profileEditPost)
+	mux.HandleFunc("POST /api/profile/photo", s.profilePhoto)
+	mux.HandleFunc("GET /api/username", s.usernameCheck)
 	mux.HandleFunc("GET /api/top", s.top)
+	mux.HandleFunc("GET /api/u/{username}", s.userPage)
+	mux.HandleFunc("GET /api/u/{username}/card.png", s.userCard)
 	mux.HandleFunc("GET /api/p/{slug}", s.publicPage)
 	mux.HandleFunc("GET /api/p/{slug}/card.png", s.publicCard)
 	mux.HandleFunc("GET /img/{key}", s.image)
@@ -359,13 +363,14 @@ func (s *Server) resolveAs(r *http.Request, touch bool) (play, error) {
 	user := tg.User{ID: data.User.ID, FirstName: data.User.FirstName, LastName: data.User.LastName,
 		Username: data.User.Username, LanguageCode: data.User.LanguageCode}
 
-	// A party's invitation and a challenge open the app as the DM does: the
-	// free game has no chat, and the day's game from it is the person's own.
+	// A party's invitation, a challenge and a profile's link open the app as
+	// the DM does: the free game and a profile have no chat, and the day's
+	// game from them is the person's own.
 	// Seen from there it is the DM's place, so the DM's reveal closes their
 	// answers as it does for a plain link to the app; a refused morning post
 	// to someone who never started the bot is the scheduler's to drop. The
 	// free game's own requests record them without a DM (TouchPerson).
-	if data.StartParam == "" || free.Invitation(data.StartParam) {
+	if data.StartParam == "" || free.Invitation(data.StartParam) || profileLink(data.StartParam) {
 		if touch {
 			if err := s.touch(ctx, p); err != nil {
 				return play{}, err
@@ -995,7 +1000,7 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 	for i := range resp.Board {
 		who = append(who, &resp.Board[i].Person)
 	}
-	ask := dressAsk{chatID: p.chatID, viewer: p.user.ID, lang: p.lang, scope: handleScope("result", p.date, viewer)}
+	ask := dressAsk{chatID: p.chatID, viewer: p.user.ID, lang: p.lang}
 	if err := s.dress(ctx, ask, who...); err != nil {
 		return resultResponse{}, err
 	}
@@ -1074,7 +1079,7 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 		case !(me || worldOpen || groupOpen && inGroup):
 			l.Person = people.Unnamed(me)
 		case e.Site():
-			l.Person = people.SitePlayer(e.Name, me)
+			l.Person = people.SitePlayer(e.Player, e.Name, me)
 		default:
 			l.Person = people.Telegram(e.UserID, e.Name, me)
 		}
@@ -1084,12 +1089,6 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 		out = append(out, l)
 	}
 	return out
-}
-
-// handleScope names the table a handle stands in: a kind of view, its day
-// and its viewer.
-func handleScope(kind string, d round.Date, viewer int64) string {
-	return kind + ":" + d.String() + ":" + strconv.FormatInt(viewer, 10)
 }
 
 // scoreDay scores the day's answers that have no score yet: every Telegram

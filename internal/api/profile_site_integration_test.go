@@ -46,8 +46,8 @@ func (hs *harness) signInGoogle(sub, guest string) (string, string) {
 
 // Signed in on the site with Telegram, the profile is the Telegram
 // player's, as in the bot: every scored day, today's too, the settings, and
-// the mini profile knows its owner. Its writes take only maply's own JSON
-// and leave core alone.
+// her address opens the same whole profile. Its writes take only maply's own
+// JSON and leave core alone.
 func TestProfileOfATelegramAccountOnTheSite(t *testing.T) {
 	hs := setup(t)
 	hs.person(1, "Oksana", kyivGroup)
@@ -71,22 +71,33 @@ func TestProfileOfATelegramAccountOnTheSite(t *testing.T) {
 	if own.Name != "Oksana" || own.Guest || own.Settings == nil || own.Ranked.Days != 3 || own.Ranked.Percentile == nil {
 		t.Fatalf("her profile on the site = %+v", own)
 	}
-	if mini := hs.siteExpect("GET", "/api/profile/who?id="+hs.srv.handles().Of(1, "day:x"), oksana, "", http.StatusOK); !strings.Contains(mini, `"me":true`) {
-		t.Fatalf("her own handle = %s", mini)
+	if own.Edit == nil || own.Edit.Username == "" || own.Edit.Telegram != "Oksana" || own.Edit.Ask {
+		t.Fatalf("her edit on the site = %+v", own.Edit)
+	}
+	if page := hs.siteExpect("GET", "/api/u/"+own.Edit.Username+"?lang=uk", oksana, "", http.StatusOK); !strings.Contains(page, `"me":true`) || !strings.Contains(page, `"edit"`) || !strings.Contains(page, `"settings"`) {
+		t.Fatalf("her own address on the site = %s", page)
 	}
 
 	// Another site's page cannot ask, read or write: the session is a cookie.
 	hs.siteExpect("GET", "/api/profile", oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", "cross-site")
 	hs.siteExpect("POST", "/api/profile/settings", oksana, `{"hide_me":true}`, http.StatusBadRequest, "Content-Type", "text/plain")
-	hs.siteExpect("POST", "/api/profile/public", oksana, `{"on":true}`, http.StatusBadRequest, "Sec-Fetch-Site", "same-site")
+	// The edits are maply's own JSON from maply's own page: json_only, and
+	// the session refuses a page of another site.
+	hs.siteExpect("POST", "/api/profile/edit", oksana, `{"name":"X"}`, http.StatusBadRequest, "Sec-Fetch-Site", "same-site")
+	hs.siteExpect("POST", "/api/profile/edit", oksana, `{"name":"X"}`, http.StatusUnsupportedMediaType, "Sec-Fetch-Site", "cross-site")
+	hs.siteExpect("POST", "/api/profile/edit", oksana, `{"name":"X"}`, http.StatusUnsupportedMediaType, "Content-Type", "text/plain")
+	hs.siteExpect("POST", "/api/profile/photo", oksana, `{"remove":true}`, http.StatusUnsupportedMediaType, "Sec-Fetch-Site", "cross-site")
+	hs.siteExpect("GET", "/api/u/"+own.Edit.Username, oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", "cross-site")
+	if after := hs.expect("GET", "/api/profile", oksanaDM, "", http.StatusOK); strings.Contains(after, `"name":"X"`) {
+		t.Fatalf("a cross-site post changed her: %s", after)
+	}
 
-	hs.siteExpect("POST", "/api/profile/settings", oksana, `{"hide_me":true}`, http.StatusOK)
-	pub := decode[ownView](t, `{"settings":`+hs.siteExpect("POST", "/api/profile/public", oksana, `{"on":true}`, http.StatusOK)+`}`)
-	if !strings.HasPrefix(pub.Settings.Public, "/p/") || !pub.Settings.HideMe {
-		t.Fatalf("settings from the site = %+v", pub.Settings)
+	pub := hs.siteExpect("POST", "/api/profile/settings", oksana, `{"hide_me":true}`, http.StatusOK)
+	if !strings.Contains(pub, `"hide_me":true`) || strings.Contains(pub, "public") {
+		t.Fatalf("settings from the site = %s", pub)
 	}
 	// The bot's profile has the same settings: one player.
-	if inApp := decode[ownView](t, hs.expect("GET", "/api/profile", oksanaDM, "", http.StatusOK)); !inApp.Settings.HideMe || inApp.Settings.Public != pub.Settings.Public {
+	if inApp := decode[ownView](t, hs.expect("GET", "/api/profile", oksanaDM, "", http.StatusOK)); !inApp.Settings.HideMe {
 		t.Fatalf("settings in the Mini App = %+v", inApp.Settings)
 	}
 	if after := presence(); after != before {
@@ -149,7 +160,11 @@ func TestProfileOfAGoogleAccount(t *testing.T) {
 		t.Fatalf("the account's profile = %+v", got)
 	}
 	hs.siteExpect("POST", "/api/profile/settings", lena, `{"hide_me":true}`, http.StatusUnauthorized)
-	hs.siteExpect("POST", "/api/profile/public", lena, `{"on":true}`, http.StatusUnauthorized)
+	// She has a profile of her own, though: a username to take, no Telegram
+	// name under hers, and she is asked once.
+	if got.Edit == nil || got.Edit.Username == "" || got.Edit.Telegram != "" || !got.Edit.Ask {
+		t.Fatalf("the account's edit = %+v", got.Edit)
+	}
 
 	// The work browser's old cookie no longer opens those days.
 	req := httptest.NewRequest("GET", "/api/profile", nil)
@@ -194,9 +209,9 @@ func TestATelegramAccountKeepsItsGuestDays(t *testing.T) {
 	if onSite.Ranked.Days != 3 || onSite.Ranked.Points != want {
 		t.Fatalf("on the site = %+v", onSite.Ranked)
 	}
-	mini := decode[miniView](t, hs.expect("GET", "/api/profile/who?id="+hs.srv.handles().Of(1, "day:x"), initData(2, "Ivan", "ru", ""), "", http.StatusOK))
-	if mini.Days != 3 {
-		t.Fatalf("her mini profile = %+v", mini)
+	stranger := decode[userView](t, hs.expect("GET", "/api/u/"+inApp.Edit.Username, initData(2, "Ivan", "ru", ""), "", http.StatusOK))
+	if stranger.Ranked.Days != 3 || stranger.Ranked.Points != want {
+		t.Fatalf("her profile for another player = %+v", stranger)
 	}
 }
 

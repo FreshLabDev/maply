@@ -37,6 +37,8 @@ function accountReady() {
   if (ACCT.code) toast(acctText(ACCT.code));
   if (ACCT.ticket) acctTicket(ACCT.ticket);
   else if (ME && ME.account && ME.guest && ME.guest.answers > 0) acctAdopt(ME.guest.answers);
+  // An account without Telegram is asked once for a name, a username and a photo (persona.js).
+  else if (ME && ME.account && !ME.account.telegram && !document.body.classList.contains("is-free") && typeof askProfile === "function") askProfile();
 }
 
 function acctHeader() {

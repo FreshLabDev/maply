@@ -86,20 +86,20 @@ type topBody struct {
 		Rank  int    `json:"rank"`
 		Name  string `json:"name"`
 		Score int    `json:"score"`
-		Who   string `json:"who"`
+		U     string `json:"u"`
 		Me    bool   `json:"me"`
 		Anon  bool   `json:"anon"`
 		Photo string `json:"photo"`
 	} `json:"rows"`
 }
 
-// line is a board as "rank name score" lines, "*" after a handle, "?" on an
+// line is a board as "rank name score" lines, "*" after a username, "?" on an
 // anonymous row and "<" on the viewer's own.
 func (b topBody) line() string {
 	var out []string
 	for _, r := range b.Rows {
 		s := fmt.Sprintf("%d %s %d", r.Rank, r.Name, r.Score)
-		if r.Who != "" {
+		if r.U != "" {
 			s += "*"
 		}
 		if r.Anon {
@@ -163,9 +163,10 @@ func TestFreeLeaderboards(t *testing.T) {
 	}
 	check(get(oksana, "board=streak&period=week"), 3, "1 Ivan 5*, 2 Dmitry 4*, 3 Oksana 3*<")
 	// Lena hid herself: outside her groups she is "Anonymous" with no
-	// handle; Dmitry shares one with her; she sees herself.
+	// username; Dmitry shares one with her and sees her name, but her
+	// profile is closed to him, so no username; she sees herself, and hers.
 	check(get(oksana, "board=streak&seconds=60"), 1, "1 Anonymous 9?")
-	check(get(dmitry, "board=streak&seconds=60"), 1, "1 Lena 9*")
+	check(get(dmitry, "board=streak&seconds=60"), 1, "1 Lena 9")
 	check(get(lena, "board=streak&seconds=60"), 1, "1 Lena 9*<")
 	// A blitz is a classic at 30 s a place, each length its own table; a
 	// party counts as a solo game does.
@@ -187,13 +188,17 @@ func TestFreeLeaderboards(t *testing.T) {
 		t.Fatalf("a guest sees %d %s", rr.Code, rr.Body.String())
 	}
 
-	// A name opens the mini profile; the handle is the board's own.
-	ivan := blitz.Rows[1].Who
-	if mini := decode[miniView](t, hs.expect("GET", "/api/profile/who?id="+ivan, oksana, "", http.StatusOK)); mini.Name != "Ivan" {
-		t.Fatalf("Ivan's mini profile = %+v", mini)
+	// A name opens the profile at its username, the same on every board.
+	ivan := blitz.Rows[1].U
+	if page := decode[userView](t, hs.expect("GET", "/api/u/"+ivan, oksana, "", http.StatusOK)); page.Name != "Ivan" || page.U != ivan {
+		t.Fatalf("Ivan's profile = %+v", page)
 	}
-	if ivan == streak.Rows[1].Who {
-		t.Fatal("one handle for Ivan on two boards")
+	if ivan != streak.Rows[1].U {
+		t.Fatalf("Ivan is %q on one board and %q on another", ivan, streak.Rows[1].U)
+	}
+	// Lena's profile, hidden, opens for no one else, so no row leads to it.
+	if r := get(dmitry, "board=streak&seconds=60").Rows[0]; r.Name != "Lena" || r.U != "" {
+		t.Fatalf("hidden Lena for her group-mate = %+v", r)
 	}
 
 	for _, bad := range []string{"board=nope", "board=classic&seconds=30", "board=blitz&rounds=7", "board=streak&rounds=5",
@@ -304,11 +309,17 @@ func TestFreeLeaderboardPhotos(t *testing.T) {
 	if got := get(initData(1, "Oksana", "en", hs.payload(kyivGroup))); got != "Anonymous -, Ivan photo, Oksana photo, Taras photo" {
 		t.Fatalf("from the group: %s", got)
 	}
-	// A guest on the site too.
+	// A guest on the site who has not signed in sees the names and no
+	// photos, and none is even read for them.
+	asked := len(photos.calls)
 	rr := httptest.NewRecorder()
 	hs.h.ServeHTTP(rr, httptest.NewRequest("GET", "/api/top?board=streak&seconds=30&lang=en", nil))
-	if got := faces(decode[topBody](t, rr.Body.String())); got != "Anonymous -, Ivan photo, Oksana photo, Taras photo" {
-		t.Fatalf("a guest: %s", got)
+	if got := faces(decode[topBody](t, rr.Body.String())); got != "Anonymous -, Ivan -, Oksana -, Taras -" || len(photos.calls) != asked {
+		t.Fatalf("a guest: %s, photos read %v", got, photos.calls)
+	}
+	// Signed in on the site, with Telegram, the photos are there.
+	if got := faces(decode[topBody](t, hs.siteExpect("GET", "/api/top?board=streak&seconds=30&lang=en", hs.signIn(1, "Oksana"), "", http.StatusOK))); got != "Anonymous -, Ivan photo, Oksana photo, Taras photo" {
+		t.Fatalf("signed in on the site: %s", got)
 	}
 	// Seen in the Kyiv group, Lena is named there and has her photo; to
 	// someone who shares no group with her she is still "Anonymous", and

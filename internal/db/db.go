@@ -19,6 +19,11 @@ type Store struct {
 	// work. A place edited by hand shows within answerFor.
 	answersMu sync.Mutex
 	answers   map[int64]keptAnswer
+
+	// personaSeen is the Telegram username each person had when this
+	// process last made sure of their profile (keepPersona).
+	personaMu   sync.Mutex
+	personaSeen map[int64]string
 }
 
 func Connect(ctx context.Context, databaseURL string) (*Store, error) {
@@ -90,7 +95,10 @@ func (s *Store) Touch(ctx context.Context, user tg.User, chat *tg.Chat) error {
 		`SELECT core.touch($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 		"maply", user.ID, nullString(user.Username), nullString(user.FirstName),
 		nullString(user.LastName), nullString(user.LanguageCode), chatID, chatType, chatTitle, chatUname, user.IsBot)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.keepPersona(ctx, user)
 }
 
 // TouchPerson records the person in core and nothing about where they were
@@ -103,7 +111,10 @@ func (s *Store) TouchPerson(ctx context.Context, user tg.User) error {
 		`SELECT core.touch_person($1,$2,$3,$4,$5,$6,$7)`,
 		"maply", user.ID, nullString(user.Username), nullString(user.FirstName),
 		nullString(user.LastName), nullString(user.LanguageCode), user.IsBot)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.keepPersona(ctx, user)
 }
 
 func (s *Store) Offset(ctx context.Context) (int64, error) {

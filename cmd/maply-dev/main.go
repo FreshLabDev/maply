@@ -198,6 +198,9 @@ func run(logger *slog.Logger, dsn, addr, places, state string, days int, fresh, 
 	if err := store.Migrate(ctx, migrations.FS); err != nil {
 		return err
 	}
+	if _, err := store.BackfillPersonas(ctx); err != nil {
+		return err
+	}
 	zones, err := round.LoadZones()
 	if err != nil {
 		return err

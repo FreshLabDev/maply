@@ -378,7 +378,7 @@ func (s *Store) Silent(ctx context.Context, chatID int64, d round.Date) ([]Membe
 	rows, err := s.pool.Query(ctx, `
 		SELECT pe.telegram_user_id, COALESCE(pe.first_name, ''), COALESCE(pe.username, '')
 		  FROM core.maply_presence p
-		  JOIN core.person pe ON pe.telegram_user_id = p.telegram_user_id
+		  JOIN person_shown pe ON pe.telegram_user_id = p.telegram_user_id
 		 WHERE p.chat_id = $1 AND NOT pe.is_bot
 		   AND NOT EXISTS (SELECT 1 FROM guess g WHERE g.date = $2 AND g.user_id = p.telegram_user_id)`, chatID, d.Time())
 	if err != nil {

@@ -80,15 +80,32 @@ func (hs *harness) person(id int64, name string, chats ...int64) {
 			hs.t.Fatal(err)
 		}
 	}
+	// The profile, with a username made up from the name: what the bot
+	// gives anyone it meets.
+	if err := hs.srv.Store.(*db.Store).EnsurePersona(ctx, id, "", name); err != nil {
+		hs.t.Fatal(err)
+	}
+}
+
+// editView is what the owner may change of how maply shows them.
+type editView struct {
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Photo    bool   `json:"photo"`
+	Telegram string `json:"telegram"`
+	Ask      bool   `json:"ask"`
 }
 
 type ownView struct {
-	Name     string `json:"name"`
-	Guest    bool   `json:"guest"`
+	Name  string `json:"name"`
+	Photo string `json:"photo"`
+	U     string `json:"u"`
+	Guest bool   `json:"guest"`
+	// Settings has hide_me only: the public page is gone.
 	Settings *struct {
-		HideMe bool   `json:"hide_me"`
-		Public string `json:"public"`
+		HideMe bool `json:"hide_me"`
 	} `json:"settings"`
+	Edit   *editView `json:"edit"`
 	Ranked struct {
 		Days       int  `json:"days"`
 		Points     int  `json:"points"`
@@ -109,45 +126,76 @@ type ownView struct {
 	} `json:"free"`
 }
 
-type miniView struct {
-	Me     bool   `json:"me"`
-	Name   string `json:"name"`
-	Days   int    `json:"days"`
-	Streak int    `json:"streak"`
-	Avg30  *int   `json:"avg30"`
-	Photo  string `json:"photo"`
-	Duel   *struct {
+// userView is a profile at /api/u/<username> as someone else sees it.
+type userView struct {
+	Name  string `json:"name"`
+	Photo string `json:"photo"`
+	U     string `json:"u"`
+	Me    bool   `json:"me"`
+	// Moved is the new username of a username its owner left.
+	Moved  string `json:"moved"`
+	Ranked struct {
+		Days       int  `json:"days"`
+		Points     int  `json:"points"`
+		Avg30      *int `json:"avg30"`
+		Streak     int  `json:"streak"`
+		Percentile *int `json:"percentile"`
+		History    []struct {
+			Date  string `json:"date"`
+			City  string `json:"city"`
+			Final bool   `json:"final"`
+		} `json:"history"`
+	} `json:"ranked"`
+	Free *struct {
+		Games int `json:"games"`
+	} `json:"free"`
+	Duel *struct {
 		Closer int `json:"closer"`
 		Of     int `json:"of"`
 	} `json:"duel"`
 	Error string `json:"error"`
 }
 
-// whoIn is the handle next to name in a day's ranking.
-func whoIn(t *testing.T, body, name string) string {
+// rowView is a player's row in a table of a day: the name, the username
+// that opens the profile and the photo.
+type rowView struct {
+	Name  string `json:"name"`
+	U     string `json:"u"`
+	Photo string `json:"photo"`
+	Anon  bool   `json:"anon"`
+	Me    bool   `json:"me"`
+}
+
+// rowIn is the row of name in a day's ranking.
+func rowIn(t *testing.T, body, name string) rowView {
 	t.Helper()
 	var d struct {
-		Ranking []struct {
-			Name string `json:"name"`
-			Who  string `json:"who"`
-		} `json:"ranking"`
+		Ranking []rowView `json:"ranking"`
 	}
 	if err := json.Unmarshal([]byte(body), &d); err != nil {
 		t.Fatalf("%v: %s", err, body)
 	}
 	for _, r := range d.Ranking {
 		if r.Name == name {
-			return r.Who
+			return r
 		}
 	}
-	return ""
+	return rowView{}
+}
+
+// setUsername types a username for the viewer, from the Mini App.
+func (hs *harness) setUsername(auth, username string) {
+	hs.t.Helper()
+	hs.expect("POST", "/api/profile/edit", auth, `{"username":"`+username+`"}`, http.StatusOK)
 }
 
 // The profile's visibility rules, against the real store: what the player,
 // another player in a group with them, a player outside it and a site
-// visitor each get, before and after today's reveal, and with "hide me".
+// visitor each get at /api/u/<username>, before and after today's reveal,
+// and with "hide me".
 func TestProfileVisibility(t *testing.T) {
 	hs := setup(t)
+	hs.srv.Avatars = &photosAsked{}
 	// 09:00 UTC on 10 December: the 9th is over everywhere, the 10th is
 	// being guessed in every zone.
 	hs.person(1, "Oksana", kyivGroup, moscowGroup)
@@ -172,14 +220,20 @@ func TestProfileVisibility(t *testing.T) {
 		hs.h.ServeHTTP(rr, req)
 		return rr.Code, rr.Body.String()
 	}
+	hs.setUsername(oksanaDM, "oksana_k")
 
 	// Oksana answers today from the DM, far from Lviv.
 	hs.expect("GET", "/api/today", oksanaDM, "", http.StatusOK)
 	hs.expect("POST", "/api/guess", oksanaDM, `{"lat":40,"lon":-3}`, http.StatusOK)
 
-	own := decode[ownView](t, hs.expect("GET", "/api/profile", oksanaDM, "", http.StatusOK))
-	if own.Name != "Oksana" || own.Guest || own.Settings == nil || own.Settings.HideMe {
-		t.Fatalf("own profile = %+v", own)
+	ownBody := hs.expect("GET", "/api/profile", oksanaDM, "", http.StatusOK)
+	own := decode[ownView](t, ownBody)
+	if own.Name != "Oksana" || own.U != "oksana_k" || own.Guest || own.Settings == nil || own.Settings.HideMe ||
+		own.Edit == nil || own.Edit.Username != "oksana_k" || own.Edit.Telegram != "Oksana" || own.Edit.Name != "" || own.Edit.Photo || own.Edit.Ask {
+		t.Fatalf("own profile = %+v %+v", own, own.Edit)
+	}
+	if strings.Contains(ownBody, `"public"`) {
+		t.Fatalf("the public page is gone: %s", ownBody)
 	}
 	// Her own profile has today: she saw the place when she answered. Its
 	// world place waits for the day to close.
@@ -195,35 +249,70 @@ func TestProfileVisibility(t *testing.T) {
 	if own.Ranked.History[1].City != "Past" || own.Ranked.History[1].Rank != 1 {
 		t.Fatalf("yesterday in her history = %+v", own.Ranked.History[1])
 	}
-	// Her name in yesterday's table carries a handle: a tap opens her profile.
-	// Another table gives her another one.
-	handle := whoIn(t, hs.expect("GET", "/api/day?date="+yesterday.String(), ivanMoscow, "", http.StatusOK), "Oksana")
-	if other := whoIn(t, hs.expect("GET", "/api/day?date="+yesterday.AddDays(-1).String(), ivanMoscow, "", http.StatusOK), "Oksana"); handle == "" || other == "" || other == handle {
-		t.Fatalf("handles %q and %q", handle, other)
+	// Her own address opens the same whole profile, edit and all.
+	if self := hs.expect("GET", "/api/u/oksana_k", oksanaDM, "", http.StatusOK); self != ownBody {
+		t.Fatalf("her own address differs from her profile:\n%s\n%s", self, ownBody)
 	}
-	// Her own name opens her whole profile, so the mini answer says only that.
-	if self := decode[miniView](t, hs.expect("GET", "/api/profile/who?id="+handle, oksanaDM, "", http.StatusOK)); !self.Me || self.Name != "" || self.Days != 0 {
-		t.Fatalf("her own mini = %+v", self)
+	// Her name in a table carries the username that opens her profile, the
+	// same in every table.
+	day := hs.expect("GET", "/api/day?date="+yesterday.String(), ivanMoscow, "", http.StatusOK)
+	if row := rowIn(t, day, "Oksana"); row.U != "oksana_k" || row.Photo != "/face/"+faceKey(1)+".jpg" {
+		t.Fatalf("her row = %+v", row)
+	}
+	if other := rowIn(t, hs.expect("GET", "/api/day?date="+yesterday.AddDays(-1).String(), ivanMoscow, "", http.StatusOK), "Oksana"); other.U != "oksana_k" {
+		t.Fatalf("her row in another table = %+v", other)
 	}
 	// The free tab is empty until free play has results.
 	if own.Free == nil || own.Free.Games != 0 {
 		t.Fatalf("free = %+v", own.Free)
 	}
 
-	// Ivan taps her name in the Moscow group: the days over everywhere only,
-	// so today's answer is nowhere in it, and the head to head stops at
-	// yesterday until the group's own reveal: she was closer than him on two
-	// of their three days.
-	mini := decode[miniView](t, hs.expect("GET", "/api/profile/who?id="+handle, ivanMoscow, "", http.StatusOK))
-	if mini.Name != "Oksana" || mini.Days != 3 || mini.Streak != 3 || mini.Avg30 == nil || *mini.Avg30 != (4200+2500+4950)/3 {
-		t.Fatalf("Ivan's view of Oksana = %+v", mini)
+	// Ivan opens her profile from the Moscow group: the days over
+	// everywhere only, so today's answer is nowhere in it, and the head to
+	// head stops at yesterday until the group's own reveal: she was closer
+	// than him on two of their three days.
+	view := func(auth string) (int, string) {
+		t.Helper()
+		return hs.do("GET", "/api/u/oksana_k", auth, "")
 	}
-	if mini.Duel == nil || mini.Duel.Of != 3 || mini.Duel.Closer != 2 {
-		t.Fatalf("head to head = %+v", mini.Duel)
+	code, body := view(ivanMoscow)
+	if code != http.StatusOK {
+		t.Fatalf("Ivan's view = %d %s", code, body)
 	}
-	for _, leak := range []string{`"lat"`, `"history"`, hs.date.String(), `"handle"`, "telegram_user_id", `"id"`} {
-		if body := hs.expect("GET", "/api/profile/who?id="+handle, ivanMoscow, "", http.StatusOK); strings.Contains(body, leak) {
-			t.Fatalf("the mini profile carries %s: %s", leak, body)
+	u := decode[userView](t, body)
+	r := u.Ranked
+	if u.Name != "Oksana" || u.U != "oksana_k" || u.Photo != "/face/"+faceKey(1)+".jpg" || u.Me ||
+		r.Days != 3 || r.Streak != 3 || r.Avg30 == nil || *r.Avg30 != (4200+2500+4950)/3 || r.Points != 4200+2500+4950 {
+		t.Fatalf("Ivan's view of Oksana = %+v", u)
+	}
+	// Closed days with their places, no percentile: its line speaks to her.
+	if len(r.History) != 3 || r.Percentile != nil {
+		t.Fatalf("history %+v, percentile %v", r.History, r.Percentile)
+	}
+	for _, h := range r.History {
+		if !h.Final || h.Date == hs.date.String() {
+			t.Fatalf("a day still open in a stranger's view: %+v", h)
+		}
+	}
+	if u.Duel == nil || u.Duel.Of != 3 || u.Duel.Closer != 2 {
+		t.Fatalf("head to head = %+v", u.Duel)
+	}
+	if u.Free == nil || u.Free.Games != 0 {
+		t.Fatalf("free of a stranger's view = %+v", u.Free)
+	}
+	// Nothing of her own, of today (her pin there was 40, -3), or that finds
+	// her in Telegram. The pins of the closed days are in the history.
+	for _, leak := range []string{`"lat":40`, `"lon":-3`, hs.date.String(), `"percentile":`, `"settings"`, `"edit"`, `"hide_me"`, `"telegram"`, `"guest"`,
+		"telegram_user_id", `"id"`, `"account"`, `"player"`, `"who"`, `"handle"`, `"public"`, "Lviv", "Львов", `"UA"`} {
+		if leak == `"percentile":` {
+			// The key is there, null.
+			if !strings.Contains(body, `"percentile":null`) {
+				t.Fatalf("a stranger gets a percentile: %s", body)
+			}
+			continue
+		}
+		if strings.Contains(body, leak) {
+			t.Fatalf("a stranger's view carries %s: %s", leak, body)
 		}
 	}
 	// At 16:00 UTC tomorrow has begun in the east. Ivan has not answered
@@ -238,38 +327,51 @@ func TestProfileVisibility(t *testing.T) {
 	hs.expect("GET", "/api/today", ivanMoscow, "", http.StatusOK)
 	hs.expect("POST", "/api/guess", ivanMoscow, `{"lat":49.8,"lon":24}`, http.StatusOK)
 	hs.now = time.Date(2026, time.December, 10, 17, 5, 0, 0, time.UTC)
-	mini = decode[miniView](t, hs.expect("GET", "/api/profile/who?id="+handle, ivanMoscow, "", http.StatusOK))
-	if mini.Duel == nil || mini.Duel.Of != 4 || mini.Duel.Closer != 2 || mini.Days != 3 {
-		t.Fatalf("after the Moscow reveal = %+v", mini)
+	code, body = view(ivanMoscow)
+	if u = decode[userView](t, body); code != http.StatusOK || u.Duel == nil || u.Duel.Of != 4 || u.Duel.Closer != 2 || u.Ranked.Days != 3 {
+		t.Fatalf("after the Moscow reveal = %d %+v", code, u)
+	}
+	// From the DM there is no group to speak for: no head to head.
+	if _, body = view(initData(2, "Ivan", "ru", "")); decode[userView](t, body).Duel != nil {
+		t.Fatalf("a duel from a DM: %s", body)
 	}
 
-	// Alesia shares no group with Oksana: the numbers, no head to head.
-	mini = decode[miniView](t, hs.expect("GET", "/api/profile/who?id="+handle, alesia, "", http.StatusOK))
-	if mini.Days != 3 || mini.Duel != nil || mini.Photo != "" {
-		t.Fatalf("Alesia's view of Oksana = %+v", mini)
+	// Alesia shares no group with Oksana: the numbers and the photo of a
+	// signed-in viewer, no head to head.
+	code, body = view(alesia)
+	if u = decode[userView](t, body); code != http.StatusOK || u.Ranked.Days != 3 || u.Duel != nil || u.Photo == "" {
+		t.Fatalf("Alesia's view of Oksana = %d %+v", code, u)
 	}
-	// A site visitor sees the same numbers.
-	code, body := site("/api/profile/who?id=" + handle)
-	if code != http.StatusOK || !strings.Contains(body, `"days":3`) || strings.Contains(body, `"duel"`) {
+	// A site visitor sees the same numbers, with no photo and no duel.
+	code, body = site("/api/u/oksana_k")
+	u = decode[userView](t, body)
+	if code != http.StatusOK || u.Ranked.Days != 3 || u.Duel != nil || u.Photo != "" || u.Name != "Oksana" || u.U != "oksana_k" || strings.Contains(body, `"photo"`) {
 		t.Fatalf("site view of Oksana = %d %s", code, body)
 	}
-	// A made-up handle reads as hidden.
-	hs.expect("GET", "/api/profile/who?id=AAAAAAAAAAAAAAAAAAAAAA", ivanMoscow, "", http.StatusNotFound)
+	// A made-up username reads as one that is not there.
+	hs.expect("GET", "/api/u/nobody_here", ivanMoscow, "", http.StatusNotFound)
+	hs.expect("GET", "/api/u/%20", ivanMoscow, "", http.StatusNotFound)
+	// The address is for people, not search.
+	rr := httptest.NewRecorder()
+	hs.h.ServeHTTP(rr, httptest.NewRequest("GET", "/api/u/oksana_k", nil))
+	if rr.Header().Get("X-Robots-Tag") != "noindex, nofollow" {
+		t.Fatalf("headers = %v", rr.Header())
+	}
 
 	// The site's own profile: days over everywhere only.
 	code, body = site("/api/profile?lang=ru")
 	guest := decode[ownView](t, body)
-	if code != http.StatusOK || !guest.Guest || guest.Settings != nil || guest.Ranked.Days != 2 || guest.Ranked.History[0].City != "Прошлое" {
+	if code != http.StatusOK || !guest.Guest || guest.Settings != nil || guest.Edit != nil || guest.Ranked.Days != 2 || guest.Ranked.History[0].City != "Прошлое" {
 		t.Fatalf("site profile = %d %s", code, body)
 	}
 
-	// The world's table of yesterday names her and carries her handle.
+	// The world's table of yesterday names her and carries her username.
 	code, body = site("/api/day?date=" + yesterday.String())
 	if code != http.StatusOK || !strings.Contains(body, `"name":"Oksana"`) {
 		t.Fatalf("yesterday = %d %s", code, body)
 	}
-	if whoIn(t, body, "Oksana") == "" {
-		t.Fatalf("no handle on her name: %s", body)
+	if row := rowIn(t, body, "Oksana"); row.U != "oksana_k" || row.Photo != "" {
+		t.Fatalf("her row for a visitor = %+v", row)
 	}
 
 	// She hides herself.
@@ -277,30 +379,52 @@ func TestProfileVisibility(t *testing.T) {
 	if !strings.Contains(set, `"hide_me":true`) {
 		t.Fatalf("settings = %s", set)
 	}
-	hs.expect("GET", "/api/profile/who?id="+handle, alesia, "", http.StatusNotFound)
-	if code, _ := site("/api/profile/who?id=" + handle); code != http.StatusNotFound {
-		t.Fatalf("a hidden profile opens on the site: %d", code)
+	for who, auth := range map[string]string{"Alesia": alesia, "Ivan": ivanMoscow} {
+		if code, body := view(auth); code != http.StatusNotFound || !strings.Contains(body, `"error":"not_found"`) {
+			t.Fatalf("%s opens a hidden profile: %d %s", who, code, body)
+		}
 	}
+	if code, body := site("/api/u/oksana_k"); code != http.StatusNotFound || !strings.Contains(body, `"error":"not_found"`) {
+		t.Fatalf("a hidden profile opens on the site: %d %s", code, body)
+	}
+	// An old address of hers is as closed.
+	hs.expect("POST", "/api/profile/edit", oksanaDM, `{"username":"oksana_new"}`, http.StatusOK)
+	hs.expect("GET", "/api/u/oksana_k", alesia, "", http.StatusNotFound)
+	hs.expect("GET", "/api/u/oksana_new", alesia, "", http.StatusNotFound)
 	code, body = site("/api/day?date=" + yesterday.String() + "&lang=en")
-	if code != http.StatusOK || strings.Contains(body, "Oksana") || whoIn(t, body, "Anonymous") != "" || !strings.Contains(body, `"name":"Anonymous"`) || !strings.Contains(body, `"anon":true`) {
-		t.Fatalf("yesterday with her hidden = %s", body)
+	if row := rowIn(t, body, "Anonymous"); code != http.StatusOK || strings.Contains(body, "Oksana") || row.U != "" || row.Photo != "" || !row.Anon {
+		t.Fatalf("yesterday with her hidden = %d %s", code, body)
 	}
-	// Her group still sees her, and she sees herself.
-	if body := hs.expect("GET", "/api/day?date="+yesterday.String(), ivanMoscow, "", http.StatusOK); !strings.Contains(body, "Oksana") {
-		t.Fatalf("her group lost her name: %s", body)
+	if code != http.StatusOK || strings.Contains(body, "oksana") {
+		t.Fatalf("her username is in the table: %s", body)
+	}
+	// Her group still sees her name and photo, but no username: her profile
+	// is closed to them as to everyone, so no row leads to it. She sees
+	// herself, and hers.
+	if row := rowIn(t, hs.expect("GET", "/api/day?date="+yesterday.String(), ivanMoscow, "", http.StatusOK), "Oksana"); row.Name == "" || row.U != "" || row.Photo == "" {
+		t.Fatalf("her group lost her or sees her username: %+v", row)
 	}
 	// Ivan shares the Moscow group with her, so from his DM too.
-	if body := hs.expect("GET", "/api/day?date="+yesterday.String(), initData(2, "Ivan", "ru", ""), "", http.StatusOK); !strings.Contains(body, "Oksana") {
-		t.Fatalf("her group-mate lost her name in his DM: %s", body)
+	if row := rowIn(t, hs.expect("GET", "/api/day?date="+yesterday.String(), initData(2, "Ivan", "ru", ""), "", http.StatusOK), "Oksana"); row.Name == "" || row.U != "" {
+		t.Fatalf("her group-mate lost her in his DM: %+v", row)
 	}
-	if body := hs.expect("GET", "/api/day?date="+yesterday.String(), alesia, "", http.StatusOK); strings.Contains(body, "Oksana") {
-		t.Fatalf("another group sees her name: %s", body)
+	if body := hs.expect("GET", "/api/day?date="+yesterday.String(), alesia, "", http.StatusOK); strings.Contains(body, "Oksana") || strings.Contains(body, "oksana") {
+		t.Fatalf("another group sees her: %s", body)
 	}
-	if body := hs.expect("GET", "/api/day?date="+yesterday.String(), oksanaDM, "", http.StatusOK); !strings.Contains(body, "Oksana") {
-		t.Fatalf("she does not see herself: %s", body)
+	if row := rowIn(t, hs.expect("GET", "/api/day?date="+yesterday.String(), oksanaDM, "", http.StatusOK), "Oksana"); row.U != "oksana_new" || !row.Me {
+		t.Fatalf("she does not see herself: %+v", row)
 	}
-	if self := decode[miniView](t, hs.expect("GET", "/api/profile/who?id="+handle, oksanaDM, "", http.StatusOK)); !self.Me {
-		t.Fatalf("her own name closed for her: %+v", self)
+	// And the profile is hers to open, whatever the address she is at.
+	if self := decode[ownView](t, hs.expect("GET", "/api/u/oksana_new", oksanaDM, "", http.StatusOK)); self.Edit == nil || self.Edit.Username != "oksana_new" || self.Settings == nil || !self.Settings.HideMe {
+		t.Fatalf("her own hidden profile = %+v", self)
+	}
+	if moved := decode[userView](t, hs.expect("GET", "/api/u/oksana_k", oksanaDM, "", http.StatusOK)); moved.Moved != "oksana_new" {
+		t.Fatalf("her old address for her = %+v", moved)
+	}
+	// Showing herself brings it back.
+	hs.expect("POST", "/api/profile/settings", oksanaDM, `{"hide_me":false}`, http.StatusOK)
+	if u := decode[userView](t, hs.expect("GET", "/api/u/oksana_new", alesia, "", http.StatusOK)); u.Name != "Oksana" {
+		t.Fatalf("shown again = %+v", u)
 	}
 	hs.expect("POST", "/api/profile/settings", oksanaDM, `{"hide_me":"yes"}`, http.StatusBadRequest)
 	if code, _ := site("/api/profile/settings"); code != http.StatusMethodNotAllowed {
@@ -308,9 +432,9 @@ func TestProfileVisibility(t *testing.T) {
 	}
 }
 
-// Before the reveal the rows of others carry no handle: a handle goes only
+// Before the reveal the rows of others carry no username: it goes only
 // next to a name.
-func TestNoHandleBeforeTheReveal(t *testing.T) {
+func TestNoUsernameBeforeTheReveal(t *testing.T) {
 	hs := setup(t)
 	hs.person(1, "Oksana", kyivGroup)
 	hs.person(5, "Dmitry", kyivGroup)
@@ -321,21 +445,21 @@ func TestNoHandleBeforeTheReveal(t *testing.T) {
 	hs.expect("POST", "/api/guess", dmitry, `{"lat":48,"lon":30}`, http.StatusOK)
 	live := decode[resultResponse](t, hs.expect("POST", "/api/guess", oksana, `{"lat":50,"lon":30}`, http.StatusOK))
 	for _, l := range live.Table {
-		if !l.Me && (l.Who != "" || l.Name != "") {
-			t.Fatalf("an unnamed line has a handle: %+v", l)
+		if !l.Me && (l.U != "" || l.Name != "" || l.Photo != "") {
+			t.Fatalf("an unnamed line has a username: %+v", l)
 		}
 	}
 	for _, l := range live.Board {
-		if !l.Me && l.Who != "" {
-			t.Fatalf("an unnamed row has a handle: %+v", l)
+		if !l.Me && (l.U != "" || l.Photo != "") {
+			t.Fatalf("an unnamed row has a username: %+v", l)
 		}
 	}
-	// At the Kyiv reveal the group's names open, and their handles with them.
+	// At the Kyiv reveal the group's names open, and their usernames with them.
 	hs.now = time.Date(2026, time.December, 10, 18, 1, 0, 0, time.UTC)
 	final := decode[resultResponse](t, hs.expect("GET", "/api/result", oksana, "", http.StatusOK))
 	for _, l := range final.Table {
-		if l.Name == "" || l.Who == "" {
-			t.Fatalf("a named line without its handle: %+v", l)
+		if l.Name == "" || l.U == "" {
+			t.Fatalf("a named line without its username: %+v", l)
 		}
 	}
 }

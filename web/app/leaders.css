@@ -46,12 +46,12 @@
 .lead-rows em { font: 700 18px/1 var(--display); font-style: normal; text-align: end; color: var(--ink-muted); }
 .lead-rows b { font: 700 21px/1 var(--display); letter-spacing: .02em; text-align: end; }
 .lead-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.lead-n[data-who] { cursor: pointer; }
+.lead-n[data-u] { cursor: pointer; }
 /* A face as in the day's table: a photo, a letter, or the plain one of "Anonymous". */
 .lead-a { width: 26px; height: 26px; }
 .lead-a .av { width: 26px; height: 26px; font: 700 15px/1 var(--display); outline: 0; }
 .lead-rows li.me .lead-a .av { background: var(--field); color: var(--ink); }
-.lead-n[data-who]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.lead-n[data-u]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .lead-rows li.m1 em, .lead-rows li.m1 b { color: var(--speed); }
 .lead-rows li.me { background: var(--ink); color: var(--field-deep); }
 .lead-rows li.me em, .lead-rows li.me b { color: var(--field-deep); }

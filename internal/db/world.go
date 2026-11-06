@@ -86,7 +86,7 @@ func (s *Store) World(ctx context.Context, d round.Date) (World, error) {
 		       COALESCE(dr.user_id, 0), COALESCE(dr.player::text, ''),
 		       COALESCE(pe.first_name, sp.name, ''), dr.km, dr.points, dr.pts_bonus, dr.pts_speed, dr.answered_at
 		  FROM day_rank dr
-		  LEFT JOIN core.person pe ON pe.telegram_user_id = dr.user_id
+		  LEFT JOIN person_shown pe ON pe.telegram_user_id = dr.user_id
 		  LEFT JOIN site_player sp ON sp.id = dr.player
 		 WHERE dr.date = $1
 		 ORDER BY dr.rank`, d.Time())

@@ -86,6 +86,8 @@ type Meta struct {
 	// URL is the page's own address and Image its picture's, both absolute.
 	URL, Image     string
 	ImageW, ImageH int
+	// NoIndex asks search engines to stay away: a person's profile.
+	NoIndex bool
 }
 
 // MetaFunc gives the Meta of the page at path, or false for the plain page.
@@ -95,7 +97,7 @@ type MetaFunc func(r *http.Request, path string) (Meta, bool)
 // index.html, and router.js picks the screen from the path: "/" is the menu
 // and "/today" the day. "*" stands for one path segment: a day, a party code,
 // a player. A screen that needs a new address adds it here.
-var Pages = []string{"/today", "/days", "/days/*", "/top", "/me", "/play", "/party/*", "/p/*"}
+var Pages = []string{"/today", "/days", "/days/*", "/top", "/me", "/play", "/party/*", "/p/*", "/u/*"}
 
 // segment is what "*" in Pages matches: short, and nothing a file name or a
 // path trick could need.
@@ -187,17 +189,18 @@ var localRef = regexp.MustCompile(`(src|href)="([^":?#]+\.(?:js|css|svg|png))"`)
 // host is a Host header fit to name the preview's address with.
 var host = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$`)
 
-// publicPage is index.html for a player's public page /p/<slug>: kept out of
-// search engines, with the player's picture for a link's preview, which
-// needs an absolute address. slug is a path segment isPage accepted.
-func publicPage(f file, slug string, r *http.Request) file {
+// personPage is index.html for a player's page, /u/<username> or the old
+// /p/<slug>: kept out of search engines, with the player's picture for a
+// link's preview, which needs an absolute address. api is the picture's
+// path under /api; key is a path segment isPage accepted.
+func personPage(f file, api, key string, r *http.Request) file {
 	meta := `<meta name="robots" content="noindex, nofollow">`
 	if host.MatchString(r.Host) {
 		scheme := "https"
 		if h, _, _ := strings.Cut(r.Host, ":"); h == "127.0.0.1" || h == "localhost" {
 			scheme = "http"
 		}
-		meta += `<meta property="og:image" content="` + scheme + "://" + r.Host + "/api/p/" + slug + `/card.png">` +
+		meta += `<meta property="og:image" content="` + scheme + "://" + r.Host + "/api/" + api + "/" + key + `/card.png">` +
 			`<meta name="twitter:card" content="summary_large_image">`
 	}
 	data := bytes.Replace(f.data, []byte("</head>"), []byte(meta+"</head>"), 1)
@@ -250,6 +253,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if m, ok := h.meta(r, name); ok {
 			// The preview's words follow the reader's language.
 			w.Header().Set("Vary", "Accept-Language")
+			if m.NoIndex {
+				w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+			}
 			h.serve(w, r, withMeta(h.files["/index.html"], m))
 			return
 		}
@@ -262,9 +268,11 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if slug, ok := strings.CutPrefix(page, "/p/"); ok && name == "/index.html" {
-		f = publicPage(f, slug, r)
-		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	for _, kind := range []string{"p", "u"} {
+		if key, ok := strings.CutPrefix(page, "/"+kind+"/"); ok && name == "/index.html" {
+			f = personPage(f, kind, key, r)
+			w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+		}
 	}
 	h.serve(w, r, f)
 }
@@ -290,6 +298,9 @@ func withMeta(idx file, m Meta) file {
 	}
 	tag("name", "twitter:card", "summary_large_image")
 	tag("name", "description", m.Description)
+	if m.NoIndex {
+		tag("name", "robots", "noindex, nofollow")
+	}
 	data := bytes.Replace(idx.data, []byte("</head>"), []byte(b.String()+"</head>"), 1)
 	sum := sha256.Sum256(data)
 	return file{data: data, etag: `"` + hex.EncodeToString(sum[:12]) + `"`, ctype: idx.ctype}

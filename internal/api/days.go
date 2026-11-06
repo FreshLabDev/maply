@@ -287,7 +287,7 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 		if i < rankShown || me {
 			l := rankLine{Rank: e.Rank, Km: e.Km, Points: e.Points}
 			if e.Site() {
-				l.Person = people.SitePlayer(e.Name, me)
+				l.Person = people.SitePlayer(e.Player, e.Name, me)
 			} else {
 				l.Person = people.Telegram(e.UserID, e.Name, me)
 			}
@@ -301,7 +301,7 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 	for i := range resp.Ranking {
 		who[i] = &resp.Ranking[i].Person
 	}
-	if err := s.dress(ctx, dressAsk{chatID: v.chatID, viewer: v.user, lang: v.lang, scope: handleScope("day", d, v.chatID)}, who...); err != nil {
+	if err := s.dress(ctx, dressAsk{chatID: v.chatID, viewer: v.user, lang: v.lang, guest: v.guest()}, who...); err != nil {
 		s.fail(w, r, err)
 		return
 	}

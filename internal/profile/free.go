@@ -45,12 +45,6 @@ type Duels struct {
 	Lost int `json:"lost"`
 }
 
-// Brief is the free part of a mini profile.
-type Brief struct {
-	Avg   *int   `json:"avg"`
-	Duels *Duels `json:"duels"`
-}
-
 // FreeOf works out the free tab from a player's finished free games.
 func FreeOf(games []db.FreeGame) Free {
 	f := Free{Records: []Record{}, Streaks: []StreakRecord{}}

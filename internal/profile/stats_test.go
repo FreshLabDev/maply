@@ -209,55 +209,6 @@ func TestFreeHasAveragesAndRecordsOnly(t *testing.T) {
 	}
 }
 
-func TestMiniHasNoPinsOrHistory(t *testing.T) {
-	d := played(0, 3000, 10, 800, "europe", "FR")
-	r := Rank(Input{Days: []db.PlayedDay{d}, Ref: d.Date, Closed: everyDayClosed})
-	m := MiniOf(r, Free{})
-	if m.Days != 1 || m.Countries != 1 || m.Free != nil {
-		t.Fatalf("mini %+v", m)
-	}
-}
-
-func TestHandlesRoundTripAndRefuseForgeries(t *testing.T) {
-	h := NewHandles([]byte("0123456789abcdef0123456789abcdef"))
-	other := NewHandles([]byte("fedcba9876543210fedcba9876543210"))
-	id := int64(5_123_456_789)
-	s := h.Of(id, "day:2026-11-01")
-	if len(s) != 22 || h.Of(id, "day:2026-11-01") != s {
-		t.Fatalf("handle %q", s)
-	}
-	if got, ok := h.User(s); !ok || got != id {
-		t.Fatalf("User(%q) = %d, %v", s, got, ok)
-	}
-	// Another table, another handle for the same player: two tables cannot
-	// be matched by it.
-	if s2 := h.Of(id, "day:2026-11-02"); s2 == s {
-		t.Fatal("one handle in two tables")
-	} else if got, ok := h.User(s2); !ok || got != id {
-		t.Fatalf("User(%q) = %d, %v", s2, got, ok)
-	}
-	if _, ok := other.User(s); ok {
-		t.Fatal("a handle from another key accepted")
-	}
-	b := []byte(s)
-	b[3] ^= 1
-	for _, bad := range []string{"", "short", string(b), s + "x"} {
-		if _, ok := h.User(bad); ok {
-			t.Fatalf("User(%q) accepted", bad)
-		}
-	}
-	if h.Of(1, "x") == h.Of(2, "x") {
-		t.Fatal("two players share a handle")
-	}
-}
-
-func TestSlugsAreRandomAndFitTheColumn(t *testing.T) {
-	a, b := NewSlug(), NewSlug()
-	if a == b || len(a) != 22 {
-		t.Fatalf("slugs %q %q", a, b)
-	}
-}
-
 func TestLatestClosedIsOverEverywhere(t *testing.T) {
 	z, err := round.LoadZones()
 	if err != nil {

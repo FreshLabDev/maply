@@ -149,7 +149,7 @@ func (s *Store) DaysPage(ctx context.Context, q DaysQuery) (DaysPage, error) {
 		    FROM page p
 		    LEFT JOIN guess g ON g.date = p.date AND g.user_id IN (SELECT id FROM members)
 		    LEFT JOIN day_score ds ON ds.date = g.date AND ds.user_id = g.user_id
-		    LEFT JOIN core.person pe ON pe.telegram_user_id = g.user_id
+		    LEFT JOIN person_shown pe ON pe.telegram_user_id = g.user_id
 		   WHERE p.final AND $7::bigint <> 0
 		   GROUP BY p.date),
 		best AS (

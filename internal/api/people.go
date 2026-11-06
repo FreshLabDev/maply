@@ -17,7 +17,32 @@ import (
 // of the world, the days' pages, the leaderboards, the profiles and the
 // rooms of free play. A handler fills in who a row is (people.Telegram,
 // SitePlayer, Unnamed) and dress decides what the viewer sees of them, so
-// "Hide me", the handle and the photo follow one rule everywhere.
+// "Hide me", the username, the person's own name and the photo follow one
+// rule everywhere.
+
+// PersonaStore is the players' profiles: their usernames and what they chose
+// to show over Telegram. The store has it.
+type PersonaStore interface {
+	PersonasOf(ctx context.Context, ids []int64, players, accounts []string) (db.Personas, error)
+	PersonaByUsername(ctx context.Context, username string) (p db.Persona, moved, ok bool, err error)
+	PersonaOfUser(ctx context.Context, userID int64) (db.Persona, bool, error)
+	PersonaOfAccount(ctx context.Context, accountID string) (db.Persona, bool, error)
+	EnsurePersona(ctx context.Context, userID int64, tgUsername, firstName string) error
+	EnsureAccountPersona(ctx context.Context, accountID, name string) (db.Persona, error)
+	SetUsername(ctx context.Context, id, username string) error
+	UsernameFree(ctx context.Context, id, username string) (bool, error)
+	SetOwnName(ctx context.Context, id, name string) error
+	SetOwnPhoto(ctx context.Context, id string, jpeg []byte) (string, error)
+	MarkAsked(ctx context.Context, id string) error
+}
+
+var _ PersonaStore = (*db.Store)(nil)
+
+// personaStore is the store's profiles, nil when it has none.
+func (s *Server) personaStore() PersonaStore {
+	ps, _ := s.Store.(PersonaStore)
+	return ps
+}
 
 // dressAsk is who looks at the players, and from where.
 type dressAsk struct {
@@ -26,54 +51,134 @@ type dressAsk struct {
 	// hid themselves keeps their name in their own groups.
 	chatID, viewer int64
 	lang           string
-	// scope names the list for the rows' handles (handleScope); empty sends
-	// none, where the list opens no mini profile.
-	scope string
+	// guest is a viewer who has not signed in: a site visitor without an
+	// account. They see no photos, only names.
+	guest bool
 	// together keeps every name: a party and a challenge, whose players
 	// chose to play with each other.
 	together bool
 }
 
 // dress fills in what the viewer sees of each person. A Hidden row loses
-// its name, face and handle. A Telegram player who hid themselves is
-// "Anonymous" with no face or handle, except to themselves, to their group
-// (Group) and to the groups they share with the viewer. Any other Telegram
-// player gets their handle and the address of their kept photo, and
-// Telegram is asked in the background for the photos not asked today, so a
-// new face shows on a later page.
+// its name, face and username. A Telegram player who hid themselves is
+// "Anonymous" with no face, except to themselves, to their group (Group)
+// and to the groups they share with the viewer; a site row of their account
+// keeps the site's name and nothing else. Their username goes to nobody but
+// themselves, as their profile opens to nobody else. Anyone else gets their
+// username, the name they chose over Telegram's, and the address of their
+// photo, their own or the one kept from Telegram. Telegram is asked in the
+// background for the photos not asked today, so a new face shows on a later
+// page.
 func (s *Server) dress(ctx context.Context, a dressAsk, ps ...*people.Person) error {
+	var ids []int64
+	var players, accounts []string
+	for _, p := range ps {
+		p.Photo, p.U, p.Anon = "", "", false
+		switch {
+		case p.Hidden:
+			p.Name = ""
+		case p.ID != 0:
+			ids = append(ids, p.ID)
+		case p.Player != "":
+			players = append(players, p.Player)
+		case p.Account != "":
+			accounts = append(accounts, p.Account)
+		}
+	}
+	pers := db.Personas{}
+	if st := s.personaStore(); st != nil && len(ids)+len(players)+len(accounts) > 0 {
+		var err error
+		if pers, err = st.PersonasOf(ctx, ids, players, accounts); err != nil {
+			return err
+		}
+	}
+	personaOf := func(p *people.Person) (db.Persona, bool) {
+		switch {
+		case p.ID != 0:
+			x, ok := pers.ByUser[p.ID]
+			return x, ok
+		case p.Player != "":
+			x, ok := pers.ByPlayer[p.Player]
+			return x, ok
+		case p.Account != "":
+			x, ok := pers.ByAccount[p.Account]
+			return x, ok
+		}
+		return db.Persona{}, false
+	}
+	// The Telegram person behind a row: a site row of an account with
+	// Telegram is that person too.
+	telegramOf := func(p *people.Person) int64 {
+		if p.ID != 0 {
+			return p.ID
+		}
+		x, _ := personaOf(p)
+		return x.UserID
+	}
+	// closed are the people who hid themselves: their profile opens to them
+	// alone, so no row of theirs carries the username that leads to it, even
+	// where the name stays. hidden are those of them the viewer does not see
+	// by name.
+	var others []int64
+	for _, p := range ps {
+		// The viewer's own rows are theirs whichever player wrote them: a
+		// site row their account took in is not Me in the Mini App.
+		if id := telegramOf(p); id != 0 && id != a.viewer && !p.Hidden && !p.Me {
+			others = append(others, id)
+		}
+	}
+	closed := map[int64]bool{}
+	if pst := s.profileStore(); pst != nil && len(others) > 0 {
+		var err error
+		if closed, err = pst.Hidden(ctx, others); err != nil {
+			return err
+		}
+	}
 	var asked []int64
 	for _, p := range ps {
-		if p.Hidden {
-			p.Name, p.Photo, p.Who, p.Anon = "", "", "", false
-			continue
-		}
-		p.Photo, p.Who, p.Anon = "", "", false
-		if p.ID != 0 && !p.Me && !p.Group && !a.together {
-			asked = append(asked, p.ID)
+		if id := telegramOf(p); closed[id] && !p.Hidden && !p.Me && !p.Group && !a.together {
+			asked = append(asked, id)
 		}
 	}
 	hidden, err := s.maskHidden(ctx, a.chatID, a.viewer, asked)
 	if err != nil {
 		return err
 	}
-	handles := s.handles()
-	var ids []int64
+	var faceIDs []int64
 	for _, p := range ps {
-		switch {
-		case p.Hidden || p.ID == 0:
-		case hidden[p.ID]:
-			p.Name, p.Anon = anonName(a.lang), true
-		default:
-			if a.scope != "" {
-				p.Who = handles.Of(p.ID, a.scope)
+		if p.Hidden {
+			continue
+		}
+		tid := telegramOf(p)
+		if tid != 0 && hidden[tid] {
+			if p.ID != 0 {
+				p.Name, p.Anon = anonName(a.lang), true
 			}
-			ids = append(ids, p.ID)
+			continue
+		}
+		x, ok := personaOf(p)
+		if ok {
+			if !closed[tid] {
+				p.U = x.Username
+			}
+			if x.Name != "" {
+				p.Name = x.Name
+			}
+		}
+		switch {
+		case a.guest:
+		case tid != 0:
+			faceIDs = append(faceIDs, tid)
+		case ok && x.Face != "":
+			p.Photo = facePath(x.Face)
 		}
 	}
-	faces := s.faces(ctx, ids)
+	faces := s.faces(ctx, faceIDs)
 	for _, p := range ps {
-		if key, ok := faces[p.ID]; ok && !p.Hidden && !p.Anon && p.ID != 0 {
+		if p.Hidden || p.Anon || a.guest {
+			continue
+		}
+		if key, ok := faces[telegramOf(p)]; ok {
 			p.Photo = facePath(key)
 		}
 	}

@@ -19,15 +19,25 @@
 }
 
 .prof { max-width: 1080px; margin: 0 auto; }
-.pcard { display: flex; align-items: center; gap: 12px; margin: 6px 0 14px; }
-.pcard .av { width: 52px; height: 52px; font: 700 30px/1 var(--display); outline: 0; }
-.pcard b { display: block; font: 700 28px/1.05 var(--display); letter-spacing: .02em; overflow-wrap: anywhere; }
-.pcard .up { display: block; margin-top: 4px; color: var(--ink-muted); font-size: 11px; }
+/* The head of a profile: the face, the name, the username and where the player comes from; under it what to do. */
+.phead { display: flex; align-items: center; gap: 14px; margin: 6px 0 12px; }
+.av.big { flex: none; width: 76px; height: 76px; font: 700 44px/1 var(--display); outline: 0; }
+.av.big.nobody svg { width: 60%; height: 60%; margin-top: 22%; }
+.phead-t { min-width: 0; }
+.phead-t b { display: block; font: 700 30px/1.05 var(--display); letter-spacing: .02em; overflow-wrap: anywhere; }
+.phead-u { display: block; margin-top: 4px; color: var(--ink-soft); font: 600 15px/1.2 var(--text); overflow-wrap: anywhere; }
+.phead-t .up { display: block; margin-top: 6px; color: var(--ink-muted); font-size: 11px; }
+.pacts { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 14px; }
+.pacts .pbtn { flex: 1 1 auto; min-height: 44px; padding-inline: 12px; background: var(--field-deep); }
+.pacts .pbtn.main { background: var(--ink); color: var(--field-deep); }
+.pacts .pbtn.main:disabled { background: var(--field-tint); color: var(--field-deep); cursor: default; }
 
 .pnote { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 14px; padding: 12px; background: var(--panel); color: var(--on-panel); }
 .pnote p { flex: 1 1 200px; margin: 0; font-weight: 600; }
 .pbtn { padding: 10px 14px; background: var(--field); color: var(--ink); font: 700 13px/1 var(--label); letter-spacing: .08em; text-transform: uppercase; }
 .pbtn.wide { display: block; width: 100%; margin-top: 10px; text-align: start; background: var(--field-deep); }
+.pbtn.ghost { background: none; outline: 1.5px solid var(--field-tint); outline-offset: -1.5px; color: var(--ink-soft); }
+.pbtn:focus-visible { outline: 2px solid var(--speed); outline-offset: -2px; }
 
 .ptabs { display: flex; gap: 2px; margin: 0 0 14px; background: var(--field-deep); padding: 2px; }
 .ptabs button { flex: 1; height: 40px; font: 700 13px/1 var(--label); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-muted); }
@@ -141,18 +151,44 @@ img.pflag { display: inline-block; width: 21px; height: 14px; vertical-align: -2
 .pswitch b { display: block; font-weight: 700; }
 .pswitch small { display: block; margin-top: 4px; color: var(--ink-muted); font-size: 13px; line-height: 1.35; }
 
-/* The public link: the address to copy, and the two things to do with it. */
 .pswitch + .pswitch { margin-top: 2px; }
-.plink { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 2px; }
-.plink input { flex: 1 1 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 0; background: var(--panel); color: var(--on-panel); font: 600 14px/1.2 var(--text); }
-.plink .pbtn { flex: 1 1 0; min-height: 44px; background: var(--field-deep); }
-.plink .pbtn:focus-visible, .plink input:focus-visible { outline: 2px solid var(--speed); outline-offset: -2px; }
+
+/* The editor of the own profile: the photo, the name and the username, each with what it means under it. Inputs are
+   17 px so a phone does not zoom into them. */
+.pedit { max-width: 520px; }
+.pedit-intro { margin: 0 0 16px; font-weight: 600; }
+.pedit-ph { display: flex; align-items: center; gap: 14px; }
+.pedit-ph .av.big { width: 96px; height: 96px; font-size: 54px; }
+.pedit-phb { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pedit-phb .pbtn { min-height: 44px; background: var(--field-deep); text-align: start; }
+.pedit-phb .pbtn.ghost { background: none; }
+.pfield { display: block; margin: 20px 0 6px; }
+.pfield .up { color: var(--ink-muted); font-size: 11px; letter-spacing: .08em; }
+.pin-t { display: block; width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 0; background: var(--panel); color: var(--on-panel); font: 400 17px/1.2 var(--text); }
+.pin-t::placeholder { color: var(--field-tint); }
+.pin-t:focus-visible { outline: 2px solid var(--speed); outline-offset: -2px; }
+.pat { display: flex; background: var(--panel); }
+.pat i { flex: none; display: grid; place-items: center; padding-left: 12px; color: var(--on-panel); font: 700 17px/1 var(--text); font-style: normal; }
+.pat .pin-t { padding-left: 2px; }
+.pstat { min-height: 1.35em; margin: 6px 0 0; font-weight: 600; font-size: 14px; }
+.pstat.taken, .pstat.form { color: var(--ink); }
+.pstat.ok { color: var(--ink-soft); }
+.pedit .pacts { margin: 24px 0 0; }
+.pedit .pnote-s { overflow-wrap: anywhere; }
+
+/* The photo cut square: the box is the square that is kept, dragged and zoomed under a finger or the mouse. */
+.pcrop { max-width: 420px; }
+.pcrop-box { width: 100%; max-width: 100%; aspect-ratio: 1; background: var(--field-deep); outline: 2px solid var(--ink); outline-offset: -2px;
+             touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+.pcrop-box:active { cursor: grabbing; }
+.pcrop-box:focus-visible { outline-color: var(--speed); }
+.pcrop-box canvas { display: block; width: 100%; height: 100%; }
+.pcrop input[type="range"] { display: block; width: 100%; margin: 14px 0 0; accent-color: var(--ink); }
+.pcrop .pacts { margin: 16px 0 0; }
 
 /* The month's season ends the tiles, and its note follows them. */
 .ptiles.pseason { margin-bottom: 0; }
 .pseason-n { margin: 8px 0 16px; }
-
-.prof.mini .pcard .av.ph { background: var(--field-deep); }
 
 @media (min-width: 560px) {
   .pt { --k: var(--b, 4); }
@@ -169,21 +205,22 @@ img.pflag { display: inline-block; width: 21px; height: 14px; vertical-align: -2
 }
 /* A computer: the profile is a page of the shell (desktop.css) and takes its width, up to --page. The numbers
    stand up to eight to a row from 1280, the charts three abreast so their text stays near its size, the passport's
-   map under them across the page, the history in two columns. The mini profile keeps its column. */
-.desk .prof:not(.mini) { max-width: none; }
-.desk .prof:not(.mini) .pcharts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.desk .prof:not(.mini) .pcharts .psec:nth-child(3):not(.wide) { grid-column: auto; }
-.desk .prof:not(.mini) .pswitch small { max-width: 90ch; }
-.desk .prof:not(.mini) .phist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; }
-.desk .prof:not(.mini) .phist li { margin: 0; }
+   map under them across the page, the history in two columns. */
+.desk .prof { max-width: none; }
+.desk .prof .pcharts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.desk .prof .pcharts .psec:nth-child(3):not(.wide) { grid-column: auto; }
+.desk .prof .pswitch small { max-width: 90ch; }
+.desk .prof .phist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; }
+.desk .prof .phist li { margin: 0; }
 @media (min-width: 1280px) {
-  .desk .prof:not(.mini) .pt { --k: var(--c, 4); }
+  .desk .prof .pt { --k: var(--c, 4); }
 }
 @media (prefers-reduced-motion: reduce) { .pswitch input::after { transition: none; } }
 
-/* A name the server gave a handle opens that player's mini profile. */
-[data-who] { cursor: pointer; }
-.rk .w[data-who], .lb.all [data-who] { text-decoration: underline dotted var(--field-tint); text-underline-offset: 3px; }
+/* A name the server sent with a username opens that player's profile. */
+[data-u] { cursor: pointer; }
+.rk .w[data-u], .lb.all [data-u] { text-decoration: underline dotted var(--field-tint); text-underline-offset: 3px; }
+[data-u]:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 /* A player who hid themselves: a plain figure where a photo or a letter would be (profile.js, anonAv). */
 .av.nobody { background: var(--field-tint); color: var(--ink-soft); }

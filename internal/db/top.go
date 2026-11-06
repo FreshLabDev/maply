@@ -121,7 +121,7 @@ func (s *Store) Top(ctx context.Context, b TopBoard, since time.Time, limit int,
 		SELECT COALESCE(ranked.user_id, 0), COALESCE(ranked.account::text, ''),
 		       COALESCE(p.first_name, mp.name, ''), ranked.score, ranked.rank, ranked.total
 		  FROM ranked
-		  LEFT JOIN core.person p ON p.telegram_user_id = ranked.user_id
+		  LEFT JOIN person_shown p ON p.telegram_user_id = ranked.user_id
 		  LEFT JOIN account a ON a.id = ranked.account
 		  LEFT JOIN site_player mp ON mp.id = a.player
 		 WHERE ranked.rank <= $6 OR `+topMe("ranked.")+`

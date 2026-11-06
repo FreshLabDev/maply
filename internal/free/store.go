@@ -26,7 +26,7 @@ func (w Who) person(name string, me bool) people.Person {
 	if w.UserID != 0 {
 		return people.Telegram(w.UserID, name, me)
 	}
-	return people.SitePlayer(name, me)
+	return people.SitePlayer(w.Player, name, me)
 }
 
 // Telegram is whether the player is a Telegram person: the one kind recorded
