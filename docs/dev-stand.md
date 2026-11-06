@@ -110,5 +110,15 @@ seconds later, and its button drops every strip to draw them again. The
 stand's `AppURL` is its own address, so `/days/<n>` carries the preview tags
 and `/og/day/<n>-<lang>.jpg` draws the picture.
 
+The leaderboards have one (`cmd/maply-dev/top.go`): 26 players with made-up
+games on every board of `/top`, this week and before it. Seventeen are
+people only the boards know, in the family's languages; six are the stand's
+own, Аня in the middle of each board so her row stands among others; three
+are accounts with Google alone. Giulia and Лена hid themselves, so Аня and a
+guest see them as "Anonymous", Лена in the day's world table and on the days
+page too, as she is in none of Аня's groups. The games have no places,
+which is how "Засеять таблицы заново" tells them from games played on the
+stand: it plays them again up to the stand's clock and keeps the rest.
+
 The fake bot token signs everything, so nothing from the stand verifies
 anywhere else, and nothing real verifies on the stand.
