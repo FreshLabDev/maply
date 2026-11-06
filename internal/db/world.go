@@ -132,10 +132,13 @@ type Mine struct {
 }
 
 // KeepDay keeps d's ranking for good. The caller has scored the day, and it
-// is over in every zone. A day kept already stays as it was.
+// is over in every zone. A day kept already stays as it was, and a skipped
+// round is never kept.
 func (s *Store) KeepDay(ctx context.Context, d round.Date) error {
 	if _, err := s.pool.Exec(ctx, `
-		WITH kept AS (INSERT INTO day_closed (date) VALUES ($1) ON CONFLICT DO NOTHING RETURNING date)
+		WITH kept AS (INSERT INTO day_closed (date)
+		              SELECT date FROM round WHERE date = $1 AND skipped_at IS NULL
+		              ON CONFLICT DO NOTHING RETURNING date)
 		INSERT INTO day_place (date, user_id, player, km, points, rank, n)
 		SELECT r.date, r.user_id, r.player, r.km, r.points, r.rank, r.n
 		  FROM day_rank r, kept WHERE r.date = $1`, d.Time()); err != nil {

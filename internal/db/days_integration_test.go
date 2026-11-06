@@ -64,8 +64,9 @@ func dayRow(t *testing.T, s *Store, d round.Date, q DaysQuery) DayRow {
 const historyGroup = int64(-1001900007001)
 
 // history is ten days from 1 November: Pin (7) and Ana (8) of a group answer
-// most of them, a site player some, and nobody the 4th. The 1st to the 7th
-// are kept closed, the 1st to the 6th with their strips; the 8th is over
+// most of them, a site player some, and nobody the 4th, which is skipped. The
+// 1st to the 7th but the 4th are kept closed, the 1st to the 6th with their
+// strips; the 8th is over
 // everywhere but not kept yet; the 9th and the 10th are still open, the 10th
 // kept and drawn by mistake, as a hand-made row would be.
 func history(t *testing.T, store *Store) {
@@ -118,6 +119,12 @@ func history(t *testing.T, store *Store) {
 		if _, err := store.ScoreDue(ctx, d, at.Add(time.Hour), func(p geo.Point) scoring.Score { return scoring.Judge(p, kyiv, nil) }); err != nil {
 			t.Fatal(err)
 		}
+		if n == 4 {
+			if ok, err := store.SkipDay(ctx, d, round.NewDate(2026, 12, 8)); err != nil || !ok {
+				t.Fatalf("skip the 4th: %v, %v", ok, err)
+			}
+			continue
+		}
 		if n <= 7 {
 			if err := store.KeepDay(ctx, d); err != nil {
 				t.Fatal(err)
@@ -168,10 +175,19 @@ func TestDaysPage(t *testing.T) {
 		}
 		q.Before = p.Days[len(p.Days)-1].Date
 	}
-	if len(dates) != 10 || dates[0] != round.NewDate(2026, 11, 10) || dates[9] != round.NewDate(2026, 11, 1) {
+	// The skipped 4th is not a day of the list.
+	if len(dates) != 9 || dates[0] != round.NewDate(2026, 11, 10) || dates[8] != round.NewDate(2026, 11, 1) {
 		t.Fatalf("dates = %v", dates)
 	}
-	day := func(n int) DayRow { return all[10-n] }
+	day := func(n int) DayRow {
+		for _, d := range all {
+			if d.Date == round.NewDate(2026, 11, n) {
+				return d
+			}
+		}
+		t.Fatalf("no row for the %dth", n)
+		return DayRow{}
+	}
 
 	// Open: how many answered, whether Pin did, and the picture up to the
 	// date begun where he is. Nothing scored, nothing about the place, no
@@ -192,18 +208,12 @@ func TestDaysPage(t *testing.T) {
 	// Final: the place and the numbers; the strip once kept and drawn; the
 	// viewer's line from the kept places or, on the 8th, ranked live.
 	for n := 1; n <= 8; n++ {
+		if n == 4 {
+			continue
+		}
 		d := day(n)
 		if d.Image != "" || d.Kind != "" {
 			t.Errorf("final %d carries the puzzle: %+v", n, d)
-		}
-		if n == 4 {
-			if d.Thumb == "" || d.Country != "UA" {
-				t.Errorf("nobody's day has no strip or place: %+v", d)
-			}
-			if d.Players != 0 || d.Played || d.Me != nil || d.MedianKm != nil || d.Group == nil || d.Group.Answered != 0 || d.Group.Members != 2 {
-				t.Errorf("nobody's day: %+v %+v", d, d.Group)
-			}
-			continue
 		}
 		if d.Country != "UA" || d.City["en"] != "Kyiv" || d.MedianKm == nil || d.BestKm == nil || !d.Played || d.Me == nil {
 			t.Errorf("final %d: %+v", n, d)
@@ -259,12 +269,12 @@ func TestDaysPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.Days) != 10 {
+	if len(p.Days) != 9 {
 		t.Fatalf("account page has %d rows, want one a date", len(p.Days))
 	}
 	for _, d := range p.Days {
 		n := d.Date.Time().Day()
-		if n == 4 || n > 8 {
+		if n > 8 {
 			continue
 		}
 		wantRank := 2
@@ -315,8 +325,9 @@ func TestDayStrips(t *testing.T) {
 	if undrawn, _ = store.Undrawn(ctx, 1); len(undrawn) != 1 || undrawn[0].Yaw == nil || *undrawn[0].Yaw != 105 {
 		t.Fatalf("undrawn with a yaw = %+v", undrawn)
 	}
-	// A newer recipe draws every kept day again.
-	if undrawn, _ = store.Undrawn(ctx, 2); len(undrawn) != 8 {
+	// A newer recipe draws every kept day again: the 1st to the 7th but the
+	// skipped 4th, and the 10th kept by hand.
+	if undrawn, _ = store.Undrawn(ctx, 2); len(undrawn) != 7 {
 		t.Fatalf("undrawn for recipe 2 = %d days", len(undrawn))
 	}
 	if err := store.PutThumb(ctx, Thumb{Date: round.NewDate(2026, 11, 8), Key: "notkeptAAAAAAAAAAAAA", Recipe: 1, Small: []byte("s"), Wide: []byte("w")}); !errors.Is(err, ErrNotKept) {
@@ -347,7 +358,7 @@ func TestDayStrips(t *testing.T) {
 	}
 
 	c, err := store.ClosedDay(ctx, round.NewDate(2026, 11, 5), round.NewDate(2026, 11, 8))
-	if err != nil || c.Thumb != "thumb05AAAAAAAAAAAAA" || c.Image != "image05key" || c.Kind != "panorama" || len(c.Pins) != 2 || c.Prev != 4 || c.Next != 6 {
+	if err != nil || c.Thumb != "thumb05AAAAAAAAAAAAA" || c.Image != "image05key" || c.Kind != "panorama" || len(c.Pins) != 2 || c.Prev != 3 || c.Next != 6 {
 		t.Fatalf("closed day = %+v, %v", c, err)
 	}
 	// The next day stops at the newest begun; the first has no day before.
@@ -362,5 +373,15 @@ func TestDayStrips(t *testing.T) {
 	}
 	if _, ok, err := store.RoundNo(ctx, 99); err != nil || ok {
 		t.Fatalf("round #99: %v, %v", ok, err)
+	}
+	// The skipped 4th is no day: no number, no page, and the 3rd goes on to the 5th.
+	if _, ok, err := store.RoundNo(ctx, 4); err != nil || ok {
+		t.Fatalf("round #4 of a skipped day: %v, %v", ok, err)
+	}
+	if c, _ := store.ClosedDay(ctx, round.NewDate(2026, 11, 3), round.NewDate(2026, 11, 8)); c.Next != 5 {
+		t.Fatalf("the 3rd goes on to #%d, want #5", c.Next)
+	}
+	if _, err := store.ClosedDay(ctx, round.NewDate(2026, 11, 4), round.NewDate(2026, 11, 8)); err == nil {
+		t.Fatal("a skipped day has a page")
 	}
 }

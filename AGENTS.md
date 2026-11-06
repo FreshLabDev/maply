@@ -132,6 +132,14 @@ the diff looks like.
   `/api/result` and `/api/share` answer a person with no answer `403
   not_answered`, and nothing else. This is the invariant that keeps the live
   screen safe; `TestADayAcrossZones` covers it.
+- Nor does anyone see the place of a day nobody has answered anywhere (no row
+  in `guess` or `site_guess`, a late site answer included). From the chat's
+  reveal the result is held, not sent (`chat_round.held`), and `/api/result`,
+  `/api/share`, `/api/site/result`, the card page and the days page answer 403
+  `held` (404 for the days page) to whoever asks, answered or not. The final
+  world job then sends the held results late, if an answer has come, or skips
+  the day. `DayAnswers` counts the raw rows, not the ranking, which holds only
+  what is scored.
 - Before the reveal, sharing sends a text line with the day, distance and score
   only, never the picture with the place.
 - The place's coordinates, city, country, source ID and source URL never appear
@@ -337,6 +345,19 @@ the diff looks like.
   from such a day needs `DELETE FROM day_closed WHERE date = …` too, or the
   old places stay. The day's strip goes with it and is drawn again under a
   new key.
+- A day over in every zone with no answer anywhere is not kept but skipped
+  (`round.skipped_at`, `Store.SkipDay`), by the same job. The round and its
+  number stay, but a skipped round is no round to any reader: `RoundOn`,
+  `EnsureRound` (`ErrDaySkipped`), the days list and page, the profile, the
+  archive, the card and the link preview; a streak steps over the date. Its
+  place goes back to `approved` with `place.back_after` 30 days on
+  (`db.ReturnDays`), and the queue does not draw it before then. One live
+  round a place: `round_place_live_idx`, partial on `skipped_at IS NULL`. A
+  query that joins `round` for what the game shows must filter `skipped_at IS
+  NULL`. The final job returns `KeepDay`'s error so its queue tries again, and
+  the scheduler's catch-up (at start and hourly, a day an hour past its last
+  reveal and neither kept nor skipped) closes what the job missed. Migration
+  028 skipped, for good, the days kept before with nobody's answer.
 
 ## Versioning
 

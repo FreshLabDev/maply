@@ -46,6 +46,10 @@ const worldCB = "wr:"
 // drawn, for the last answers to be scored.
 const worldAfter = 2 * time.Minute
 
+// catchUpAfter is how long after the last reveal a day still open counts as
+// missed by its job, which runs worldAfter after it and tries a few times.
+const catchUpAfter = time.Hour
+
 // worldWait bounds a refresh drawn in the background.
 const worldWait = 3 * time.Minute
 
@@ -296,9 +300,7 @@ func (s *Scheduler) worldMarkup(c db.Chat, d round.Date, lang string, final bool
 	return markup, nil
 }
 
-// worldFinal runs once the job's date has closed in every zone: it puts the
-// final picture in every DM result and the final world line in every group
-// result. Both are edits, so a group still gets three messages a day.
+// worldFinal runs once the job's date has closed in every zone: see closeDay.
 func (s *Scheduler) worldFinal(ctx context.Context, j db.Job) error {
 	// The job's own time is not trusted: a job planned or moved by hand, or a
 	// clock that jumped, would keep the day while it is still played
@@ -307,7 +309,17 @@ func (s *Scheduler) worldFinal(ctx context.Context, j db.Job) error {
 	if last := s.Zones.LastReveal(j.Date); s.now().Before(last) {
 		return laterError{last.Add(worldAfter)}
 	}
-	rd, ok, err := s.Store.RoundOn(ctx, j.Date)
+	return s.closeDay(ctx, j.Date)
+}
+
+// closeDay ends a day that is over in every zone, for the final world job
+// and for the catch-up. A day nobody answered anywhere is skipped. Any other
+// is kept as it stands: results held back for want of an answer go out, the
+// final picture goes into every DM result and the final world line into every
+// group result. All but the held results are edits, so a group still gets
+// three messages a day.
+func (s *Scheduler) closeDay(ctx context.Context, d round.Date) error {
+	rd, ok, err := s.Store.RoundOn(ctx, d)
 	if err != nil || !ok {
 		return orSkip(err)
 	}
@@ -315,21 +327,156 @@ func (s *Scheduler) worldFinal(ctx context.Context, j db.Job) error {
 	if err != nil {
 		return err
 	}
-	if err := s.scoreDue(ctx, j.Date, answer); err != nil {
+	if err := s.scoreDue(ctx, d, answer); err != nil {
 		return err
+	}
+	n, err := s.Store.DayAnswers(ctx, d)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		if skipped, err := s.skipDay(ctx, d, rd); err != nil || skipped {
+			return err
+		}
 	}
 	// Over everywhere and scored, the day's places are kept as they are. A
-	// day not kept is still ranked when asked, only slower.
-	if err := s.Store.KeepDay(ctx, j.Date); err != nil {
-		s.Log.Error("day not kept", "date", j.Date, "error", err)
-	}
-	if err := s.finalGroups(ctx, j.Date, rd, answer); err != nil {
+	// failure is the job's: it runs again, as the day is not kept.
+	if err := s.Store.KeepDay(ctx, d); err != nil {
 		return err
 	}
-	if s.World == nil {
-		return nil
+	held := s.sendHeld(ctx, d)
+	if err := s.finalGroups(ctx, d, rd, answer); err != nil {
+		return err
 	}
-	return s.finalDMs(ctx, j.Date, rd, answer)
+	if s.World != nil {
+		if err := s.finalDMs(ctx, d, rd, answer); err != nil {
+			return err
+		}
+	}
+	return held
+}
+
+// sendHeld sends the results the chats held at their reveal, now that the day
+// has an answer. A result that goes out after the day closed carries the
+// final world line itself.
+func (s *Scheduler) sendHeld(ctx context.Context, d round.Date) error {
+	chats, err := s.Store.HeldChats(ctx, d)
+	if err != nil {
+		return err
+	}
+	failed := 0
+	for _, id := range chats {
+		err := s.result(ctx, db.Job{ChatID: id, Date: d})
+		var apiErr *tg.APIError
+		switch {
+		case err == nil || errors.Is(err, errSkip):
+		case errors.As(err, &apiErr) && (apiErr.IsUnreachableDestination() || dmForbidden(id, apiErr)):
+			s.Log.Info("chat unreachable, leaving it", "chat", id, "error", err)
+			if leaveErr := s.Store.LeaveChat(ctx, id); leaveErr != nil {
+				s.Log.Error("leave chat failed", "chat", id, "error", leaveErr)
+			}
+		default:
+			s.Log.Warn("held result not sent", "chat", id, "date", d, "error", err)
+			failed++
+		}
+	}
+	if failed > 0 {
+		// Another try sends only the ones still held.
+		return fmt.Errorf("held results: %d of %d not sent", failed, len(chats))
+	}
+	return nil
+}
+
+// skipDay skips a day nobody answered: the morning posts that went out say
+// so and are unpinned, as edits, and the round and its place are marked. The
+// posts come first, so a failed edit runs the day again. It reports false
+// when an answer turned up and the day is kept after all.
+func (s *Scheduler) skipDay(ctx context.Context, d round.Date, rd db.Round) (bool, error) {
+	posts, err := s.Store.Posts(ctx, d)
+	if err != nil {
+		return false, err
+	}
+	failed := 0
+	for _, p := range posts {
+		c, ok, _ := s.chatOf(ctx, p.ChatID)
+		if !ok {
+			continue
+		}
+		if p.Pinned {
+			if err := s.TG.Unpin(ctx, c.ID, p.MsgID); err != nil {
+				s.Log.Info("post not unpinned", "chat", c.ID, "error", err)
+			} else if err := s.Store.SetPinned(ctx, c.ID, d, false); err != nil {
+				s.Log.Warn("unpin not stored", "chat", c.ID, "error", err)
+			}
+		}
+		cr, err := s.Store.ChatRound(ctx, c.ID, d)
+		if err != nil {
+			return false, err
+		}
+		caption := skippedCaption(i18n.Resolve(c.Lang), rd.DayNo, cr.Yesterday)
+		if err := s.editCaption(ctx, c.ID, p.MsgID, caption, nil); err != nil && !tg.IsMessageNotModified(err) {
+			s.Log.Warn("skipped day's post not edited", "chat", c.ID, "date", d, "error", err)
+			if retryEdit(err) {
+				failed++
+			}
+		}
+	}
+	if failed > 0 {
+		return false, fmt.Errorf("skipped day's posts: %d of %d not edited", failed, len(posts))
+	}
+	back := round.DateIn(s.now(), time.UTC).AddDays(db.ReturnDays)
+	skipped, err := s.Store.SkipDay(ctx, d, back)
+	if err != nil {
+		return false, err
+	}
+	if skipped {
+		s.Log.Info("day skipped, nobody answered", "date", d, "place", rd.PlaceID, "back_after", back)
+	}
+	return skipped, nil
+}
+
+// catchUp closes the days whose final world job did not: it ran before days
+// were kept, or failed for good. The job's key is done by then, so nothing
+// else would try again. A day is looked at an hour after its last reveal, when
+// the job has had its tries.
+func (s *Scheduler) catchUp(ctx context.Context) {
+	if err := s.CatchUp(ctx); err != nil {
+		s.Log.Error("catch-up failed", "error", err)
+	}
+}
+
+// CatchUp closes every day that is over in every zone and neither kept nor
+// skipped. A failed day is left for the next pass.
+func (s *Scheduler) CatchUp(ctx context.Context) error {
+	chats, err := s.Store.ActiveChats(ctx)
+	if err != nil {
+		return err
+	}
+	s.setChats(chats)
+	now := s.now()
+	days, err := s.Store.Unclosed(ctx, round.DateIn(now, time.UTC))
+	if err != nil {
+		return err
+	}
+	var first error
+	for _, d := range days {
+		if now.Before(s.Zones.LastReveal(d).Add(catchUpAfter)) {
+			continue
+		}
+		s.Log.Info("catching up a day nobody closed", "date", d)
+		err := func() error {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), jobWait)
+			defer cancel()
+			return s.closeDay(ctx, d)
+		}()
+		if err != nil && !errors.Is(err, errSkip) {
+			s.Log.Error("day not closed", "date", d, "error", err)
+			if first == nil {
+				first = fmt.Errorf("close %s: %w", d, err)
+			}
+		}
+	}
+	return first
 }
 
 // finalGroups redraws each group result's caption with the closed day's

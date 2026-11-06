@@ -17,6 +17,15 @@ import (
 // day's place, and the free game never sees a future day's.
 var ErrNoPlace = errors.New("no approved place in the queue")
 
+// ErrDaySkipped means the date's round was skipped: nobody answered it, its
+// place went back to the queue, and no new place is drawn for it. A past date
+// can be asked for through a link's payload.
+var ErrDaySkipped = errors.New("the day was skipped")
+
+// ReturnDays is how long a place that came back from a skipped day waits
+// before it can be drawn again.
+const ReturnDays = 30
+
 type Round struct {
 	Date    round.Date
 	DayNo   int
@@ -31,9 +40,10 @@ const roundLockKey int64 = 0x6d61706c7952 // "maplyR"
 // first time anyone asks. The place is the approved one whose difficulty is
 // closest to the weekday's. Among those the order is a fixed shuffle, so a new
 // batch mixes with the places left from the old ones instead of queueing
-// behind them.
+// behind them. A place that came back from a skipped day is not drawn before
+// its back_after, and a skipped date gets no place at all (ErrDaySkipped).
 func (s *Store) EnsureRound(ctx context.Context, d round.Date) (Round, error) {
-	if r, ok, err := s.roundFor(ctx, s.pool, d); err != nil || ok {
+	if r, ok, err := s.liveRound(ctx, s.pool, d); err != nil || ok {
 		return r, err
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -44,7 +54,7 @@ func (s *Store) EnsureRound(ctx context.Context, d round.Date) (Round, error) {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, roundLockKey); err != nil {
 		return Round{}, fmt.Errorf("lock round creation: %w", err)
 	}
-	if r, ok, err := s.roundFor(ctx, tx, d); err != nil || ok {
+	if r, ok, err := s.liveRound(ctx, tx, d); err != nil || ok {
 		return r, err
 	}
 
@@ -65,9 +75,10 @@ func (s *Store) EnsureRound(ctx context.Context, d round.Date) (Round, error) {
 	err = tx.QueryRow(ctx, `
 		SELECT id FROM place
 		 WHERE status = 'approved' AND pool = 'daily' AND kind = 'panorama'
+		   AND (back_after IS NULL OR back_after <= $2::date)
 		 ORDER BY abs(difficulty - $1), md5(id::text), id
 		 LIMIT 1
-		 FOR UPDATE`, round.TargetDifficulty(d.Weekday())).Scan(&placeID)
+		 FOR UPDATE`, round.TargetDifficulty(d.Weekday()), d.Time()).Scan(&placeID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Round{}, ErrNoPlace
 	}
@@ -86,25 +97,49 @@ func (s *Store) EnsureRound(ctx context.Context, d round.Date) (Round, error) {
 	return Round{Date: d, DayNo: dayNo, PlaceID: placeID}, nil
 }
 
-// RoundOn returns the round for d if it exists, without creating it.
+// RoundOn returns the round for d if it exists, without creating it. A
+// skipped round is no round.
 func (s *Store) RoundOn(ctx context.Context, d round.Date) (Round, bool, error) {
-	return s.roundFor(ctx, s.pool, d)
+	r, state, err := s.roundState(ctx, s.pool, d)
+	return r, state == roundLive, err
 }
 
 type querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-func (s *Store) roundFor(ctx context.Context, q querier, d round.Date) (Round, bool, error) {
+type roundStatus int
+
+const (
+	roundNone roundStatus = iota
+	roundLive
+	roundSkipped
+)
+
+func (s *Store) roundState(ctx context.Context, q querier, d round.Date) (Round, roundStatus, error) {
 	r := Round{Date: d}
-	err := q.QueryRow(ctx, `SELECT day_no, place_id FROM round WHERE date = $1`, d.Time()).Scan(&r.DayNo, &r.PlaceID)
+	var skipped bool
+	err := q.QueryRow(ctx, `SELECT day_no, place_id, skipped_at IS NOT NULL FROM round WHERE date = $1`, d.Time()).
+		Scan(&r.DayNo, &r.PlaceID, &skipped)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Round{}, false, nil
+		return Round{}, roundNone, nil
 	}
 	if err != nil {
-		return Round{}, false, fmt.Errorf("round %s: %w", d, err)
+		return Round{}, roundNone, fmt.Errorf("round %s: %w", d, err)
 	}
-	return r, true, nil
+	if skipped {
+		return Round{}, roundSkipped, nil
+	}
+	return r, roundLive, nil
+}
+
+// liveRound is the round for d, or ErrDaySkipped when it was skipped.
+func (s *Store) liveRound(ctx context.Context, q querier, d round.Date) (Round, bool, error) {
+	r, state, err := s.roundState(ctx, q, d)
+	if err == nil && state == roundSkipped {
+		return Round{}, false, ErrDaySkipped
+	}
+	return r, state == roundLive, err
 }
 
 // Context is a chat a person plays in: 0 for the DM, a negative id for a

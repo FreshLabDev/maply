@@ -323,6 +323,7 @@ func seedPeople(ctx context.Context, e *Env) error {
 // seedDays plays the past days and today. Every day is created by the store's
 // own queue, answered before each person's own deadline, scored by the real
 // judge, and kept once it is over in every zone, as the final world job does.
+// A day nobody played is skipped instead, and its place goes back.
 func seedDays(ctx context.Context, e *Env) (int, error) {
 	now := e.Clock.Now()
 	today := round.DateIn(now, e.Zones.For("Europe/Kyiv", ""))
@@ -380,6 +381,18 @@ func seedDays(ctx context.Context, e *Env) (int, error) {
 			return played, err
 		}
 		if now.After(e.Zones.LastReveal(d)) {
+			// As the final world job does: a day nobody answered is skipped and
+			// its place goes back, any other is kept.
+			n, err := e.Store.DayAnswers(ctx, d)
+			if err != nil {
+				return played, err
+			}
+			if n == 0 {
+				if _, err := e.Store.SkipDay(ctx, d, round.DateIn(now, time.UTC).AddDays(db.ReturnDays)); err != nil {
+					return played, err
+				}
+				continue
+			}
 			if err := e.Store.KeepDay(ctx, d); err != nil {
 				return played, err
 			}

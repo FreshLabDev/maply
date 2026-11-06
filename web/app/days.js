@@ -123,7 +123,7 @@ function rows(days, after) {
 const dayCell = (d) => '<span class="d"><b>' + esc(dayPart(d.date, { day: "numeric" })) + '</b><i>' + esc(dayPart(d.date, { weekday: "short" })) + '</i></span>';
 
 function closedRow(d) {
-  const best = d.date === DAYS.best, nobody = !d.players;
+  const best = d.date === DAYS.best;
   const country = d.country ? regionName(d.country) : "";
   const title = d.city || country || TN("days.day_n", { n: fmt(d.day) });
   const th = d.thumb ? '<span class="th"><img class="st" src="' + esc(d.thumb) + '" alt="" loading="lazy" decoding="async">' + flag(d.country) + '</span>'
@@ -133,9 +133,9 @@ function closedRow(d) {
     r = '<b>' + fmt(d.me.points) + '</b><span><i class="km">' + esc(kmT(d.me.km)) + ' · </i>' + esc(TN("days.rank_of", { rank: fmt(d.me.rank), n: fmt(d.players) })) + '</span>' +
       (best ? '<small class="star">' + esc(T("days.best")) + '</small>' : '');
   } else {
-    r = '<b>–</b><span>' + esc(T("days.no_answer")) + '</span>' + (nobody ? '' : '<small>' + esc(T("days.played", { n: fmt(d.players) })) + '</small>');
+    r = '<b>–</b><span>' + esc(T("days.no_answer")) + '</span><small>' + esc(T("days.played", { n: fmt(d.players) })) + '</small>';
   }
-  const sub = nobody ? T("days.nobody") : d.median_km != null ? T("days.median", { km: kmT(d.median_km) }) : "";
+  const sub = d.median_km != null ? T("days.median", { km: kmT(d.median_km) }) : "";
   return '<button class="dr' + (best ? ' best' : '') + (d.me ? '' : ' miss') + '" data-n="' + d.day + '" data-date="' + esc(d.date) + '">' + dayCell(d) + th +
     '<span class="t"><b>' + esc(title) + '</b><span>' + esc(d.city ? country : "") + '</span><small>' + esc(sub) + '</small></span>' +
     '<span class="r">' + r + '</span></button>';
@@ -290,7 +290,7 @@ function dayHTML(d) {
     html += '<div class="you"><b>' + fmt(d.me.points) + '</b><div><p class="k">' + esc(TN("days.you_rank", { rank: fmt(d.me.rank), n: fmt(d.players) })) +
       '</p><p>' + esc([kmT(d.me.km)].concat(checks).join(" · ")) + '</p></div></div>';
   } else {
-    html += '<div class="you none"><p>' + esc(d.players ? T("no_answer") : T("days.nobody")) + '</p></div>';
+    html += '<div class="you none"><p>' + esc(T("no_answer")) + '</p></div>';
   }
   html += '<div class="tiles"><div><b>' + fmt(d.players) + '</b><span>' + esc(T("days.t_played")) + '</span></div>' +
     '<div><b>' + (d.median_km != null ? kmNum(d.median_km) : "–") + '</b><span>' + esc(T("days.t_median")) + '</span></div>' +

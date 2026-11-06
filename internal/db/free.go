@@ -244,7 +244,7 @@ func (s *Store) FreeCandidates(ctx context.Context, id int64, closed time.Time) 
 		        WHERE p.pool = 'free' AND p.status = 'approved' AND p.kind = 'panorama'
 		       UNION ALL
 		       SELECT p.id, p.country_iso, true
-		         FROM day_closed dc JOIN round r ON r.date = dc.date JOIN place p ON p.id = r.place_id
+		         FROM day_closed dc JOIN round r ON r.date = dc.date AND r.skipped_at IS NULL JOIN place p ON p.id = r.place_id
 		        WHERE p.kind = 'panorama' AND dc.date <= $2::date
 		          AND NOT EXISTS (SELECT 1 FROM guess g WHERE g.date = dc.date AND g.user_id IN (SELECT user_id FROM me_u))
 		          AND NOT EXISTS (SELECT 1 FROM site_guess g WHERE g.date = dc.date AND g.player IN (SELECT player FROM me_p))

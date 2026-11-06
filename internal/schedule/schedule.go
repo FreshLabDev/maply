@@ -78,6 +78,12 @@ type Store interface {
 	Answer(ctx context.Context, placeID int64) (db.Answer, error)
 	ScoreDue(ctx context.Context, d round.Date, now time.Time, judge func(geo.Point) scoring.Score) (int, error)
 	KeepDay(ctx context.Context, d round.Date) error
+	DayAnswers(ctx context.Context, d round.Date) (int, error)
+	SkipDay(ctx context.Context, d round.Date, backAfter round.Date) (bool, error)
+	Unclosed(ctx context.Context, upTo round.Date) ([]round.Date, error)
+	SetHeld(ctx context.Context, chatID int64, d round.Date) error
+	HeldChats(ctx context.Context, d round.Date) ([]int64, error)
+	Posts(ctx context.Context, d round.Date) ([]db.Post, error)
 	LeaveChat(ctx context.Context, chatID int64) error
 	MigrateChat(ctx context.Context, from, to int64) error
 	FixZone(ctx context.Context, chatID int64, zone string) error
@@ -205,6 +211,9 @@ const (
 	// redrawTick, apart from the slower planning step.
 	redrawEvery = 15 * time.Second
 	redrawTick  = 5 * time.Second
+	// The days whose final world job did not close them are looked for this
+	// often.
+	catchUpEvery = time.Hour
 )
 
 func (s *Scheduler) now() time.Time {
@@ -214,7 +223,8 @@ func (s *Scheduler) now() time.Time {
 	return time.Now()
 }
 
-// Run works until ctx ends.
+// Run works until ctx ends. It begins by closing the days the final world job
+// missed, and looks for such days again about once an hour.
 func (s *Scheduler) Run(ctx context.Context) error {
 	tick := s.Tick
 	if tick == 0 {
@@ -224,8 +234,14 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	defer t.Stop()
 	r := time.NewTicker(redrawTick)
 	defer r.Stop()
+	s.catchUp(ctx)
+	caughtUp := s.now()
 	for {
 		s.Step(ctx)
+		if s.now().Sub(caughtUp) >= catchUpEvery {
+			s.catchUp(ctx)
+			caughtUp = s.now()
+		}
 	wait:
 		for {
 			select {
@@ -290,10 +306,7 @@ func (s *Scheduler) plan(ctx context.Context) error {
 		}
 		chats[i].Zone = name
 	}
-	byID := make(map[int64]db.Chat, len(chats))
-	for _, c := range chats {
-		byID[c.ID] = c
-	}
+	byID := s.setChats(chats)
 	// A chat that left is planned afresh when it comes back, so a post
 	// skipped while it was away goes out then.
 	for id := range s.planned {
@@ -301,9 +314,6 @@ func (s *Scheduler) plan(ctx context.Context) error {
 			delete(s.planned, id)
 		}
 	}
-	s.chatsMu.Lock()
-	s.chats = byID
-	s.chatsMu.Unlock()
 	now := s.now()
 	if err := s.planWorld(ctx, chats, now); err != nil {
 		return err
@@ -335,6 +345,18 @@ func (s *Scheduler) plan(ctx context.Context) error {
 		s.planned[c.ID] = mark
 	}
 	return nil
+}
+
+// setChats keeps the chats the scheduler sends to, by id.
+func (s *Scheduler) setChats(chats []db.Chat) map[int64]db.Chat {
+	byID := make(map[int64]db.Chat, len(chats))
+	for _, c := range chats {
+		byID[c.ID] = c
+	}
+	s.chatsMu.Lock()
+	s.chats = byID
+	s.chatsMu.Unlock()
+	return byID
 }
 
 // errSkip ends a job without a send: there was nothing to say.

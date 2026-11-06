@@ -601,6 +601,9 @@ func TestResultFollowsAZoneMovedWest(t *testing.T) {
 	d := round.DateIn(clock, time.UTC)
 	key := fmt.Sprintf("result:%s:%d", d, alone)
 	berlinReveal := time.Date(2026, 11, 2, 19, 0, 0, 0, time.UTC)
+	// An answer, or the day's results are held back.
+	exec(t, pool, `INSERT INTO maply.guess (date, user_id, context, lat, lon, answered_at, deadline_at)
+	               VALUES ($1, $2, 'dm', 40.4, -3.7, $3, $4)`, d.Time(), alone, clock, berlinReveal)
 
 	// The person moves the DM to Berlin; at 20:05 Kyiv the day is still open there.
 	exec(t, pool, `UPDATE maply.chat_settings SET timezone = 'Europe/Berlin' WHERE chat_id = $1`, alone)
@@ -686,7 +689,9 @@ func TestPinRequestComesOnce(t *testing.T) {
 	asked := func() int {
 		n := 0
 		for _, e := range fake.log {
-			if e.chatID == group && (e.kind == "edit" || e.kind == "photo") && strings.Contains(e.text, ask) {
+			// A post of a day nobody answered, edited to say so, keeps its quote.
+			if e.chatID == group && (e.kind == "edit" || e.kind == "photo") && strings.Contains(e.text, ask) &&
+				!strings.Contains(e.text, i18n.T("en", "post.skipped")) {
 				n++
 			}
 		}

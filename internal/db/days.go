@@ -100,6 +100,13 @@ func (s *Store) DaysPage(ctx context.Context, q DaysQuery) (DaysPage, error) {
 		         EXISTS (SELECT 1 FROM day_closed c WHERE c.date = r.date) AS kept
 		    FROM round r
 		   WHERE r.date <= $1::date AND ($2::date IS NULL OR r.date < $2::date)
+		     AND r.skipped_at IS NULL
+		     -- A date over everywhere that nobody answered and the final job
+		     -- has not skipped yet is not shown: its place is not anyone's to see.
+		     AND (r.date > $4::date
+		          OR EXISTS (SELECT 1 FROM day_closed c WHERE c.date = r.date)
+		          OR EXISTS (SELECT 1 FROM guess g WHERE g.date = r.date)
+		          OR EXISTS (SELECT 1 FROM site_guess g WHERE g.date = r.date))
 		   ORDER BY r.date DESC
 		   LIMIT $3::int + 1),
 		world AS (
@@ -237,13 +244,14 @@ func str(s *string) string {
 	return *s
 }
 
-// RoundNo returns the round numbered n, if there is one.
+// RoundNo returns the round numbered n, if there is one and it was not
+// skipped.
 func (s *Store) RoundNo(ctx context.Context, n int) (Round, bool, error) {
 	var (
 		r  Round
 		at time.Time
 	)
-	err := s.pool.QueryRow(ctx, `SELECT date, day_no, place_id FROM round WHERE day_no = $1`, n).Scan(&at, &r.DayNo, &r.PlaceID)
+	err := s.pool.QueryRow(ctx, `SELECT date, day_no, place_id FROM round WHERE day_no = $1 AND skipped_at IS NULL`, n).Scan(&at, &r.DayNo, &r.PlaceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Round{}, false, nil
 	}
@@ -287,8 +295,8 @@ func (s *Store) ClosedDay(ctx context.Context, d round.Date, newest round.Date) 
 	// whose is whose next to the ranking's order by points.
 	err := s.pool.QueryRow(ctx, `
 		SELECT dt.key, p.image_key, p.kind, p.heading, p.thumb_yaw,
-		       COALESCE((SELECT max(day_no) FROM round WHERE date < r.date), 0),
-		       COALESCE((SELECT min(day_no) FROM round WHERE date > r.date AND date <= $2::date), 0),
+		       COALESCE((SELECT max(day_no) FROM round WHERE date < r.date AND skipped_at IS NULL), 0),
+		       COALESCE((SELECT min(day_no) FROM round WHERE date > r.date AND date <= $2::date AND skipped_at IS NULL), 0),
 		       COALESCE(pins.lat, '{}'), COALESCE(pins.lon, '{}')
 		  FROM round r
 		  JOIN place p ON p.id = r.place_id
@@ -297,7 +305,7 @@ func (s *Store) ClosedDay(ctx context.Context, d round.Date, newest round.Date) 
 		    SELECT array_agg(ds.lat ORDER BY ds.answered_at, ds.user_id, ds.player) AS lat,
 		           array_agg(ds.lon ORDER BY ds.answered_at, ds.user_id, ds.player) AS lon
 		      FROM day_score ds WHERE ds.date = r.date) pins ON true
-		 WHERE r.date = $1::date`, d.Time(), newest.Time()).
+		 WHERE r.date = $1::date AND r.skipped_at IS NULL`, d.Time(), newest.Time()).
 		Scan(&thumb, &c.Image, &c.Kind, &heading, &yaw, &c.Prev, &c.Next, &lat, &lon)
 	if err != nil {
 		return ClosedDay{}, fmt.Errorf("closed day %s: %w", d, err)
@@ -333,7 +341,7 @@ func (s *Store) Undrawn(ctx context.Context, recipe int) ([]Undrawn, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.date, p.image_key, p.kind, p.thumb_yaw
 		  FROM day_closed c
-		  JOIN round r ON r.date = c.date
+		  JOIN round r ON r.date = c.date AND r.skipped_at IS NULL
 		  JOIN place p ON p.id = r.place_id
 		  LEFT JOIN day_thumb dt ON dt.date = c.date
 		 WHERE p.image_key IS NOT NULL AND (dt.date IS NULL OR dt.recipe < $1)

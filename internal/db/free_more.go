@@ -64,7 +64,7 @@ func (s *Store) FreeArchive(ctx context.Context, w free.Who, closed time.Time) (
 		         WHERE dp.date = dc.date
 		           AND (dp.user_id IN (SELECT user_id FROM me_u) OR dp.player IN (SELECT player FROM me_p))
 		         ORDER BY COALESCE(g.answered_at, sg.answered_at), dp.points DESC LIMIT 1)
-		  FROM day_closed dc JOIN round r ON r.date = dc.date JOIN place p ON p.id = r.place_id AND p.kind = 'panorama'
+		  FROM day_closed dc JOIN round r ON r.date = dc.date AND r.skipped_at IS NULL JOIN place p ON p.id = r.place_id AND p.kind = 'panorama'
 		  LEFT JOIN free_archive a ON a.date = dc.date AND (a.user_id = $1 OR a.player = $2::uuid)
 		 WHERE dc.date <= $3::date
 		 ORDER BY r.day_no DESC
@@ -128,7 +128,7 @@ func (s *Store) createArchive(ctx context.Context, dayNo int, closed time.Time, 
 	var date time.Time
 	var place int64
 	err = tx.QueryRow(ctx, `
-		SELECT r.date, r.place_id FROM round r JOIN day_closed dc ON dc.date = r.date
+		SELECT r.date, r.place_id FROM round r JOIN day_closed dc ON dc.date = r.date AND r.skipped_at IS NULL
 		  JOIN place p ON p.id = r.place_id AND p.kind = 'panorama'
 		 WHERE r.day_no = $1 AND dc.date <= $2::date`, dayNo, closed).Scan(&date, &place)
 	if errors.Is(err, pgx.ErrNoRows) {

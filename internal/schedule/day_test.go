@@ -109,6 +109,28 @@ func TestPostCaptionKeepsTheSeason(t *testing.T) {
 	}
 }
 
+// The post of a day nobody answered says so and keeps what is said once: the
+// month's season and the request to pin go with it, the day's look back too.
+func TestSkippedCaptionKeepsTheQuote(t *testing.T) {
+	got := skippedCaption("en", 7, "")
+	if want := "<b>maply #7</b>\n" + i18n.T("en", "post.skipped"); got != want {
+		t.Fatalf("caption = %q, want %q", got, want)
+	}
+	season := "<b>" + i18n.T("en", "season.title") + "</b>\n🏆 " + i18n.T("en", "season.group", "name", "Ann", "points", "61,000")
+	ask := i18n.T("en", "group.pin_rights")
+	for name, quote := range map[string]string{"look back": "Yesterday: Kim, 12 km.", "season": season, "pin request": ask} {
+		if got := skippedCaption("en", 7, quote); !strings.Contains(got, "<blockquote>"+quote+"</blockquote>") {
+			t.Errorf("%s dropped from %q", name, got)
+		}
+	}
+	// Nothing in it shows the place, the table or the button's text.
+	for _, banned := range []string{"Distances", i18n.T("en", "post.hint")} {
+		if strings.Contains(got, banned) {
+			t.Errorf("caption %q has %q", got, banned)
+		}
+	}
+}
+
 func TestPostCaptionSetsYesterdayApart(t *testing.T) {
 	got := postCaption("ru", 42, "20:00 (Киев)", "Вчера первое место в мире: Ким, 12 км.", "<b>Ответили · 1</b>\nАня", true)
 	if !strings.HasPrefix(got, "<b>maply #42</b> · ") || !strings.Contains(got, "\n\n<b>Ответили · 1</b>\nАня\n\n<blockquote>Вчера") || !strings.HasSuffix(got, "</blockquote>") {

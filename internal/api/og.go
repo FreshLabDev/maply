@@ -76,13 +76,9 @@ func (s *Server) PageMeta(r *http.Request, path string) (web.Meta, bool) {
 	if city != "" && country != "" {
 		line = append(line, country)
 	}
-	if p := c.world.Players(); p > 0 {
-		line = append(line, i18n.T(lang, "app.days.played", "n", i18n.FormatNumber(lang, p)))
-		if c.world.MedianKm != nil {
-			line = append(line, i18n.T(lang, "app.days.median", "km", i18n.FormatDistance(lang, *c.world.MedianKm)))
-		}
-	} else {
-		line = append(line, i18n.T(lang, "app.days.nobody"))
+	line = append(line, i18n.T(lang, "app.days.played", "n", i18n.FormatNumber(lang, c.world.Players())))
+	if c.world.MedianKm != nil {
+		line = append(line, i18n.T(lang, "app.days.median", "km", i18n.FormatDistance(lang, *c.world.MedianKm)))
 	}
 	desc := strings.Join(line, " · ")
 	if fact := localized(c.answer.Fact, lang); fact != "" {
@@ -108,6 +104,10 @@ func (s *Server) cardDay(ctx context.Context, n int) (closedDay, bool, error) {
 		return closedDay{}, false, nil
 	}
 	c, err := s.closedPage(ctx, rd.Date)
+	if errors.Is(err, errNoRound) {
+		// Nobody answered it: there is no page, and no card.
+		return closedDay{}, false, nil
+	}
 	if err != nil {
 		return closedDay{}, false, err
 	}
@@ -149,9 +149,6 @@ func cardLang(lang string, c closedDay) string {
 func cardWords(lang string, c closedDay) (city, country string, stats []anim.Stat) {
 	city, country = card.City(lang, c.answer), card.Country(lang, c.answer)
 	w := c.world
-	if w.Players() == 0 {
-		return city, country, []anim.Stat{{Value: "0", Label: i18n.T(lang, "app.days.t_played")}}
-	}
 	stats = append(stats, anim.Stat{Value: i18n.FormatNumber(lang, w.Players()), Label: i18n.T(lang, "app.days.t_played")})
 	if w.MedianKm != nil {
 		stats = append(stats, anim.Stat{Value: i18n.FormatKm(lang, *w.MedianKm), Label: i18n.T(lang, "app.days.t_median")})
