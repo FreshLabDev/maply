@@ -273,6 +273,9 @@ type Store interface {
 	// FreeArchive is every day closed in every zone by closed, newest first,
 	// as the player may take it from the archive.
 	FreeArchive(ctx context.Context, w Who, closed time.Time) ([]ArchiveDay, error)
+	// FreeDayWorlds is how many answers each closed day kept and their
+	// median distance, by date.
+	FreeDayWorlds(ctx context.Context, dates []time.Time) (map[string]DayWorld, error)
 	// CreateFreeArchive makes the player's game of closed day dayNo with its
 	// place begun at g.At, or gives the game they took the day in before.
 	// ErrNoRow is no such closed day; ErrDayAnswered and ErrDaySeen a day the

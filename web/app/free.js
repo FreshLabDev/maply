@@ -47,7 +47,7 @@
     if (root) return root;
     root = el('<div class="free" id="free">' +
       '<section class="fr-pg"><div class="sh-top"><button class="sh-b" id="frBack"></button><b id="frTitle"></b></div>' +
-      '<div class="sh-body fr-body" id="frPage"></div></section>' +
+      '<div class="sh-body fr-body" id="frPage" tabindex="-1"></div></section>' +
       '<div class="fr-game"><main class="fr-stage"><div id="frPano" role="region"></div><button class="fr-compass" id="frCompass"><svg id="frTape"></svg></button></main>' +
       '<div class="fr-bar off" id="frBar"><i></i></div><div class="fr-ribbon" id="frRibbon"></div><button class="fr-skip up hidden" id="frSkip"></button>' +
       '<div id="frMap"></div><button class="fr-hit" id="frHit"></button>' +
@@ -98,22 +98,26 @@
     before = document.activeElement;
     root.classList.add("on"); document.body.classList.add("is-free", "is-sheet");
     behind(true);
-    if (signed() && tgAt("6.1")) { tg.BackButton.onClick(backButton); tg.BackButton.show(); }
-    $("frBack").focus({ preventScroll: true });
+    if (tgBack()) { tg.BackButton.onClick(backButton); tg.BackButton.show(); }
+    focusing = true;
   }
   function close() {
     opened = false;
     stopClock(); Kit.stopped(); guard(false); hideGame(); release();
-    root.classList.remove("on"); document.body.classList.remove("is-free", "is-sheet");
+    root.classList.remove("on"); document.body.classList.remove("is-free", "is-sheet", "fr-up", "fr-tg");
     behind(false);
-    if (signed() && tgAt("6.1")) { tg.BackButton.offClick(backButton); syncBack(); }
+    if (tgBack()) { tg.BackButton.offClick(backButton); syncBack(); }
     // Opened on the free game, the app has not loaded the day yet: it does now.
     if (dayBoot && !dayBooted) { dayBooted = true; $("loader").classList.remove("gone"); dayBoot(); }
     if (before && before.isConnected) before.focus({ preventScroll: true });
     before = null;
   }
-  // The title of a page, or of the game in the header; the line under it; and what Back does here.
-  let SUB = "";
+  // The title of a page, or of the game in the header; the line under it; and what Back does here: one step up. A page
+  // without back is one of the top: the mode's settings, the archive, the lobby. Its way up is the menu (or the list of
+  // days it was opened from), and on a computer the header is: the page has no button. In Telegram, Telegram's Back is
+  // the only one, on every screen. Escape does what the button does.
+  let SUB = "", focusing = false;
+  const tgBack = () => signed() && tgAt("6.1");
   function top(title, sub, back) {
     $("frTitle").textContent = title;
     $("frDay").textContent = title;
@@ -121,7 +125,11 @@
     SUB = sub || "";
     const arrow = document.documentElement.dir === "rtl" ? "→" : "←";
     for (const b of [$("frBack"), $("frHB")]) { b.textContent = arrow; b.setAttribute("aria-label", T("free.back")); }
-    onBack = back || close;
+    document.body.classList.toggle("fr-up", !back);
+    document.body.classList.toggle("fr-tg", tgBack());
+    onBack = back || leave;
+    // Just opened: the focus goes to Back where there is one, else to the page.
+    if (focusing) { focusing = false; ($("frBack").offsetParent ? $("frBack") : $("frPage")).focus({ preventScroll: true }); }
   }
   // A page: settings, the lobby, a result. The game screen goes while one is up. Drawn again with keep (a setting
   // changed, someone joined), it stays where it was scrolled to, and the focus on the same button.
@@ -130,12 +138,15 @@
     stopClock(); ribbon(null); hideGame();
     const p = $("frPage"), y = p.scrollTop, had = keep && p.contains(document.activeElement) ? document.activeElement : null;
     p.className = "sh-body fr-body " + (cls || "");
+    p.parentNode.classList.toggle("wide", WIDE.test(cls || ""));
     p.innerHTML = (SUB ? '<p class="fr-sub up">' + esc(SUB) + '</p>' : '') + html;
     p.scrollTop = keep ? y : 0;
     const again = had && had.dataset && [...p.querySelectorAll("[data-act]")].find((b) => same(b, had));
     if (again) again.focus({ preventScroll: true });
     return p;
   }
+  // The pages laid out in columns on a computer, as wide as the shell's pages.
+  const WIDE = /\bfr-(home|lobby|arch)\b/;
   const wait = () => page('<p class="fr-wait up">' + esc(lines("loading")[0]) + '</p>');
   function failed(e, again) {
     ACTS.retry = again;
@@ -148,7 +159,12 @@
   const endless = (s) => s.mode === "streak" || s.mode === "timed";
   const key = (s) => endless(s) ? s.mode + "/" + s.seconds : "classic/" + s.seconds + "/" + s.rounds;
   const bestKey = (s) => s.mode === "streak" ? "free.best_streak" : s.mode === "timed" ? "free.best_timed" : "free.best";
-  const secLabel = (n) => n === 30 ? T("free.blitz") + " " + fmt(30) : n ? T("free.sec", { n: fmt(n) }) : T("free.no_timer");
+  const secLabel = (n) => n ? T("free.sec", { n: fmt(n) }) : T("free.no_timer");
+  // The modes of the menu's cards. Blitz is the classic on 30 s a place, with nothing but the places to choose.
+  const MODES = { classic: "free.classic", blitz: "free.blitz", streak: "free.streak", timed: "free.timed" };
+  const HINTS = { classic: "free.classic_hint", blitz: "free.blitz_hint", streak: "free.streak_hint", timed: "free.timed_hint" };
+  const modeOf = (s) => s.mode === "classic" ? (s.seconds === 30 ? "blitz" : "classic") : s.mode;
+  const modeName = (s) => T(s && MODES[modeOf(s)] || "free.title");
   // "Blitz · 5 places", "60 s · 10 places", "Country streak · 30 s": the name of a set of settings and its records.
   function setLabel(s) {
     if (s.mode === "timed") return T("free.timed_set");
@@ -160,18 +176,15 @@
     return '<div class="fr-seg" role="radiogroup" aria-labelledby="frL-' + k + '">' + items.map(([v, label]) => '<button role="radio" aria-checked="' + (v === cur) + '" data-act="set" data-k="' + k +
       '" data-v="' + v + '"' + (locked ? " disabled" : "") + '>' + esc(label) + '</button>').join("") + '</div>';
   }
-  // A settings block, the solo one or the lobby's: the party has no "no timer" and no streak.
+  // A settings block: a mode's own, or the lobby's, which has every timer and no "no timer". The clock's game has
+  // nothing to choose; a blitz only its places.
   function settings(s, party, locked) {
+    const m = party ? "party" : modeOf(s);
+    if (m === "timed") return "";
     let html = "";
-    if (!party) {
-      html += '<p class="fr-l up" id="frL-mode">' + esc(T("free.mode")) + '</p>' +
-        seg("mode", [["classic", T("free.classic")], ["streak", T("free.streak")], ["timed", T("free.timed")]], s.mode, locked);
-      if (s.mode === "streak") html += '<p class="fr-hint">' + esc(T("free.streak_hint")) + '</p>';
-      if (s.mode === "timed") return html + '<p class="fr-hint">' + esc(T("free.timed_hint")) + '</p>';
-    }
-    const times = s.mode === "streak" ? [30, 60] : party ? [30, 60, 90, 120] : [30, 60, 90, 120, 0];
-    html += '<p class="fr-l up" id="frL-seconds">' + esc(T("free.time")) + '</p>' + seg("seconds", times.map((n) => [n, secLabel(n)]), s.seconds, locked);
-    if (s.mode !== "streak") html += '<p class="fr-l up" id="frL-rounds">' + esc(T("free.places")) + '</p>' + seg("rounds", [3, 5, 10].map((n) => [n, fmt(n)]), s.rounds, locked);
+    const times = m === "streak" ? [30, 60] : m === "party" ? [30, 60, 90, 120] : m === "classic" ? [60, 90, 120, 0] : null;
+    if (times) html += '<p class="fr-l up" id="frL-seconds">' + esc(T("free.time")) + '</p>' + seg("seconds", times.map((n) => [n, secLabel(n)]), s.seconds, locked);
+    if (m !== "streak") html += '<p class="fr-l up" id="frL-rounds">' + esc(T("free.places")) + '</p>' + seg("rounds", [3, 5, 10].map((n) => [n, fmt(n)]), s.rounds, locked);
     return html;
   }
   // A choice made: a streak has a 30 or 60 s timer and no number of places, the clock's game three minutes and nothing
@@ -465,7 +478,7 @@
     let fired = false;
     const step = () => {
       const ms = msTo(endsAt), s = Math.max(0, Math.ceil(ms / 1000)), low = s <= 10;
-      v.textContent = s >= 60 ? Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") : String(s);
+      v.textContent = s >= 60 ? Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") : T("free.sec", { n: fmt(s) });
       $("frClock").classList.toggle("low", low); bar.classList.toggle("low", low);
       bar.firstChild.style.transform = "scaleX(" + Math.max(0, Math.min(1, ms / (limit * 1000))).toFixed(4) + ")";
       if (ms <= 0 && !fired) { fired = true; done(); }
@@ -547,11 +560,16 @@
   let HOME = null, SET = null, GAME = null, ROUND = null, mine = null, sending = false;
   // gen moves on with every screen of the solo game, so an answer that comes back after Back draws nothing.
   let gen = 0, missT = 0;
+  // The screen of a mode: its settings, the way to play it, its records. mode is a menu card's, or none for the mode
+  // of the settings on screen.
   async function home(h, mode) {
     const my = ++gen; ROUND = null; clearTimeout(missT);
-    top(T("free.title"), "", leave);
+    if (mode && SET) SET = modeSet(mode, SET) || SET;
+    top(modeName(SET), "");
     if (!h) {
       wait();
+      // Records read again with the screen: a game since may have moved them.
+      TOP.clear();
       try { h = await req("/api/free"); } catch (e) { if (my === gen) failed(e, () => home(null, mode)); return; }
       if (my !== gen) return;
     }
@@ -559,7 +577,6 @@
     if (h.lang && h.lang !== LANG) {
       await loadTexts(h.lang).catch(() => {});
       if (my !== gen) return;
-      top(T("free.title"), "", leave);
     }
     if (!SET) SET = Object.assign({}, h.last);
     if (mode) SET = modeSet(mode, SET) || SET;
@@ -568,26 +585,70 @@
   // The way to sign in on the site, for a guest: records and friends come with any account.
   const signIn = (note) => keeps() || signed() ? "" : '<div class="fr-in"><p>' + esc(T(note || "free.sign_in_note")) + '</p>' +
     (typeof acctDialog === "function" && typeof ME !== "undefined" && ME ? '<button class="fr-pri" data-act="signIn">' + esc(T("acct.sign_in")) + '</button>' : '') + '</div>';
+  // On a phone one column: the games to go back to, what the mode is, its settings and the way in, its records. On a
+  // computer the settings on the left, what the mode is and its records on the right.
   function drawHome(keep) {
-    const h = HOME, s = SET;
+    const h = HOME, s = SET, m = modeOf(s);
+    top(modeName(s), "");
     let html = "";
-    if (h.party) html += '<button class="fr-wide" data-act="toParty" data-code="' + esc(h.party) + '">' + esc(T("free.to_party")) + ' <em>' + fwd() + '</em></button>';
-    if (h.open) html += '<button class="fr-wide" data-act="resume">' + esc(T("free.continue")) + ' <em>' + fwd() + '</em></button>';
-    if (h.archive) html += '<button class="fr-wide alt" data-act="archive">' + esc(T("free.archive")) + ' <em>' + fmt(h.archive) + ' ' + fwd() + '</em></button>';
-    html += settings(s, false, false);
-    const best = h.best && h.best[key(s)];
-    // A record of nothing is not shown; the line keeps its height so the buttons do not jump between settings.
-    if (keeps()) html += '<p class="fr-best">' + (best ? esc(T(bestKey(s), { set: setLabel(s), n: fmt(best) })) : "") + '</p>';
-    html += '<div class="fr-go"><button class="fr-pri" data-act="go">' + esc(T("free.go")) + '</button>';
+    if (h.party || h.open) {
+      html += '<div class="fr-c">';
+      if (h.party) html += '<button class="fr-wide" data-act="toParty" data-code="' + esc(h.party) + '">' + esc(T("free.to_party")) + ' <em>' + fwd() + '</em></button>';
+      if (h.open) html += '<button class="fr-wide" data-act="resume">' + esc(T("free.continue")) + ' <em>' + fwd() + '</em></button>';
+      html += '</div>';
+    }
+    html += '<div class="fr-d"><p class="fr-hint">' + esc(T(HINTS[m] || "free.classic_hint")) + '</p></div>';
+    html += '<div class="fr-a">' + settings(s, false, false) + '<div class="fr-go"><button class="fr-pri" data-act="go">' + esc(T("free.go")) + '</button>';
     if (keeps()) html += '<button class="fr-sec" data-act="friends">' + esc(T("free.friends")) + '</button>';
-    html += '</div>' + signIn();
+    html += '</div></div><div class="fr-r">' + records(s);
     if (h.challenges && h.challenges.length) {
       html += '<p class="fr-l up">' + esc(T("free.challenges")) + '</p><div class="fr-chs">' + h.challenges.map((c) =>
         '<button class="fr-ch" data-act="toChallenge" data-code="' + esc(c.code) + '"><b lang="' + nameLang() + '">' +
         esc(c.maker ? T("free.challenge_mine") : T("free.challenge_by", { name: c.by })) + '</b><span>' + esc(setLabel(c.settings)) + ' · ' +
         esc(T("free.players", { n: fmt(c.players) })) + '</span><em>' + fwd() + '</em></button>').join("") + '</div>';
     }
-    page(html, "fr-home", keep);
+    page(html + '</div>', "fr-home", keep);
+    readRecords(s);
+  }
+
+  /* ---------- Records: your best on the settings, your place on their board, the week's first three ---------- */
+  // The boards are /api/top's: a game without a timer is on none, a blitz is the classic on 30 s.
+  const TOP = new Map();
+  const boardOf = (s) => !s.seconds ? "" : s.mode === "timed" ? "board=timed&seconds=180" : s.mode === "streak" ? "board=streak&seconds=" + s.seconds :
+    "board=" + (s.seconds === 30 ? "blitz" : "classic") + "&seconds=" + s.seconds + "&rounds=" + s.rounds;
+  // A board read, false when it could not be, undefined while it is on the way.
+  const topOf = (s, period) => boardOf(s) ? TOP.get(boardOf(s) + "&period=" + period) : false;
+  const UNIT = { streak: "free.streak_len", timed: "free.timed_len" };
+  function records(s) {
+    let html = '<section class="fr-recs" id="frRecs">';
+    if (keeps()) {
+      const best = HOME.best && HOME.best[key(s)], all = topOf(s, "all"), me = all && all.rows.find((r) => r.me);
+      html += '<p class="fr-l up">' + esc(T("free.rec_mine")) + '</p>';
+      // Points are a number alone, as at the end of a game; countries say what they count.
+      html += best ? '<div class="fr-mine"><b>' + fmt(best) + '</b>' + (UNIT[s.mode] ? '<span class="up">' + esc(T(UNIT[s.mode])) + '</span>' : '') + '</div>' +
+        (me ? '<p class="fr-best">' + esc(T("free.rec_rank", { rank: fmt(me.rank), of: fmt(all.total) })) + '</p>' : '')
+        : '<p class="fr-hint">' + esc(T("free.rec_none")) + '</p>';
+    } else html += signIn();
+    if (!boardOf(s)) return html + '<p class="fr-hint">' + esc(T("free.no_board")) + '</p></section>';
+    const week = topOf(s, "week");
+    if (week === false) return html + '</section>';
+    html += '<p class="fr-l up">' + esc(T("free.rec_week")) + '</p>';
+    if (!week) html += '<p class="fr-hint fr-busy">' + esc(lines("loading")[0]) + '</p>';
+    else if (!week.rows.length) html += '<p class="fr-hint">' + esc(T("free.rec_week_none")) + '</p>';
+    else html += table(week.rows.slice(0, 3).map((r) => ({ rank: r.rank, name: r.name, me: r.me, points: r.score })), true);
+    return html + '</section>';
+  }
+  // The boards of the settings on screen, each read once; the block is drawn again when they come, if the settings
+  // are still the same.
+  async function readRecords(s) {
+    const b = boardOf(s);
+    if (!b) return;
+    const qs = (keeps() ? ["all", "week"] : ["week"]).map((p) => b + "&period=" + p).filter((q) => !TOP.has(q));
+    if (!qs.length) return;
+    qs.forEach((q) => TOP.set(q, undefined));
+    await Promise.all(qs.map((q) => req("/api/top?" + q).then((d) => TOP.set(q, d), () => TOP.set(q, false))));
+    const e = $("frRecs");
+    if (e && SET && boardOf(SET) === b && $("frPage").classList.contains("fr-home")) e.outerHTML = records(SET);
   }
   // The settings of a party made from the solo ones: a classic on a timer.
   const partySet = (s) => s.mode === "timed" ? { mode: "classic", seconds: 60, rounds: 5 } : s.mode === "streak" ? { mode: "classic", seconds: s.seconds, rounds: 5 } :
@@ -612,7 +673,7 @@
       o.observe(document.body, { childList: true });
     },
     home() { home(); },
-    toParty(b) { Router.go("/party/" + b.dataset.code); },
+    toParty(b) { Router.go("/party/" + b.dataset.code, { replace: true }); },
     look() { look(); },
     fold(b) { const p = b.closest(".place"); p.classList.add("min"); p.querySelector(".tab").focus({ preventScroll: true }); globe.keepInView(); },
     unfold(b) { const p = b.closest(".place"); p.classList.remove("min"); p.querySelector(".x").focus({ preventScroll: true }); globe.keepInView(); },
@@ -834,6 +895,7 @@
     HOME = Object.assign({}, HOME || {});
     if (HOME.open === GAME.id) HOME.open = null;
     if (keeps() && score != null && HOME.best) HOME.best[key(s)] = Math.max(HOME.best[key(s)] || 0, score);
+    TOP.clear();
     // "Again" plays the settings of the game just played, and Settings shows them.
     if (s.mode !== "archive") SET = Object.assign({}, s);
   }
@@ -848,23 +910,25 @@
   }
   async function archive() {
     const my = ++gen; ROUND = null; clearTimeout(missT);
-    top(T("free.archive"), "", () => home());
+    top(T("free.archive"), "");
     // The list drawn before shows at once and is drawn again when the server answers.
     if (DAYS) drawArchive(); else wait();
     try { const d = (await req("/api/free/archive")).days; if (my !== gen) return; DAYS = d; }
     catch (e) { if (my === gen && !DAYS) failed(e, () => archive()); return; }
     drawArchive(true);
   }
+  // Each day with how the world did: how many played and the typical miss, a target that gives the place away no more
+  // than the days page does. A day played, on the day or from here, shows its points.
+  const worldOf = (d) => d.players ? T("free.day_world", { n: fmt(d.players), km: kmT(d.median_km) }) : T("free.day_nobody");
   function drawArchive(keep) {
-    const open = DAYS.filter((d) => d.state === "open").length;
-    if (HOME) HOME.archive = open;
-    let html = '<p class="fr-hint">' + esc(T("free.archive_hint")) + '</p>';
+    let html = '<p class="fr-hint">' + esc(T("free.archive_hint")) + ' ' + esc(T("free.archive_goal")) + '</p>';
     if (!DAYS.length) html += '<p class="fr-wait">' + esc(T("free.archive_empty")) + '</p>';
     html += '<div class="fr-days">' + DAYS.map((d) => {
-      const name = '<b>' + no("#" + fmt(d.n)) + '</b><span>' + esc(dayDate(d.date)) + '</span>';
+      const name = '<b>' + no("#" + fmt(d.n)) + '</b><span class="d">' + esc(dayDate(d.date)) + '</span><span class="s">' + esc(worldOf(d)) + '</span>';
       if (d.state === "open") return '<button class="fr-day" data-act="day" data-n="' + d.n + '">' + name + '<em>' + esc(T("free.play_day")) + ' ' + fwd() + '</em></button>';
       if (d.state === "played") return '<button class="fr-day done" data-act="played" data-game="' + d.game + '">' + name + '<em>' +
         (d.points != null ? '<i>' + fmt(d.points) + '</i>' : esc(T("free.day_going"))) + ' ' + fwd() + '</em></button>';
+      if (d.state === "answered" && d.day_points != null) return '<div class="fr-day off mine">' + name + '<em><i>' + fmt(d.day_points) + '</i><small>' + esc(T("free.day_mine")) + '</small></em></div>';
       return '<div class="fr-day off">' + name + '<em>' + esc(T(d.state === "answered" ? "free.day_answered" : "free.day_seen")) + '</em></div>';
     }).join("") + '</div>';
     page(html, "fr-arch", keep);
@@ -970,13 +1034,22 @@
     close(to) { if (to !== "party") close(); },
     nav: { href: "/play", t: "free.title", at: 3 },
   });
-  // /play?with=friends: the party already open, or a new one on the last settings; a guest is asked to sign in.
+  // /play?with=friends: the party already open, or a new one on the last settings. A guest gets the way to sign in,
+  // and to play alone.
   async function withFriends(h) {
-    if (!h) { try { h = HOME = await req("/api/free"); if (!SET) SET = Object.assign({}, h.last); } catch (e) { failed(e, () => withFriends()); return; } }
-    if (!keeps()) return home(h);
+    const my = ++gen;
+    top(T("free.friends"), "");
+    if (!h) {
+      wait();
+      try { h = HOME = await req("/api/free"); if (!SET) SET = Object.assign({}, h.last); } catch (e) { if (my === gen) failed(e, () => withFriends()); return; }
+      if (my !== gen) return;
+    }
+    if (!keeps()) {
+      page(signIn("free.friends_sign_in") + '<div class="fr-go"><button class="fr-link" data-act="home">' + esc(T("free.solo")) + '</button></div>', "fr-friends");
+      return;
+    }
     if (h.party) return Router.go("/party/" + h.party, { replace: true });
-    top(T("free.title"), "", leave);
-    Kit.party.create(partySet(SET), true);
+    Kit.party.create(partySet(SET));
   }
   Router.screen("party", PARTY, {
     open(m, from) { came(from); open(); Kit.party.open(m[1]); },

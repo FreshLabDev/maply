@@ -54,7 +54,16 @@ func (s *Store) FreeArchive(ctx context.Context, w free.Who, closed time.Time) (
 		                            AND (fm.user_id IN (SELECT user_id FROM me_u) OR fm.player IN (SELECT player FROM me_p))) THEN 'seen'
 		            ELSE 'open' END,
 		       COALESCE(a.game, 0),
-		       (SELECT sum(q.pts_km + q.pts_bonus + q.pts_speed) FROM free_guess q WHERE q.game = a.game)
+		       (SELECT sum(q.pts_km + q.pts_bonus + q.pts_speed) FROM free_guess q WHERE q.game = a.game),
+		       -- The day's own points, as the days page shows them: an account
+		       -- may hold two answers of a date from before its players were
+		       -- one, and the earlier is the one shown.
+		       (SELECT dp.points FROM day_place dp
+		          LEFT JOIN guess g ON g.date = dp.date AND g.user_id = dp.user_id
+		          LEFT JOIN site_guess sg ON sg.date = dp.date AND sg.player = dp.player
+		         WHERE dp.date = dc.date
+		           AND (dp.user_id IN (SELECT user_id FROM me_u) OR dp.player IN (SELECT player FROM me_p))
+		         ORDER BY COALESCE(g.answered_at, sg.answered_at), dp.points DESC LIMIT 1)
 		  FROM day_closed dc JOIN round r ON r.date = dc.date JOIN place p ON p.id = r.place_id AND p.kind = 'panorama'
 		  LEFT JOIN free_archive a ON a.date = dc.date AND (a.user_id = $1 OR a.player = $2::uuid)
 		 WHERE dc.date <= $3::date
@@ -67,7 +76,7 @@ func (s *Store) FreeArchive(ctx context.Context, w free.Who, closed time.Time) (
 		var d free.ArchiveDay
 		var date time.Time
 		var points *int64
-		if err := row.Scan(&d.N, &date, &d.State, &d.Game, &points); err != nil {
+		if err := row.Scan(&d.N, &date, &d.State, &d.Game, &points, &d.DayPoints); err != nil {
 			return d, err
 		}
 		d.Date = date.Format(time.DateOnly)
@@ -77,6 +86,28 @@ func (s *Store) FreeArchive(ctx context.Context, w free.Who, closed time.Time) (
 		}
 		return d, nil
 	})
+}
+
+// FreeDayWorlds reads day_place, which holds the answers of a day over in
+// every zone and nothing of its place.
+func (s *Store) FreeDayWorlds(ctx context.Context, dates []time.Time) (map[string]free.DayWorld, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT date, count(*), percentile_cont(0.5) WITHIN GROUP (ORDER BY km)
+		  FROM day_place WHERE date = ANY($1::date[]) GROUP BY date`, dates)
+	if err != nil {
+		return nil, fmt.Errorf("free day worlds: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[string]free.DayWorld, len(dates))
+	for rows.Next() {
+		var date time.Time
+		var w free.DayWorld
+		if err := rows.Scan(&date, &w.Players, &w.MedianKm); err != nil {
+			return nil, fmt.Errorf("free day worlds: %w", err)
+		}
+		out[date.Format(time.DateOnly)] = w
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) CreateFreeArchive(ctx context.Context, dayNo int, closed time.Time, g free.NewGame) (int64, error) {

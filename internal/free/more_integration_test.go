@@ -4,6 +4,8 @@
 package free_test
 
 import (
+	"fmt"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -163,6 +165,10 @@ func TestArchive(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.seenBy(ann, "Ann", seen)
+	if _, err := h.pool.Exec(ctx, `INSERT INTO maply.day_place (date, user_id, km, points, rank, n)
+		VALUES ('2026-10-20', $1, 120, 3300, 1, 1)`, ann.UserID); err != nil {
+		t.Fatal(err)
+	}
 	// Day 2 kept three answers: 4000, 2000 and 500 points.
 	for i, p := range []int{4000, 2000, 500} {
 		if _, err := h.pool.Exec(ctx, `INSERT INTO maply.day_place (date, user_id, km, points, rank, n)
@@ -191,6 +197,24 @@ func TestArchive(t *testing.T) {
 		t.Fatalf("archive %v, want %s: a day still in play is never in it", got, want)
 	}
 	noPlace(t, "the archive", days)
+	// Each day says how the world did, and a day answered what it gave.
+	world := map[int]string{}
+	for _, d := range days {
+		m, p := "-", "-"
+		if d.MedianKm != nil {
+			m = fmt.Sprint(*d.MedianKm)
+		}
+		if d.DayPoints != nil {
+			p = fmt.Sprint(*d.DayPoints)
+		}
+		world[d.N] = fmt.Sprintf("%d %s %s", d.Players, m, p)
+	}
+	if want := map[int]string{1: "1 120 3300", 2: "3 1010 -", 3: "0 - -"}; !maps.Equal(world, want) {
+		t.Fatalf("the archive's world %v, want %v", world, want)
+	}
+	if days, err := h.svc.ArchiveOf(ctx, bob); err != nil || days[2].DayPoints != nil || days[2].Players != 1 {
+		t.Fatalf("bob's day 1: %+v %v", days, err)
+	}
 	for n, want := range map[int]error{1: free.ErrDayAnswered, 3: free.ErrDaySeen, 4: free.ErrNotFound, 9: free.ErrNotFound} {
 		if _, err := h.svc.NewArchive(ctx, ann, "Ann", n, "en"); !is(err, want) {
 			t.Fatalf("day %d: %v, want %v", n, err, want)

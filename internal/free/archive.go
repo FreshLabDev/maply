@@ -4,6 +4,7 @@ package free
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // The archive is the days closed in every zone, played after them: one place,
@@ -23,6 +24,17 @@ type ArchiveDay struct {
 	// it has scored so far.
 	Game   int64 `json:"game,omitempty"`
 	Points *int  `json:"points,omitempty"`
+	// DayPoints is what the player scored on the day itself, a day they
+	// answered then.
+	DayPoints *int `json:"day_points,omitempty"`
+	DayWorld
+}
+
+// DayWorld is what a closed day's answers say without saying the place: how
+// many there were and the usual miss, the median, a mark to beat.
+type DayWorld struct {
+	Players  int      `json:"players"`
+	MedianKm *float64 `json:"median_km,omitempty"`
 }
 
 const (
@@ -43,11 +55,31 @@ var (
 	ErrDaySeen = &Error{409, "day_seen"}
 )
 
-// ArchiveOf is the archive as w may take it. A player who has played nothing
-// yet, a new browser, may take every day.
+// ArchiveOf is the archive as w may take it, each day with its world. A
+// player who has played nothing yet, a new browser, may take every day.
 func (s *Service) ArchiveOf(ctx context.Context, w Who) ([]ArchiveDay, error) {
 	s.init()
-	return s.Store.FreeArchive(ctx, w, s.closed(s.Now()))
+	days, err := s.Store.FreeArchive(ctx, w, s.closed(s.Now()))
+	if err != nil {
+		return nil, err
+	}
+	if len(days) == 0 {
+		return days, nil
+	}
+	dates := make([]time.Time, 0, len(days))
+	for _, d := range days {
+		if t, err := time.Parse(time.DateOnly, d.Date); err == nil {
+			dates = append(dates, t)
+		}
+	}
+	worlds, err := s.Store.FreeDayWorlds(ctx, dates)
+	if err != nil {
+		return nil, err
+	}
+	for i := range days {
+		days[i].DayWorld = worlds[days[i].Date]
+	}
+	return days, nil
 }
 
 // NewArchive takes closed day n: a game of its one place, begun at once and
