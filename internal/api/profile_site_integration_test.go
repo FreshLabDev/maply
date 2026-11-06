@@ -276,15 +276,14 @@ func TestATakenGuestAnswerWaitsForTheDayToClose(t *testing.T) {
 		t.Fatalf("the Mini App's profile names today's place: %s", body)
 	}
 
-	// Over everywhere, the guest's day is his.
+	// Taken in after his deadline, the answer is marked late: it is his
+	// answer of the day, so no chat takes another, but it never counts on
+	// his profile, not even once the day is over everywhere.
+	var late bool
+	if err := hs.pool.QueryRow(ctx, `SELECT late FROM maply.site_guess WHERE date = $1`, hs.date.Time()).Scan(&late); err != nil || !late {
+		t.Fatalf("the taken answer: late = %v, %v", late, err)
+	}
 	hs.now = hs.srv.Zones.LastReveal(hs.date).Add(time.Minute)
-	if !place() {
-		t.Error("the day over everywhere left out the answer his account took in")
-	}
-	// A guest's answer given after the first reveal never is.
-	if _, err := hs.pool.Exec(ctx, `UPDATE maply.site_guess SET late = true WHERE date = $1`, hs.date.Time()); err != nil {
-		t.Fatal(err)
-	}
 	if place() {
 		t.Error("a late site answer counts on the Telegram person's profile")
 	}
