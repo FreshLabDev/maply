@@ -46,6 +46,10 @@ streak, a game against the clock or a day from the archive.
   the lobby.
 - After every place a party shows everyone's pin, distance, points and
   whether they got the country, and a final table at the end.
+- The profile shows your time zone: a dial with the time there, under your
+  username and in the settings. The list of zones gives each one's time now,
+  and when the phone keeps another zone's clock, a button sets that one.
+  The DM's posts and the site go by it; the bot's picker still works.
 
 ### Changed
 
@@ -67,6 +71,11 @@ streak, a game against the clock or a day from the archive.
 
 ### Fixed
 
+- In a DM and on the site the world's table and the world picture showed
+  dots instead of names until 06:00 Kyiv, when the day had closed in every
+  zone. Names now open at your own 20:00, for everyone whose groups have
+  had their 20:00 too; a player in a group that is still guessing stays
+  unnamed until that group's result.
 - The final job of a day is tried again when keeping the day fails, and at
   start and every hour maply keeps the days over everywhere that were missed.
 - An account that holds two answers of one day, a Telegram one and a guest's

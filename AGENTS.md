@@ -69,8 +69,12 @@ player, and production-minded.
   and the phone's zone may replace it; a zone someone picked never moves.
 - Before the chat's reveal the API sends nobody else's name, photo, id or
   answer time. In the world's table the chat's own players are named at its
-  reveal, everyone else once the day has closed in every zone, so a group in
-  Tokyo does not learn who is who in a Kyiv group still guessing.
+  reveal; anyone else at the viewer's reveal once every group they are in
+  has had its own (`NamedOn`), so a group in Tokyo does not learn who is who
+  in a Kyiv group still guessing. The world picture's podium follows the
+  same rule. The person's own zone, the DM's, is set in the profile too
+  (`POST /api/profile/settings` with `zone`), with the bot's picker's two
+  refusals (`Reopens`, `Outruns`).
 - An intrigue never lies. Every one is a real hint or a real statistic.
 - One answer per person per day, shared across DMs, groups and the site when
   signed in through Telegram. An answer cannot be changed after it is sent.
