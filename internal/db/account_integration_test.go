@@ -367,10 +367,10 @@ func TestDeleteAccountLeavesGuests(t *testing.T) {
 	if v, ok, _ := s.AccountView(ctx, a.ID); !ok || v.Name != "Anya" || v.TelegramName != "Anya" {
 		t.Fatalf("view = %+v", v)
 	}
-	if err := s.DeleteAccount(ctx, a.ID); err != nil {
+	if err := s.DeleteAccount(ctx, a.ID, "Guest"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DeleteAccount(ctx, a.ID); !errors.Is(err, ErrNoAccount) {
+	if err := s.DeleteAccount(ctx, a.ID, "Guest"); !errors.Is(err, ErrNoAccount) {
 		t.Fatalf("delete twice = %v", err)
 	}
 	for q, want := range map[string]int{

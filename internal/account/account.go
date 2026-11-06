@@ -72,7 +72,7 @@ type Store interface {
 	LinkOnly(ctx context.Context, accountID string, id db.Identity, rules db.Rules) (db.LinkResult, error)
 	Unlink(ctx context.Context, accountID, kind string) error
 	AdoptGuest(ctx context.Context, accountID, guest string, rules db.Rules) (int, error)
-	DeleteAccount(ctx context.Context, accountID string) error
+	DeleteAccount(ctx context.Context, accountID, guest string) error
 	AccountOf(ctx context.Context, id db.Identity) (db.Account, bool, error)
 	AccountView(ctx context.Context, accountID string) (db.AccountView, bool, error)
 	GuestOf(ctx context.Context, player string) (int, bool, error)

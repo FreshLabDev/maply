@@ -175,7 +175,8 @@ function drawAccounts() {
     location.reload();
   };
   if ($("acctDel")) $("acctDel").onclick = () => acctAsk(T("acct.delete_confirm"), async () => {
-    try { await acctPost("/api/account", { confirm: "delete" }, "DELETE"); } catch (e) { toast(acctText(e.message)); return; }
+    // The language names the account's seats in free games from now on: "Guest" in it.
+    try { await acctPost("/api/account?lang=" + encodeURIComponent(LANG), { confirm: "delete" }, "DELETE"); } catch (e) { toast(acctText(e.message)); return; }
     try { localStorage.removeItem(NAME); localStorage.removeItem(KEPT); } catch {}
     toast(T("acct.deleted"));
     if (inTg) { ME = null; openAccounts(acctBack); } else setTimeout(() => location.reload(), 900);
