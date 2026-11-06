@@ -127,8 +127,8 @@ For the operator:
   free play tab shows the player's place on each board they are on and
   opens that board, and it counts the same games: a site account without
   Telegram now has the tab too. On a phone in a browser the page has its own
-  Back to the menu before the title; in Telegram Back is Telegram's, and a
-  computer has the header.
+  Back before the title, to the page before or to the menu; in Telegram Back
+  is Telegram's, and a computer has the header.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
   the screen the address names. `/days` opens the days and `/days/<n>` (or

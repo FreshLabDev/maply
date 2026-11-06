@@ -73,13 +73,11 @@ window.Leaders = (() => {
     load();
   }
 
-  // Up to the menu: back through the history when the menu is the page before, so this Back and the browser's
-  // agree; from another page the menu comes as the next one, and on the first page of a visit it takes its place.
-  let before = "";
-  Router.on((name, from) => { if (name === "top") before = from; });
+  // Out of the page as the days and the profile go, and as Escape does (menu.js): to the page before, or to the menu
+  // when this was the first.
   function up() {
     haptic("light");
-    if (before === "menu") Router.back("/"); else Router.go("/", { replace: !before });
+    Router.back("/");
   }
 
   // A change of board, period or setting: the tabs and the options show it at once, the rows when they come.
