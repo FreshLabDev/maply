@@ -239,6 +239,8 @@ For the operator:
   Back on the page the app opened with goes to the menu, and the menu has
   none, so Telegram closes the app from there.
 - The free play card at the top of the days is gone: the menu leads there.
+- The days and the profile open in place, as the menu and the leaderboards
+  do, instead of sliding up from the bottom over the day's game.
 
 ### Fixed
 
