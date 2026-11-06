@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -20,6 +21,16 @@ func (s *stillsSeen) Still(_ context.Context, userID int64, lang string) ([]byte
 	s.users = append(s.users, userID)
 	s.langs = append(s.langs, lang)
 	return []byte("\x89PNG"), nil
+}
+
+// Kept is a picture drawn before, as profile.Service keeps them.
+func (s *stillsSeen) Kept(userID int64, lang string) []byte {
+	for i, u := range s.users {
+		if u == userID && s.langs[i] == lang {
+			return []byte("\x89PNG")
+		}
+	}
+	return nil
 }
 
 type publicView struct {
@@ -83,11 +94,30 @@ func TestPublicPage(t *testing.T) {
 		}
 	}
 	// The picture is in the owner's language, whatever the fetch asks: one
-	// picture per player for the edge to keep.
-	card := get("/api/p/" + slug + "/card.png?lang=en")
+	// picture per player for the edge to keep. A query would be a new key
+	// at the edge, so it goes back to the address without one.
+	if rr := get("/api/p/" + slug + "/card.png?lang=en"); rr.Code != http.StatusMovedPermanently ||
+		rr.Header().Get("Location") != "/api/p/"+slug+"/card.png" || len(stills.users) != 0 {
+		t.Fatalf("card with a query = %d %v", rr.Code, rr.Header())
+	}
+	card := get("/api/p/" + slug + "/card.png")
 	if card.Code != http.StatusOK || card.Header().Get("Content-Type") != "image/png" || card.Header().Get("X-Robots-Tag") != "noindex, nofollow" ||
 		len(stills.users) != 1 || stills.users[0] != 1 || stills.langs[0] != "uk" {
 		t.Fatalf("card = %d %v, drawn for %v in %v", card.Code, card.Header(), stills.users, stills.langs)
+	}
+	// Once drawn it is served to any number of fetches: only a drawing
+	// counts against the limit from everyone.
+	for i := range 70 {
+		req := httptest.NewRequest("GET", "/api/p/"+slug+"/card.png", nil)
+		req.Header.Set("CF-Connecting-IP", "203.0.113."+strconv.Itoa(i+1))
+		rr := httptest.NewRecorder()
+		hs.h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("fetch %d of a drawn card = %d", i+1, rr.Code)
+		}
+	}
+	if len(stills.users) != 1 {
+		t.Fatalf("a drawn card was drawn %d times", len(stills.users))
 	}
 	// The slug is the page's key: it stays out of the log.
 	if strings.Contains(hs.logs.String(), slug) {
