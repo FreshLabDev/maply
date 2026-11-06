@@ -132,7 +132,9 @@ func (s *Server) siteGuess(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errTelegram)
 		return
 	}
-	if errors.Is(err, db.ErrAlreadyAnswered) {
+	// A second answer, or a guest's for a player that a sign-in in another
+	// tab took in a moment ago: the page asks for the day again.
+	if errors.Is(err, db.ErrAlreadyAnswered) || errors.Is(err, db.ErrPlayerTaken) {
 		s.fail(w, r, errAnswered)
 		return
 	}

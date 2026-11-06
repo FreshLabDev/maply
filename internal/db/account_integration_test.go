@@ -654,3 +654,52 @@ func TestAnAnswerAndASignInTakeTurns(t *testing.T) {
 		}
 	})
 }
+
+// A guest's answer on its way while a sign-in takes the guest in waits for
+// it, and is refused: it would land in the account after the merge rules
+// ran.
+func TestAGuestAnswerWaitsForTheSignIn(t *testing.T) {
+	s := testStore(t)
+	seedRound(t, s)
+	ctx := context.Background()
+	exec(t, s, `INSERT INTO maply.site_player (id) VALUES ($1), ($2)`, guestA, guestB)
+	a, _, err := s.SignIn(ctx, googleID("g-a"), "", closedRules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `UPDATE maply.site_player SET account_id = $1 WHERE id = $2`, a.ID, guestA); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, time.November, 1, 9, 0, 0, 0, time.UTC)
+	g := NewSiteGuess{Date: accountDay, Player: guestA, Pin: geo.Point{Lat: 1, Lon: 2}, AnsweredAt: at, Deadline: at.Add(8 * time.Hour)}
+	done := make(chan error, 1)
+	go func() { done <- s.InsertSiteGuess(ctx, g) }()
+	stillWaiting(t, done)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, ErrPlayerTaken) {
+		t.Fatalf("a guest's answer for a player taken in = %v", err)
+	}
+	if n := countOf(t, s, `SELECT count(*) FROM maply.site_guess`); n != 0 {
+		t.Fatal("the guest's answer went into the account")
+	}
+	// The account names its players; a guest's name does not reach them.
+	name := "Mallory"
+	if err := s.SitePlayer(ctx, guestA, &name); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOf(t, s, `SELECT count(*) FROM maply.site_player WHERE id = $1 AND name IS NULL`, guestA); n != 1 {
+		t.Fatal("a guest renamed the account's player")
+	}
+	// A guest nobody has taken answers as before.
+	g.Player = guestB
+	if err := s.InsertSiteGuess(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+}
