@@ -11,6 +11,8 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.18 - 2026-11-06
+
 For the operator: migration 027 gives each kept photo an address; it runs by
 itself at start and takes a moment.
 
