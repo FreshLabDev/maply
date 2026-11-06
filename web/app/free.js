@@ -61,7 +61,7 @@
     $("logo").insertAdjacentHTML("beforebegin", '<button class="sh-b fr-hb" id="frHB"></button>');
     $("logo").insertAdjacentHTML("beforeend", '<span class="up fr-no" id="frDay"></span>');
     $("timer").insertAdjacentHTML("afterend", '<div class="timer fr-clock" id="frClock"><span class="up" id="frClockL"></span><b id="frClockV"></b></div>');
-    $("frBack").onclick = $("frHB").onclick = () => onBack && onBack();
+    $("frBack").onclick = $("frHB").onclick = goBack;
     const acts = (e) => {
       const b = e.target.closest("[data-act]");
       if (!b || b.disabled) return;
@@ -72,12 +72,14 @@
     addEventListener("keydown", onKey);
     addEventListener("keyup", offKey);
     addEventListener("blur", release);
+    // On the site a game under way asks before the tab closes or reloads; Telegram has its own closing confirmation.
+    addEventListener("beforeunload", (e) => { if (!(typeof inTg !== "undefined" && inTg) && running()) { e.preventDefault(); e.returnValue = ""; } });
     // The day's page reacts to the window crossing into the computer's layout and back as if its days were open: what
     // it put out of reach for them is this layer's to set.
     Desk.change(() => { if (opened) behind(true); });
     return root;
   }
-  const backButton = () => onBack && onBack();
+  const backButton = () => goBack();
   // Everything but this layer and the toast is out of reach while it is open, and the header too where a page covers
   // it (a phone outside the game). body.is-sheet tells the day's page and the computer's keys and map panel that a page
   // is over the game, as the days' list does.
@@ -103,6 +105,7 @@
   }
   function close() {
     opened = false;
+    liveGame = null; closeAsk(false);
     stopClock(); Kit.stopped(); guard(false); hideGame(); release();
     root.classList.remove("on"); document.body.classList.remove("is-free", "is-sheet", "fr-up", "fr-tg");
     behind(false);
@@ -128,6 +131,7 @@
     document.body.classList.toggle("fr-up", !back);
     document.body.classList.toggle("fr-tg", tgBack());
     onBack = back || leave;
+    closing();
     // Just opened: the focus goes to Back where there is one, else to the page.
     if (focusing) { focusing = false; ($("frBack").offsetParent ? $("frBack") : $("frPage")).focus({ preventScroll: true }); }
   }
@@ -153,6 +157,47 @@
     page('<p class="fr-wait">' + esc(ferr(e)) + '</p><div class="fr-go"><button class="fr-sec" data-act="retry">' + esc(T("free.retry")) + '</button></div>');
   }
 
+  /* ---------- Leaving a game under way ---------- */
+  // A game is under way from its first place to its end: a solo game on a timer (a place in play, or the clock's game
+  // at any point), a challenge attempt, a party from the first countdown to the result. A classic without a timer
+  // and a day of the archive wait for the player where they are left. Back, the arrow and Escape ask first, so does
+  // the browser's Back on the site (Router.guard), and Telegram asks before it closes the app.
+  let liveGame = null, asking = null;
+  const soloRunning = () => !!liveGame && liveGame.status === "playing" && !!liveGame.settings.seconds && !liveGame.day &&
+    (liveGame.settings.mode === "timed" || !!ROUND);
+  const running = () => opened && (soloRunning() || Kit.running());
+  function goBack() {
+    if ($("frAsk")) { closeAsk(); return; }
+    if (running()) { askLeave(() => Router.leave(() => onBack && onBack())); return; }
+    onBack && onBack();
+  }
+  // The question: a small dialog over everything, as the account's is. "Stay" has the focus and Escape.
+  function askLeave(proceed) {
+    if ($("frAsk")) { closeAsk(); return; }
+    const d = el('<div class="fr-ask" id="frAsk" role="dialog" aria-modal="true" aria-labelledby="frAskH" aria-describedby="frAskP"><div class="fr-ask-box">' +
+      '<b id="frAskH">' + esc(T("free.exit_title")) + '</b><p id="frAskP">' + esc(T(soloRunning() ? "free.exit_solo" : "party.exit")) + '</p>' +
+      '<div class="fr-ask-go"><button class="fr-pri" id="frAskStay">' + esc(T("free.exit_stay")) + '</button>' +
+      '<button class="fr-sec" id="frAskGo">' + esc(T("free.exit_go")) + '</button></div></div></div>');
+    asking = { from: document.activeElement, proceed };
+    document.body.appendChild(d);
+    for (const e of document.body.children) if (e !== d && e.id !== "toast" && e.tagName !== "SCRIPT") e.inert = true;
+    d.addEventListener("click", (e) => { if (e.target === d) closeAsk(); });
+    $("frAskStay").onclick = () => closeAsk();
+    $("frAskGo").onclick = () => { const go = asking.proceed; closeAsk(false); go(); };
+    $("frAskStay").focus({ preventScroll: true });
+  }
+  function closeAsk(refocus = true) {
+    const d = $("frAsk");
+    if (!d) return;
+    d.remove();
+    // The layer is in reach again, as before the question.
+    if (opened) behind(true);
+    const from = asking && asking.from;
+    asking = null;
+    if (refocus && from && from.isConnected) from.focus({ preventScroll: true });
+  }
+  addEventListener("keydown", (e) => { if (e.key === "Escape" && $("frAsk")) { e.preventDefault(); e.stopImmediatePropagation(); closeAsk(); } }, true);
+
   /* ---------- Settings ---------- */
   const ROUNDS = { 3: "free.r3", 5: "free.r5", 10: "free.r10" };
   // A streak and a game against the clock have no number of places; the clock's game has three minutes in all.
@@ -166,7 +211,8 @@
   const modeOf = (s) => s.mode === "classic" ? (s.seconds === 30 ? "blitz" : "classic") : s.mode;
   const modeName = (s) => T(s && MODES[modeOf(s)] || "free.title");
   // "Blitz · 5 places", "60 s · 10 places", "Country streak · 30 s": the name of a set of settings and its records.
-  function setLabel(s) {
+  function setLabel(s, day) {
+    if (s.mode === "archive") return T("free.archive") + (day ? " " + no("#" + fmt(day.n)) : "") + " · " + T("free.sec", { n: fmt(s.seconds) });
     if (s.mode === "timed") return T("free.timed_set");
     if (s.mode === "streak") return T("free.streak") + " · " + T("free.sec", { n: fmt(s.seconds) });
     return (s.seconds === 30 ? T("free.blitz") : s.seconds ? T("free.sec", { n: fmt(s.seconds) }) : T("free.no_timer")) + " · " + T(ROUNDS[s.rounds]);
@@ -176,23 +222,26 @@
     return '<div class="fr-seg" role="radiogroup" aria-labelledby="frL-' + k + '">' + items.map(([v, label]) => '<button role="radio" aria-checked="' + (v === cur) + '" data-act="set" data-k="' + k +
       '" data-v="' + v + '"' + (locked ? " disabled" : "") + '>' + esc(label) + '</button>').join("") + '</div>';
   }
-  // A settings block: a mode's own, or the lobby's, which has every timer and no "no timer". The clock's game has
-  // nothing to choose; a blitz only its places.
+  // A settings block: a mode's own. The lobby adds the mode to pick, has no "no timer" and, for a day from the archive,
+  // only the timer. The clock's game has nothing to choose; a blitz only its places.
   function settings(s, party, locked) {
-    const m = party ? "party" : modeOf(s);
-    if (m === "timed") return "";
+    const m = s.mode === "archive" ? "archive" : modeOf(s);
     let html = "";
-    const times = m === "streak" ? [30, 60] : m === "party" ? [30, 60, 90, 120] : m === "classic" ? [60, 90, 120, 0] : null;
+    if (party && m !== "archive") html += '<p class="fr-l up" id="frL-mode">' + esc(T("free.mode")) + '</p>' + seg("mode", ["classic", "blitz", "streak", "timed"].map((v) => [v, T(MODES[v])]), m, locked);
+    if (m === "timed") return html;
+    const times = m === "streak" ? [30, 60] : m === "archive" ? [60, 90, 120] : m === "classic" ? (party ? [60, 90, 120] : [60, 90, 120, 0]) : null;
     if (times) html += '<p class="fr-l up" id="frL-seconds">' + esc(T("free.time")) + '</p>' + seg("seconds", times.map((n) => [n, secLabel(n)]), s.seconds, locked);
-    if (m !== "streak") html += '<p class="fr-l up" id="frL-rounds">' + esc(T("free.places")) + '</p>' + seg("rounds", [3, 5, 10].map((n) => [n, fmt(n)]), s.rounds, locked);
+    if (m !== "streak" && m !== "archive") html += '<p class="fr-l up" id="frL-rounds">' + esc(T("free.places")) + '</p>' + seg("rounds", [3, 5, 10].map((n) => [n, fmt(n)]), s.rounds, locked);
     return html;
   }
-  // A choice made: a streak has a 30 or 60 s timer and no number of places, the clock's game three minutes and nothing
-  // to choose.
+  // A choice made: a mode (the lobby's) keeps what it can of the settings; a streak has a 30 or 60 s timer and no
+  // number of places, the clock's game three minutes and nothing to choose, a day from the archive 60, 90 or 120 s.
   function choose(s, k, v) {
+    if (k === "mode") return modeSet(v, s) || s;
     const n = Object.assign({}, s);
-    n[k] = k === "mode" ? v : +v;
-    if (n.mode === "timed") { n.seconds = 180; n.rounds = 0; }
+    n[k] = +v;
+    if (n.mode === "archive") { n.rounds = 1; if (![60, 90, 120].includes(n.seconds)) n.seconds = 90; }
+    else if (n.mode === "timed") { n.seconds = 180; n.rounds = 0; }
     else if (n.mode === "streak") { n.rounds = 0; if (n.seconds !== 30) n.seconds = 60; }
     else { if (!n.rounds) n.rounds = 5; if (n.seconds === 180) n.seconds = 60; }
     return n;
@@ -204,7 +253,7 @@
     if (mode === "blitz") return { mode: "classic", seconds: 30, rounds };
     if (mode === "classic") return { mode: "classic", seconds: l.mode === "classic" && l.seconds !== 30 ? l.seconds : 60, rounds };
     if (mode === "streak") return { mode: "streak", seconds: l.mode === "streak" ? l.seconds : 60, rounds: 0 };
-    if (mode === "clock") return { mode: "timed", seconds: 180, rounds: 0 };
+    if (mode === "clock" || mode === "timed") return { mode: "timed", seconds: 180, rounds: 0 };
     return null;
   }
 
@@ -357,17 +406,27 @@
     setCall(T("sent"), left ? T("party.waiting_n", { n: fmt(left) }) : "");
     split(); place();
   }
+  // A streak player who is out watches the place: no pin, and the strip says who the place waits for.
+  function watch(left) {
+    phase = "sent"; onPin = null; guard(false); hideSkip();
+    GO = { act: "", label: T("party.watching"), off: true };
+    setCall(T("party.out_call"), left ? T("party.waiting_n", { n: fmt(left) }) : T("party.watching"));
+    split(); place();
+  }
   function lock() { onPin = null; guard(false); if (globe && globe.guess) globe.lock(); }
   // Over the panorama: Skip against the clock, Give up without a timer.
   function skip(act, label) { $("frSkip").dataset.act = act; $("frSkip").textContent = label; $("frSkip").classList.remove("hidden"); }
   function hideSkip() { if (root) $("frSkip").classList.add("hidden"); }
-  // As in the day's game, a pin set and not yet sent asks before the app closes. Only what the free game turned on
-  // is turned off: the day keeps its own.
-  let guarding = false;
-  function guard(on) {
-    if (on === guarding || !signed() || !tgAt("6.2")) return;
-    guarding = on;
-    if (on) tg.enableClosingConfirmation(); else tg.disableClosingConfirmation();
+  // Telegram asks before the app closes while a pin is set and not sent (as in the day's game) and during the whole
+  // game under way. Only what the free game turned on is turned off: the day keeps its own.
+  let guarding = false, pinHeld = false;
+  function guard(on) { pinHeld = on; closing(); }
+  function closing() {
+    if (!signed() || !tgAt("6.2")) return;
+    const want = pinHeld || running();
+    if (want === guarding) return;
+    guarding = want;
+    if (want) tg.enableClosingConfirmation(); else tg.disableClosingConfirmation();
   }
   // The photo's author is named only with the place; the map's always.
   function credits(p) {
@@ -431,13 +490,13 @@
   function onKey(e) {
     if (pano && e.metaKey) release();
     if (!opened || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (document.querySelector(".acct-dlg, .acct-pop")) return;
+    if (document.querySelector(".acct-dlg, .acct-pop, .fr-ask")) return;
     const t = e.target, k = e.key, code = e.code;
     if (t.closest && t.closest("input, textarea, select, [contenteditable]")) return;
     const game = root.classList.contains("fr-g"), onButton = !!(t.closest && t.closest("button, a"));
     if (k === "Escape") {
       e.preventDefault();
-      if (game && view === "map" && (phase !== "reveal" || !Desk.on) && !nopic) toPhoto(); else onBack && onBack();
+      if (game && view === "map" && (phase !== "reveal" || !Desk.on) && !nopic) toPhoto(); else goBack();
       return;
     }
     if (!game) return;
@@ -553,7 +612,7 @@
   function table(rows, faces) {
     return '<ol class="rk fr-rk' + (faces ? "" : " min") + '">' + rows.map((r) => '<li' + (r.me ? ' class="me"' : '') + '><span class="n">' + (r.rank ? fmt(r.rank) : "") + '</span>' +
       (faces ? '<span class="a">' + faceOf(r.who) + '</span>' : '') + '<span class="w" lang="' + nameLang() + '">' + esc(nameOf(r.who)) + (r.mark ? ' <em>' + esc(r.mark) + '</em>' : '') + '</span>' +
-      '<span class="k">' + (r.km != null ? esc(kmT(r.km)) : "") + '</span><b>' + (r.points != null ? fmt(r.points) : "") + '</b></li>').join("") + '</ol>';
+      '<span class="k">' + (r.sub ? esc(r.sub) : r.km != null ? esc(kmT(r.km)) : "") + (r.ok != null ? ' <i class="ok">' + (r.ok ? "✓" : "✗") + '</i>' : "") + '</span><b>' + (r.points != null ? fmt(r.points) : "") + '</b></li>').join("") + '</ol>';
   }
 
   /* ---------- Alone ---------- */
@@ -563,7 +622,7 @@
   // The screen of a mode: its settings, the way to play it, its records. mode is a menu card's, or none for the mode
   // of the settings on screen.
   async function home(h, mode) {
-    const my = ++gen; ROUND = null; clearTimeout(missT);
+    const my = ++gen; ROUND = null; liveGame = null; clearTimeout(missT);
     if (mode && SET) SET = modeSet(mode, SET) || SET;
     top(modeName(SET), "");
     if (!h) {
@@ -650,9 +709,8 @@
     const e = $("frRecs");
     if (e && SET && boardOf(SET) === b && $("frPage").classList.contains("fr-home")) e.outerHTML = records(SET);
   }
-  // The settings of a party made from the solo ones: a classic on a timer.
-  const partySet = (s) => s.mode === "timed" ? { mode: "classic", seconds: 60, rounds: 5 } : s.mode === "streak" ? { mode: "classic", seconds: s.seconds, rounds: 5 } :
-    { mode: "classic", seconds: s.seconds || 60, rounds: s.rounds };
+  // The settings of a party made from the solo ones: the same mode, which a party always plays on a timer.
+  const partySet = (s) => s.mode === "archive" ? { mode: "classic", seconds: 60, rounds: 5 } : Object.assign({}, s, { seconds: s.seconds || 60 });
   const ACTS = {
     set(b) {
       if (Kit.lobby && Kit.lobby(b)) return;
@@ -684,6 +742,8 @@
     settings() { home(HOME); },
     archive() { archive(); },
     day(b) { takeDay(b, +b.dataset.n); },
+    // A party on one day of the archive, 90 s a place to start with; the lobby has the other timers.
+    dayFriends(b) { Kit.party.create({ mode: "archive", seconds: 90, rounds: 1, day: +b.dataset.n }, () => archive()); },
     async played(b) { if (await fetchGame(b, "/api/free/solo/" + b.dataset.game)) continueGame(); },
     nextDay(b) { const d = nextOpen(); d ? takeDay(b, d.n) : archive(); },
     toDay() { Router.go("/days/" + GAME.day.date); },
@@ -785,7 +845,7 @@
   }
   function play(r) {
     gen++; clearTimeout(missT);
-    ROUND = r; mine = null; sending = false;
+    ROUND = r; liveGame = GAME; mine = null; sending = false;
     top(placeTitle(GAME, r.n), nowLine(GAME), gameBack);
     newRound(r);
     onPin = (p) => { mine = p; };
@@ -835,7 +895,7 @@
     const d = GAME.done[GAME.done.length - 1], g = d.guess, s = GAME.settings;
     // A game opened on its answer (a day played before) has no picture: the map alone.
     if (!ROUND) newRound(null);
-    ROUND = null;
+    ROUND = null; liveGame = GAME;
     top(placeTitle(GAME, d.n), nowLine(GAME), gameBack);
     const note = d.late ? T("free.late") : g.lat == null ? (how === "missed" ? T("free.missed") : s.mode === "timed" ? T("free.passed") : s.seconds ? T("free.missed") : T("free.gave_up"))
       : s.mode === "timed" ? T(g.country ? "free.timed_ok" : "free.timed_miss") : s.mode === "streak" ? T(g.country ? "free.country_ok" : "free.country_miss") : "";
@@ -864,7 +924,7 @@
     }
   }
   function final() {
-    gen++;
+    gen++; liveGame = null;
     const f = GAME.final || {}, s = GAME.settings, countries = s.mode === "streak" || s.mode === "timed";
     const score = s.mode === "streak" ? f.streak || 0 : s.mode === "timed" ? f.countries || 0 : f.points;
     top(T("free.final"), setLabel(s), () => home());
@@ -909,7 +969,7 @@
     catch { return iso; }
   }
   async function archive() {
-    const my = ++gen; ROUND = null; clearTimeout(missT);
+    const my = ++gen; ROUND = null; liveGame = null; clearTimeout(missT);
     top(T("free.archive"), "");
     // The list drawn before shows at once and is drawn again when the server answers.
     if (DAYS) drawArchive(); else wait();
@@ -925,7 +985,10 @@
     if (!DAYS.length) html += '<p class="fr-wait">' + esc(T("free.archive_empty")) + '</p>';
     html += '<div class="fr-days">' + DAYS.map((d) => {
       const name = '<b>' + no("#" + fmt(d.n)) + '</b><span class="d">' + esc(dayDate(d.date)) + '</span><span class="s">' + esc(worldOf(d)) + '</span>';
-      if (d.state === "open") return '<button class="fr-day" data-act="day" data-n="' + d.n + '">' + name + '<em>' + esc(T("free.play_day")) + ' ' + fwd() + '</em></button>';
+      if (d.state === "open") {
+        const play = '<button class="fr-day" data-act="day" data-n="' + d.n + '">' + name + '<em>' + esc(T("free.play_day")) + ' ' + fwd() + '</em></button>';
+        return keeps() ? '<div class="fr-dr">' + play + '<button class="fr-df" data-act="dayFriends" data-n="' + d.n + '">' + esc(T("free.friends")) + '</button></div>' : play;
+      }
       if (d.state === "played") return '<button class="fr-day done" data-act="played" data-game="' + d.game + '">' + name + '<em>' +
         (d.points != null ? '<i>' + fmt(d.points) + '</i>' : esc(T("free.day_going"))) + ' ' + fwd() + '</em></button>';
       if (d.state === "answered" && d.day_points != null) return '<div class="fr-day off mine">' + name + '<em><i>' + fmt(d.day_points) + '</i><small>' + esc(T("free.day_mine")) + '</small></em></div>';
@@ -937,7 +1000,7 @@
   /* ---------- A challenge: the places of one game, for friends to play in their own time ---------- */
   let CH = null;
   async function challenge(code) {
-    const my = ++gen; ROUND = null; clearTimeout(missT);
+    const my = ++gen; ROUND = null; liveGame = null; clearTimeout(missT);
     top(T("free.challenge"), "", () => home());
     // A guest sees what a challenge is and how to take one: signed in.
     if (!keeps()) {
@@ -972,19 +1035,23 @@
   /* ---------- What party.js uses ---------- */
   const Kit = {
     req, ferr, now, msTo, top, page, wait, failed, open, close, settings, choose, setLabel, secLabel, key, keeps, signIn,
-    round: newRound, pinned: (fn) => { onPin = fn; }, goTo, sent, lock, clock, stopClock, answer, table, whereOf, share, ACTS, ribbon,
+    round: newRound, pinned: (fn) => { onPin = fn; }, goTo, sent, watch, skip, lock, clock, stopClock, answer, table, whereOf, share, ACTS, ribbon,
+    no, dayDate, modeOf, HINTS,
     sending: (on) => { $("frGo").disabled = on || $("frGo").disabled; if (!on) split(); },
     home: () => home(),
     bot: () => HOME && HOME.bot,
     // party.js fills these in.
-    party: null, lobby: null, stopped: () => {},
+    party: null, lobby: null, stopped: () => {}, running: () => false,
   };
   // Who is in the place, and who has answered: white is an answer, a dashed square a player the party no longer waits for.
   function ribbon(list) {
     const r = root && $("frRibbon");
     if (!r) return;
     if (!list) { r.innerHTML = ""; r.classList.remove("on"); return; }
-    r.innerHTML = list.map((m) => faceOf(m, (m.done ? "done" : "") + (m.away ? " away" : ""))).join("");
+    r.innerHTML = list.map((m) => {
+      const face = faceOf(m, (m.done ? "done" : "") + (m.away ? " away" : ""));
+      return m.stat ? '<span class="tm' + (m.me ? " me" : "") + '" title="' + esc(m.title || "") + '">' + face + '<b>' + esc(m.stat) + '</b></span>' : face;
+    }).join("");
     r.classList.add("on");
   }
 
@@ -1037,7 +1104,7 @@
   // /play?with=friends: the party already open, or a new one on the last settings. A guest gets the way to sign in,
   // and to play alone.
   async function withFriends(h) {
-    const my = ++gen;
+    const my = ++gen; liveGame = null;
     top(T("free.friends"), "");
     if (!h) {
       wait();
@@ -1051,6 +1118,7 @@
     if (h.party) return Router.go("/party/" + h.party, { replace: true });
     Kit.party.create(partySet(SET));
   }
+  Router.guard({ running, ask: askLeave });
   Router.screen("party", PARTY, {
     open(m, from) { came(from); open(); Kit.party.open(m[1]); },
     close(to) { Kit.stopped(); if (to !== "play") close(); },

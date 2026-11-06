@@ -893,7 +893,7 @@ function sheetBack(b, close) {
 function behindSheet(on = $("sheet").classList.contains("on")) {
   const page = document.querySelector(".pg.on"), free = document.body.classList.contains("is-free") && $("free");
   for (const e of document.body.children) {
-    if (e.id === "sheet" || e.id === "toast" || e.id === "loader" || e.tagName === "SCRIPT") continue;
+    if (e.id === "sheet" || e.id === "toast" || e.id === "loader" || e.id === "frAsk" || e.tagName === "SCRIPT") continue;
     e.inert = free ? e !== free : on ? !(Desk.on && e.classList.contains("top")) : !!page && e !== page && !e.classList.contains("top");
   }
   // On a computer the header stays usable beside the sheet, so the sheet is not modal there.

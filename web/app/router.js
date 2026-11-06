@@ -15,6 +15,10 @@
 //   Router.go("/", { replace: true }) the same page, another address
 //   Router.back("/days")             the page's own Back: the previous entry if it is ours, else the parent named
 //   Router.on((name, from) => {})    after every change of screen, for the header's navigation
+//   Router.guard({ running, ask })   a screen that wants to be asked before it is left (a game under way): while
+//                                    running() is true, Router.go, Router.back and the browser's Back leave the page
+//                                    as it was and call ask(proceed); proceed() then does what was asked.
+//   Router.leave(fn)                 runs fn with the guard off: what ask's "Leave" does
 //   Router.current                   the screen on show: "menu", "today", "days", …; "" before the first
 //   Router.nav()                     the screens with a nav, in its order: [{ name, href, t }]
 //
@@ -32,6 +36,9 @@
 const Router = (() => {
   const screens = [], listeners = [], trail = [];
   let current = null, started = false;
+  // The guard; the depth of the history entry we are on; restoring is an entry put back after a Back, whose popstate
+  // is still to come; stepping is a step through the history that we asked for; passing is a leave the guard allowed.
+  let guarded = null, at = 0, restoring = false, stepping = false, passing = false;
   const telegram = () => { const w = window.Telegram && Telegram.WebApp; return !!w && w.platform !== "unknown"; };
   const depth = () => (history.state && history.state.maply) || 0;
   // An error in one screen is reported like any other, without stopping the change of screen.
@@ -69,24 +76,48 @@ const Router = (() => {
     }
     return u.pathname + u.search + u.hash;
   }
+  const vetoes = () => !passing && !!guarded && guarded.running();
+  function leave(fn) {
+    passing = true;
+    try { fn(); } finally { passing = false; }
+  }
   function go(path, opts) {
+    if (vetoes()) { guarded.ask(() => leave(() => go(path, opts))); return; }
     const to = url(path), same = to === location.pathname + location.search + location.hash;
     const replace = !started || same || (opts && opts.replace);
     if (telegram() && !replace && trail.push(location.pathname) > 50) trail.shift();
     if (replace || telegram()) history.replaceState({ maply: depth() }, "", to);
     else history.pushState({ maply: depth() + 1 }, "", to);
+    at = depth();
     if (started) route();
   }
   function back(parent) {
+    if (vetoes()) { guarded.ask(() => leave(() => back(parent))); return; }
     if (telegram() && trail.length) go(trail.pop(), { replace: true });
-    else if (!telegram() && depth() > 0) history.back();
+    else if (!telegram() && depth() > 0) { stepping = true; history.back(); }
     else go(parent || "/", { replace: true });
+  }
+  // The browser's Back or Forward. Out of a screen that asks first, the entry is put back and the screen asks; a
+  // second Back while it asks puts the entry back again, and the screen takes it as "stay".
+  function popped() {
+    const d = depth();
+    if (restoring) { restoring = false; at = d; return; }
+    if (!stepping && vetoes() && d !== at) {
+      const step = d - at;
+      restoring = true;
+      history.go(-step);
+      guarded.ask(() => leave(() => { stepping = true; history.go(step); }));
+      return;
+    }
+    stepping = false; at = d;
+    route();
   }
   function start() {
     if (started) return;
     started = true;
     history.replaceState({ maply: depth() }, "", location.href);
-    addEventListener("popstate", route);
+    at = depth();
+    addEventListener("popstate", popped);
     route();
   }
   document.addEventListener("click", (e) => {
@@ -96,7 +127,8 @@ const Router = (() => {
     go(a.getAttribute("href"));
   });
   return {
-    screen, go, back, start,
+    screen, go, back, start, leave,
+    guard(g) { guarded = g; },
     on(fn) { listeners.push(fn); },
     nav: () => screens.filter((x) => x.nav).sort((a, b) => (a.nav.at || 0) - (b.nav.at || 0)).map((x) => ({ name: x.name, href: x.nav.href, t: x.nav.t })),
     get current() { return current ? current.name : ""; },
