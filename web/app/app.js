@@ -839,9 +839,10 @@ function sheet(title, html, back, close) {
   b.focus({ preventScroll: true });
   return SHEET;
 }
-// The sheet's back is one arrow, pointing the way back reads. A step inside (a day to the list, a mini profile or the
-// world's table to what it came over) always shows it. The page's own way out, the close it was given, shows only in
-// a phone's browser: on a computer the header leads out, in Telegram its Back does (desktop.css, app.css). days.js
+// The sheet's back is one arrow, pointing the way back reads. In a browser a step inside (a day to the list, a mini
+// profile or the world's table to what it came over) always shows it. The page's own way out, the close it was given,
+// shows only in a phone's browser: on a computer the header leads out (desktop.css). In Telegram its Back is the
+// only one and clicks this button for both (app.css). days.js
 // sets the action itself as a day opens and closes, so the button tells the two apart as its action is set.
 function sheetBack(b, close) {
   let act = null;

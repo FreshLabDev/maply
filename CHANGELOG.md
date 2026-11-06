@@ -260,9 +260,10 @@ For the operator:
   do, instead of sliding up from the bottom over the day's game.
 - A page's back is one arrow instead of a cross. A step inside a page (a day
   to the list, a mini profile or the world's table to what it opened over)
-  keeps it everywhere. The way out of the days, the profile or a public
-  profile is not drawn on a computer, where the header leads out, nor in
-  Telegram, whose own Back button does, so a page never has two ways out.
+  keeps it in a browser. The way out of the days, the profile or a public
+  profile is not drawn on a computer, where the header leads out. In
+  Telegram its own Back button does both, as in the free game, so a screen
+  never has two ways back.
 - The day's clock and table in the header show on the day's screen only, no
   longer over the days, the profile, a mini profile or the world's table.
 
