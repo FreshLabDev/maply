@@ -64,13 +64,22 @@ function createPano(o) {
 
   // A double tap zooms in or back out. Only a tap counts: one finger, short and still, the second near the first. Lifting
   // two fingers after a pinch fires two pointerups too, and used to undo the pinch. A double click is two such taps.
-  let lastTap = null, downs = new Map(), multi = false;
+  let lastTap = null, downs = new Map(), multi = false, touchAt = -1e9;
   box.addEventListener("pointerdown", (e) => {
     emit("touch");
+    if (e.pointerType === "touch") touchAt = performance.now();
     downs.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now() });
     if (downs.size > 1) { multi = true; lastTap = null; }
   });
+  // After a tap a phone's browser sends a mousedown of its own, after the pointerup. Pannellum stops any animation on a
+  // mousedown, so the zoom the double tap had just started stopped at once or after a few degrees. A mouse sends its
+  // mousedown before the pointerup, which is why a double click always worked. The finger already moved the view through
+  // the pointer events; this mousedown only goes no further than here.
+  // Chrome says which events a finger made; elsewhere a mousedown within a second of a touch counts as one.
+  const fromTouch = (e) => e.sourceCapabilities ? e.sourceCapabilities.firesTouchEvents : performance.now() - touchAt < 1000;
+  box.addEventListener("mousedown", (e) => { if (fromTouch(e)) e.stopImmediatePropagation(); }, true);
   const up = (e) => {
+    if (e.pointerType === "touch") touchAt = performance.now();
     const d = downs.get(e.pointerId); downs.delete(e.pointerId);
     const wasMulti = multi; if (!downs.size) multi = false;
     if (e.type !== "pointerup" || !d || wasMulti) return;

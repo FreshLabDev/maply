@@ -11,6 +11,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Fixed
+
+- A double tap on the panorama zooms on a phone. The phone's browser sends
+  a mousedown of its own after the tap, and the panorama stopped the zoom
+  it had just started on it, at once or after a few degrees. A double click
+  with a mouse always worked.
+
 ## v0.0.1-alpha.16 - 2026-11-06
 
 For the operator:
