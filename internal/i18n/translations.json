@@ -1907,24 +1907,6 @@
     "uk": "Такого дня в maply не було.",
     "zh": "maply 没有这一天。"
   },
-  "app.days.nobody": {
-    "ar": "لم يلعب أحد",
-    "be": "ніхто не гуляў",
-    "ca": "no ha jugat ningú",
-    "cs": "nikdo nehrál",
-    "de": "niemand hat gespielt",
-    "en": "nobody played",
-    "es": "nadie jugó",
-    "fr": "personne n’a joué",
-    "it": "non ha giocato nessuno",
-    "ja": "誰もプレイしていません",
-    "pl": "nikt nie grał",
-    "ru": "никто не играл",
-    "sv": "ingen spelade",
-    "tr": "kimse oynamadı",
-    "uk": "ніхто не грав",
-    "zh": "没有人参与"
-  },
   "app.days.photo": {
     "ar": "تصوير: {who}",
     "be": "Фота: {who}",
@@ -2914,6 +2896,24 @@
     "tr": "Cevaplar kapandı: gerçek sohbetlerinden birinde çoktan açıklandı.",
     "uk": "Відповіді закрито: в одному з твоїх чатів місце вже показали.",
     "zh": "答题已截止：你的某个聊天里已经公布了答案。"
+  },
+  "app.error.held": {
+    "ar": "يبقى المكان مخفيًا إلى أن يجيب أحد.",
+    "be": "Месца схавана, пакуль хтосьці не адкажа.",
+    "ca": "El lloc continua ocult fins que algú respongui.",
+    "cs": "Místo zůstává skryté, dokud někdo neodpoví.",
+    "de": "Der Ort bleibt verborgen, bis jemand antwortet.",
+    "en": "The place stays hidden until someone answers.",
+    "es": "El lugar sigue oculto hasta que alguien responda.",
+    "fr": "Le lieu reste caché tant que personne n’a répondu.",
+    "it": "Il luogo resta nascosto finché qualcuno non risponde.",
+    "ja": "誰かが答えるまで、場所は表示されません。",
+    "pl": "Miejsce jest ukryte, dopóki ktoś nie odpowie.",
+    "ru": "Место скрыто, пока кто-нибудь не ответит.",
+    "sv": "Platsen förblir dold tills någon svarar.",
+    "tr": "Biri cevap verene kadar yer gizli kalır.",
+    "uk": "Місце приховане, доки хтось не відповість.",
+    "zh": "在有人回答之前，地点不会显示。"
   },
   "app.error.hidden": {
     "ar": "أخفى هذا اللاعب ملفه الشخصي.",
@@ -9502,6 +9502,24 @@
     "tr": "Her gün Dünya’nın bir yerinden yeni bir fotoğraf, herkese tek cevap.\nUzaklık için puan; kıta, ülke, şehir ve hız için bonus.",
     "uk": "Щодня новий знімок з якогось місця на Землі, відповідь у кожного одна.\nБали за відстань, бонуси за континент, країну, місто й швидкість.",
     "zh": "每天一张来自地球某处的新照片，每人只能回答一次。\n按距离得分；猜中大洲、国家、城市，或答得快，都有额外奖励。"
+  },
+  "post.skipped": {
+    "ar": "لم يجب أحد. سيعود هذا المكان في يوم آخر.",
+    "be": "Ніхто не адказаў. Гэта месца вернецца ў іншы дзень.",
+    "ca": "Ningú ha respost. Aquest lloc tornarà un altre dia.",
+    "cs": "Nikdo neodpověděl. Toto místo se vrátí v jiný den.",
+    "de": "Niemand hat geantwortet. Dieser Ort kommt an einem anderen Tag wieder.",
+    "en": "Nobody answered. This place will come back on another day.",
+    "es": "Nadie respondió. Este lugar volverá otro día.",
+    "fr": "Personne n’a répondu. Ce lieu reviendra un autre jour.",
+    "it": "Nessuno ha risposto. Questo posto tornerà un altro giorno.",
+    "ja": "誰も答えませんでした。この場所は別の日に戻ってきます。",
+    "pl": "Nikt nie odpowiedział. To miejsce wróci innego dnia.",
+    "ru": "Никто не ответил. Это место вернётся в другой день.",
+    "sv": "Ingen svarade. Den här platsen kommer tillbaka en annan dag.",
+    "tr": "Kimse cevap vermedi. Bu yer başka bir gün geri gelecek.",
+    "uk": "Ніхто не відповів. Це місце повернеться в інший день.",
+    "zh": "没有人回答。这个地点会在另一天再次出现。"
   },
   "profile.best": {
     "ar": "أفضل يوم، #{n}",
