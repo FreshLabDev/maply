@@ -127,6 +127,8 @@
 /* A sheet is a page under the header, its text in a column. The days and the profile are pages of the shell, as wide
    as --page. */
 .desk .sheet { top: calc(var(--top) + var(--safe-top)); }
+/* The header leads out of a page, so the sheet's own way out is not drawn; a step inside the page keeps its arrow. */
+.desk .sh-b.root { display: none; }
 .desk .sh-top, .desk .sh-body { padding-left: max(24px, calc(50% - 360px)); padding-right: max(24px, calc(50% - 360px)); }
 .desk .sheet:is([data-kind="days"], [data-kind="profile"], [data-kind="public"]) :is(.sh-top, .sh-body) {
   padding-left: max(24px, calc(50% - var(--page) / 2)); padding-right: max(24px, calc(50% - var(--page) / 2)); }

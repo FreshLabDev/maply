@@ -4,8 +4,6 @@
    app.css: one field colour, no shadows, rounded corners or transparency. */
 .pg:not(.on) { display: none; }
 .pg:focus { outline: none; }
-/* Over a page the day's clock and its table have nothing to say, and stay out of the reader's way. */
-.is-page .top .timer, .is-page .top .prog { visibility: hidden; }
 .dk-page a.mn-day, .dk-page a.mn-mode, .dk-page a.mn-more { color: var(--ink); text-decoration: none; }
 
 /* The day */
