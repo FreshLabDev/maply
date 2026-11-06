@@ -186,8 +186,9 @@ the diff looks like.
   opens by an opaque handle (`profile.Handles`) that the server puts only
   next to a name it already shows, never on an anonymous row, so a handle
   cannot name a row before its reveal. The photo goes out only inside a
-  group both are in, and the head to head counts only the days whose result
-  that group has seen.
+  group both are in, in the mini profile and in the free play's
+  leaderboards' rows (never on an anonymous one), and the head to head
+  counts only the days whose result that group has seen.
 - "Hide me" (`profile_setting.hide_me`) shows the player as "Anonymous"
   with a plain avatar, without photo or handle, in the world's tables, the
   site's result, the days page, the free play's leaderboards and the bot's

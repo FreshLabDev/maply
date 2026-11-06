@@ -128,7 +128,11 @@ For the operator:
   opens that board, and it counts the same games: a site account without
   Telegram now has the tab too. On a phone in a browser the page has its own
   Back before the title, to the page before or to the menu; in Telegram Back
-  is Telegram's, and a computer has the header.
+  is Telegram's, and a computer has the header. Each row has a face, as in
+  the day's table: the letter, or the Telegram photo when the Mini App was
+  opened from a group and the player is in it, as in the mini profile;
+  "Anonymous" has the plain face and never a photo. The first three of the
+  last 7 days on a mode's screen have the same faces.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
   the screen the address names. `/days` opens the days and `/days/<n>` (or

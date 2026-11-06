@@ -552,7 +552,7 @@
   // A list of answers or of a standing, as the days' rankings: place, face, name, distance, points; yours is white.
   function table(rows, faces) {
     return '<ol class="rk fr-rk' + (faces ? "" : " min") + '">' + rows.map((r) => '<li' + (r.me ? ' class="me"' : '') + '><span class="n">' + (r.rank ? fmt(r.rank) : "") + '</span>' +
-      (faces ? '<span class="a">' + av(r.name, r.me) + '</span>' : '') + '<span class="w" lang="' + nameLang() + '">' + esc(r.name) + (r.mark ? ' <em>' + esc(r.mark) + '</em>' : '') + '</span>' +
+      (faces ? '<span class="a">' + (r.face || av(r.name, r.me)) + '</span>' : '') + '<span class="w" lang="' + nameLang() + '">' + esc(r.name) + (r.mark ? ' <em>' + esc(r.mark) + '</em>' : '') + '</span>' +
       '<span class="k">' + (r.km != null ? esc(kmT(r.km)) : "") + '</span><b>' + (r.points != null ? fmt(r.points) : "") + '</b></li>').join("") + '</ol>';
   }
 
@@ -635,7 +635,9 @@
     html += '<p class="fr-l up">' + esc(T("free.rec_week")) + '</p>';
     if (!week) html += '<p class="fr-hint fr-busy">' + esc(lines("loading")[0]) + '</p>';
     else if (!week.rows.length) html += '<p class="fr-hint">' + esc(T("free.rec_week_none")) + '</p>';
-    else html += table(week.rows.slice(0, 3).map((r) => ({ rank: r.rank, name: r.name, me: r.me, points: r.score })), true);
+    // The faces of the leaderboards' rows: "Anonymous" with the plain one, a photo when /api/top sent it.
+    else html += table(week.rows.slice(0, 3).map((r) => ({ rank: r.rank, name: r.name, me: r.me, points: r.score,
+      face: r.anon && !r.me ? anonAv() : av(r.name, r.me, r.photo) })), true);
     return html + '</section>';
   }
   // The boards of the settings on screen, each read once; the block is drawn again when they come, if the settings
