@@ -123,6 +123,9 @@
 /* The free game's own Back: none in Telegram, whose Back is the only one, and none on a computer's page of the top,
    whose way up is the header. */
 .fr-tg #frBack, .fr-tg .fr-hb, .desk .fr-up #frBack { display: none; }
+/* Without a Back the page itself takes the focus, for a screen reader to start there: it draws no ring, as the sheet
+   and the menu's pages do not. */
+#frPage:focus { outline: none; }
 .is-free #timer { display: none; }
 /* The clock stands where the day's countdown does; on a page it is empty and keeps the header's right side in place. */
 .is-free .fr-clock { display: flex; }
