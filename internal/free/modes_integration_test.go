@@ -286,6 +286,14 @@ func TestStreakPartyEndsWhenNobodyStands(t *testing.T) {
 	if _, err := h.svc.Join(h.ctx, cleo, "Cleo", code, "en"); !is(err, free.ErrOver) {
 		t.Fatalf("joining a finished game: %v", err)
 	}
+	// A rematch is a streak lobby on the same settings.
+	next, err := h.svc.Rematch(h.ctx, ann, "Ann", code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lobby := h.view(h.svc, ann, next, 0); lobby.Status != free.StatusLobby || lobby.Settings.Mode != free.Streak || lobby.Settings.Seconds != 60 {
+		t.Fatalf("rematch lobby: %+v", lobby.Settings)
+	}
 }
 
 func TestStreakPartyEndsWithThePool(t *testing.T) {
