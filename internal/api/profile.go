@@ -38,6 +38,7 @@ type ProfileStore interface {
 	PlayedDays(ctx context.Context, who db.Who, upTo, closed round.Date) ([]db.PlayedDay, error)
 	Standings(ctx context.Context, who db.Who, dates []round.Date, closed round.Date) ([]db.Standing, error)
 	LastRounds(ctx context.Context, upTo round.Date, n int) ([]db.RoundDay, error)
+	SkippedDates(ctx context.Context, upTo round.Date) ([]round.Date, error)
 	NameOf(ctx context.Context, userID int64) (string, error)
 	ProfileSettingOf(ctx context.Context, userID int64) (db.ProfileSetting, error)
 	SetHideMe(ctx context.Context, userID int64, on bool) error
@@ -242,7 +243,11 @@ func (s *Server) ranked(ctx context.Context, ps ProfileStore, ask rankedAsk, lan
 	if err != nil {
 		return profile.Ranked{}, err
 	}
-	return profile.Rank(profile.Input{Days: days, Standings: standings, Rounds: rounds, Ref: ref,
+	skipped, err := ps.SkippedDates(ctx, ask.upTo)
+	if err != nil {
+		return profile.Ranked{}, err
+	}
+	return profile.Rank(profile.Input{Days: days, Standings: standings, Rounds: rounds, Skipped: skipped, Ref: ref,
 		Closed: closed, Lang: lang, WithHistory: ask.history}), nil
 }
 

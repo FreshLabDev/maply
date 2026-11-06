@@ -119,6 +119,9 @@ type Input struct {
 	Days      []db.PlayedDay // oldest first
 	Standings []db.Standing
 	Rounds    []db.RoundDay // the last rounds up to Ref, newest first
+	// Skipped are the dates nobody answered, which no streak counts as a
+	// day missed.
+	Skipped []round.Date
 	// Ref is the date the profile is as of: the streak may end on it or the
 	// day before, and the last 30 days end on it.
 	Ref round.Date
@@ -220,7 +223,7 @@ func Rank(in Input) Ranked {
 		p := int(math.Round(float64(pctSum) / float64(pctN)))
 		r.Percentile = &p
 	}
-	r.Streak, r.BestStreak = streaks(dates, in.Ref)
+	r.Streak, r.BestStreak = streaks(dates, in.Ref, in.Skipped)
 	r.Passport.Streak30 = r.BestStreak >= 30
 	for c := range countries {
 		r.Passport.Countries = append(r.Passport.Countries, c)
@@ -280,12 +283,23 @@ func median(xs []float64) float64 {
 
 // streaks are the run of days in a row that ends on ref or the day before,
 // as the bot counts it, and the longest run there has been. dates are
-// ascending and distinct.
-func streaks(dates []round.Date, ref round.Date) (current, best int) {
+// ascending and distinct. A skipped date neither breaks a run nor is in it.
+func streaks(dates []round.Date, ref round.Date, skipped []round.Date) (current, best int) {
+	gone := map[string]bool{}
+	for _, d := range skipped {
+		gone[d.String()] = true
+	}
+	step := func(d round.Date, by int) round.Date {
+		d = d.AddDays(by)
+		for gone[d.String()] {
+			d = d.AddDays(by)
+		}
+		return d
+	}
 	run := 0
 	var prev round.Date
 	for i, d := range dates {
-		if i > 0 && prev.AddDays(1).String() == d.String() {
+		if i > 0 && step(prev, 1).String() == d.String() {
 			run++
 		} else {
 			run = 1
@@ -295,7 +309,7 @@ func streaks(dates []round.Date, ref round.Date) (current, best int) {
 	}
 	if len(dates) > 0 {
 		last := dates[len(dates)-1].String()
-		if last == ref.String() || last == ref.AddDays(-1).String() {
+		if last == ref.String() || last == step(ref, -1).String() {
 			current = run
 		}
 	}

@@ -126,9 +126,34 @@ func TestStreakEndsTodayOrYesterday(t *testing.T) {
 		{day0.AddDays(3), 3, 3},
 		{day0.AddDays(4), 0, 3},
 	} {
-		cur, best := streaks(dates, c.ref)
+		cur, best := streaks(dates, c.ref, nil)
 		if cur != c.cur || best != c.best {
 			t.Errorf("ref %s: %d, %d; want %d, %d", c.ref, cur, best, c.cur, c.best)
+		}
+	}
+}
+
+// A date nobody answered is no day missed: a run goes over it, and a run
+// that ends before it still ends "yesterday".
+func TestStreakStepsOverSkippedDays(t *testing.T) {
+	skipped := []round.Date{day0.AddDays(1), day0.AddDays(2)}
+	dates := []round.Date{day0, day0.AddDays(3), day0.AddDays(4)}
+	for _, c := range []struct {
+		name      string
+		dates     []round.Date
+		skipped   []round.Date
+		ref       round.Date
+		cur, best int
+	}{
+		{"over two skipped days", dates, skipped, day0.AddDays(4), 3, 3},
+		{"not skipped, a gap", dates, nil, day0.AddDays(4), 2, 2},
+		{"skipped day before ref", dates[:1], skipped, day0.AddDays(2), 1, 1},
+		{"the day before the skipped ones", dates[:1], skipped, day0.AddDays(3), 1, 1},
+		{"a skipped day is not today", dates[:1], skipped[:1], day0.AddDays(4), 0, 1},
+	} {
+		cur, best := streaks(c.dates, c.ref, c.skipped)
+		if cur != c.cur || best != c.best {
+			t.Errorf("%s: %d, %d; want %d, %d", c.name, cur, best, c.cur, c.best)
 		}
 	}
 }
