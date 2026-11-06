@@ -15,7 +15,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/FreshLabDev/maply/internal/scoring"
 )
 
 // The leaderboards' part of the stand: made-up results on every board of
@@ -29,7 +31,9 @@ func init() {
 
 // topPeople are the boards' players besides the stand's own. Strength puts
 // a player on the boards, from 0 (last) to 1 (first); the owner is in the
-// middle so their own row stands among others.
+// middle so their own row stands among others. They play the closed days
+// too, from a DM, so a row opens a mini profile with numbers, and each who
+// does not hide has a public page under topSlug.
 var topPeople = []struct {
 	ID       int64
 	Name     string
@@ -131,6 +135,11 @@ func seedTop(ctx context.Context, e *Env) error {
 			}
 		}
 		all = append(all, topPlayer{userID: p.ID, name: p.Name, strength: p.Strength})
+		if !p.Hidden {
+			if err := e.Store.SetPublicSlug(ctx, p.ID, topSlug(p.ID)); err != nil {
+				return err
+			}
+		}
 	}
 	for _, s := range topStand {
 		p, ok := e.Player(s.ID)
@@ -155,7 +164,80 @@ func seedTop(ctx context.Context, e *Env) error {
 		}
 		all = append(all, topPlayer{player: g.Player, name: g.Name, strength: g.Strength})
 	}
-	return writeTop(ctx, e, all, now)
+	if err := writeTop(ctx, e, all, now); err != nil {
+		return err
+	}
+	return topDays(ctx, e, now)
+}
+
+// topSlug is a made-up player's public page: fixed, so the stand's panel can
+// link it. A real slug is random (profile.NewSlug).
+func topSlug(id int64) string { return fmt.Sprintf("devtop-%015d", id) }
+
+// topDays answers the days over in every zone for topPeople, each from their
+// DM before their deadline, as seedDays does for the stand's own players,
+// and keeps every such day's world places again with them in, as the final
+// world job would have. Today stays as the stand has it. Played again, it
+// finds the answers there and keeps the same places.
+func topDays(ctx context.Context, e *Env, now time.Time) error {
+	rows, err := e.Pool.Query(ctx, `SELECT date FROM maply.day_closed ORDER BY date`)
+	if err != nil {
+		return err
+	}
+	var dates []round.Date
+	for rows.Next() {
+		var t time.Time
+		if err := rows.Scan(&t); err != nil {
+			rows.Close()
+			return err
+		}
+		dates = append(dates, round.DateIn(t, time.UTC))
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rng := rand.New(rand.NewPCG(2026, 12))
+	played := 0
+	for _, d := range dates {
+		r, err := e.Store.EnsureRound(ctx, d)
+		if err != nil {
+			return err
+		}
+		answer, err := e.Store.Answer(ctx, r.PlaceID)
+		if err != nil {
+			return err
+		}
+		for _, p := range topPeople {
+			// The stronger play more days, and miss by less.
+			if rng.Float64() > 0.35+0.5*p.Strength {
+				continue
+			}
+			who := Player{ID: p.ID, Name: p.Name, Lang: p.Lang, Skill: 150 + 2600*(1-p.Strength)}
+			ok, err := seedGuess(ctx, e, rng, d, who, answer.Point, now)
+			if err != nil {
+				return fmt.Errorf("day %s of %s: %w", d, p.Name, err)
+			}
+			if ok {
+				played++
+			}
+		}
+		place := scoring.Place{Point: answer.Point, Country: answer.CountryISO, Continent: answer.Continent, City: answer.CityShape}
+		if _, err := e.Store.ScoreDue(ctx, d, now, func(pt geo.Point) scoring.Score {
+			return scoring.Judge(pt, place, e.Countries)
+		}); err != nil {
+			return err
+		}
+		b := &pgx.Batch{}
+		b.Queue(`DELETE FROM maply.day_place WHERE date = $1`, d.Time())
+		b.Queue(`INSERT INTO maply.day_place (date, user_id, player, km, points, rank, n)
+			SELECT date, user_id, player, km, points, rank, n FROM maply.day_rank WHERE date = $1`, d.Time())
+		if err := e.Pool.SendBatch(ctx, b).Close(); err != nil {
+			return fmt.Errorf("keep day %s: %w", d, err)
+		}
+	}
+	e.Log.Info("leaderboards' players on the closed days", "days", len(dates), "answers", played)
+	return nil
 }
 
 // writeTop plays the made-up games: on each board a player plays one to
@@ -361,8 +443,19 @@ func topPanel(e *Env, r *http.Request) template.HTML {
 		  FROM maply.free_result WHERE seconds IS NOT NULL AND mode <> 'archive' AND kind <> 'challenge'`).Scan(&players, &games); err != nil {
 		fmt.Fprintf(&b, `<p>%s</p>`, template.HTMLEscapeString(err.Error()))
 	} else {
-		fmt.Fprintf(&b, `<p>На досках: игроков %d, игр %d. Скрыты Giulia и Лена: у Ани и гостя они «Аноним». У аккаунтов Noah, Ayşe и Margarida только Google.</p>`, players, games)
+		fmt.Fprintf(&b, `<p>На досках: игроков %d, игр %d. Скрыты Giulia и Лена: у Ани и гостя они «Аноним». У аккаунтов Noah, Ayşe и Margarida только Google: у их строк нет мини-профиля.</p>`, players, games)
 	}
+	// The made-up players play the closed days too: a row opens a mini profile with numbers, and these are their
+	// public pages.
+	b.WriteString(`<p>Публичные страницы игроков таблиц: `)
+	sep := ""
+	for _, p := range topPeople {
+		if !p.Hidden {
+			fmt.Fprintf(&b, `%s<a href="/p/%s">%s</a>`, sep, topSlug(p.ID), template.HTMLEscapeString(p.Name))
+			sep = " · "
+		}
+	}
+	b.WriteString(`</p>`)
 	b.WriteString(`<form method="post" action="/dev/top/seed"><button class="btn">Засеять таблицы заново</button></form></section>`)
 	return template.HTML(b.String())
 }
