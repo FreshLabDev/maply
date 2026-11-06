@@ -4,6 +4,7 @@ package account
 import (
 	"encoding/base64"
 	"encoding/json"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -132,6 +133,25 @@ func TestPrivacyGivesTheOwnersTelegram(t *testing.T) {
 		// Navigation is not CSP's to stop, and nothing here may name a target.
 		if csp := rec.Header().Get("Content-Security-Policy"); strings.Contains(csp, "navigate-to") || strings.Contains(body, "target=") {
 			t.Errorf("privacy in %s: CSP %q or a target on a link", lang, csp)
+		}
+	}
+}
+
+// The page covers what other players see of free play and the public link,
+// in the words the app's own switches and tables use.
+func TestPrivacyNamesTheAppsOwnWords(t *testing.T) {
+	svc := New(Config{Key: []byte("k1")})
+	for _, lang := range i18n.Codes() {
+		rec := httptest.NewRecorder()
+		svc.Privacy().ServeHTTP(rec, httptest.NewRequest("GET", "/privacy?lang="+lang, nil))
+		body := html.UnescapeString(rec.Body.String())
+		for _, key := range []string{"app.prof.hide_me", "app.prof.anon", "app.guest"} {
+			if word := i18n.T(lang, key); !strings.Contains(body, word) {
+				t.Errorf("privacy in %s does not say %q (%s)", lang, word, key)
+			}
+		}
+		if !strings.Contains(body, "/p/…") {
+			t.Errorf("privacy in %s does not name the public link", lang)
 		}
 	}
 }
