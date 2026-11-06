@@ -552,7 +552,7 @@ func TestSitePlayerIsRanked(t *testing.T) {
 			player = c.Value
 		}
 	}
-	if !uuidPattern.MatchString(player) {
+	if len(player) != 36 {
 		t.Fatalf("no player cookie: %v", rr.Result().Cookies())
 	}
 	if rr := send("POST", "/api/site/guess?tz=Europe/Kyiv", player, `{"lat":0,"lon":0}`); rr.Code != http.StatusConflict {

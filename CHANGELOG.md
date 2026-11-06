@@ -107,7 +107,8 @@ For the operator:
   in the bot; with Google alone it holds the account's site days from every
   browser it has taken in, one answer a day. A Telegram player's profile
   also counts the days their account's guest played on the site before the
-  sign-in, where there is no Telegram answer. The site's header keeps one
+  sign-in, where there is no Telegram answer, once the day is over
+  everywhere and only an answer given before the day's first reveal. The site's header keeps one
   button: the account's menu opens the profile, and a guest's sign-in
   dialog has "My profile without signing in".
 - In Telegram, Back goes to the page before, as it does in a browser: a day
@@ -138,6 +139,11 @@ For the operator:
   the leaderboards and the profile. The day itself is at `/today`. A post's
   button opens the day as before; the bot's menu button and `/start` open
   the menu, and so does the logo. A phone gets the menu in one column.
+  Each card but the day's carries its sign in the logo's halftone dots, in
+  the field's light green: Classic the globe itself, a bolt, a flame, an
+  hourglass, an archive box, two pins, a calendar, a cup and a person. Now
+  and then one light runs over all of them at once, and a card lights its
+  sign up under the pointer or the focus. The cards' arrows are gone.
 - Sign-in on the site with Telegram or Google, through our server by OpenID
   Connect with PKCE. Signed in with Telegram, the site is the bot's player:
   one answer a day across both, the DM's deadline with the speed bonus, the
@@ -147,7 +153,10 @@ For the operator:
   already existed.
 - An accounts page: link and unlink Telegram and Google, sign out here or on
   every device, delete the account. Two accounts merge when one's sign-in is
-  linked to the other; a closed day is never rewritten. In the Mini App,
+  linked to the other; a closed day is never rewritten. A guest's answer
+  that an account with Telegram takes in after the person's deadline stays
+  a site row, marked late, and the bot takes no other answer that day. In
+  the Mini App,
   linking Google opens the phone's browser with a five-minute ticket that
   names the Telegram account before going to Google; a Google that has an
   account of its own is linked from the site instead, so a ticket never
@@ -235,11 +244,17 @@ For the operator:
   Back on the page the app opened with goes to the menu, and the menu has
   none, so Telegram closes the app from there.
 - The free play card at the top of the days is gone: the menu leads there.
+- The days and the profile open in place, as the menu and the leaderboards
+  do, instead of sliding up from the bottom over the day's game.
 
 ### Fixed
 
 - A day takes only a 360° panorama. The queue let an approved flat photo
   become a day; prod had 42 of them, now rejected by hand.
+- The final world job keeps a day as over in every zone only once the
+  latest reveal has passed, whenever the job runs. A job moved by hand or a
+  clock that jumped would have put a day still in play into the free
+  game's archive; it now goes back to the queue for its time.
 
 - `maply-places` wrote a heading of 359.96° as `360.0`, which the schema
   refuses, and the whole `places.sql` failed to load. It is written as `0.0`.
@@ -253,6 +268,17 @@ For the operator:
 - A click or a double click on the computer's map panel while it was opening
   left the globe small in the panel's corner. Once the camera stops, the
   globe comes back to the middle at its size, closer if the player zoomed in.
+
+### Security
+
+- The site took any zone the browser named. One east of every chat's, such
+  as UTC+14, closed and scored a guest's answer before any chat's reveal. A
+  zone outside the span of the zones a chat may pick now plays in the nearer
+  of them: Honolulu in Los Angeles, Auckland in Sydney.
+- The guest's cookie is `__Host-maply_player`, which another site under the
+  same parent domain cannot set. A browser that has the old `maply_player`
+  keeps its guest and gets the new cookie on its next visit; after that an
+  old one is ignored.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

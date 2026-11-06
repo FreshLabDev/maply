@@ -12,6 +12,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/round"
 )
 
@@ -316,6 +317,19 @@ func TestSettleKeepsOneAnswerInAnOpenDay(t *testing.T) {
 		if n := countOf(t, s, `SELECT count(*) FROM maply.site_guess WHERE player = $1`, guestA); n != 1 {
 			t.Fatal("the site answer is gone")
 		}
+		// It is the day's answer of the person: late, so it never counts as
+		// their day, and the bot takes no other.
+		if n := countOf(t, s, `SELECT count(*) FROM maply.site_guess WHERE player = $1 AND late`, guestA); n != 1 {
+			t.Fatal("the site answer kept after the deadline is not late")
+		}
+		if pin, ok, err := s.PersonSitePin(ctx, accountDay, 1); err != nil || !ok || pin != (geo.Point{Lat: 10, Lon: 20}) {
+			t.Fatalf("the person's site pin = %v %v %v", pin, ok, err)
+		}
+		err = s.InsertGuess(ctx, NewGuess{Date: accountDay, UserID: 1, Context: "dm", Pin: geo.Point{Lat: 1, Lon: 2},
+			AnsweredAt: late.Now, Deadline: late.Now.Add(time.Hour)})
+		if !errors.Is(err, ErrAlreadyAnswered) {
+			t.Fatalf("a Telegram answer beside the site's = %v", err)
+		}
 		// Adopting another guest later is no different.
 		siteAnswer(t, s, guestB, 8, 0)
 		if _, err := s.AdoptGuest(ctx, a.ID, guestB, late); err != nil {
@@ -323,6 +337,25 @@ func TestSettleKeepsOneAnswerInAnOpenDay(t *testing.T) {
 		}
 		if n := countOf(t, s, `SELECT count(*) FROM maply.guess`); n != 0 {
 			t.Fatal("an adopted guest's answer became a Telegram one after the deadline")
+		}
+		if n := countOf(t, s, `SELECT count(*) FROM maply.site_guess WHERE player = $1 AND late`, guestB); n != 1 {
+			t.Fatal("the earlier guest's answer, kept now, is not late")
+		}
+	})
+
+	// An account without Telegram plays the site's game: its rows are not
+	// the bot's, and stay as they were.
+	t.Run("an account with Google alone keeps its rows as they are", func(t *testing.T) {
+		s := testStore(t)
+		seedRound(t, s)
+		siteAnswer(t, s, guestA, 9, 0)
+		late := openRules(deadline)
+		late.Now = deadline.Add(5 * time.Minute)
+		if _, _, err := s.SignIn(ctx, googleID("g-a"), guestA, late); err != nil {
+			t.Fatal(err)
+		}
+		if n := countOf(t, s, `SELECT count(*) FROM maply.site_guess WHERE NOT late`); n != 1 {
+			t.Fatal("a Google account's site answer was marked late")
 		}
 	})
 
@@ -518,5 +551,155 @@ func TestUnlinkEndsItsSessionsAndTickets(t *testing.T) {
 	}
 	if held, _ := s.TicketHeld(ctx, [32]byte{9}, a.ID); held {
 		t.Fatal("the ticket outlived the unlink")
+	}
+}
+
+// stillWaiting fails when done delivers before a moment has passed: the
+// call it waits for should be held by a lock.
+func stillWaiting(t *testing.T, done <-chan error) {
+	t.Helper()
+	select {
+	case err := <-done:
+		t.Fatalf("went through without waiting: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// An answer in a chat and a sign-in that settles the site's rows hold the
+// same lock: whichever comes second sees the other's row, and the day keeps
+// one answer of the person.
+func TestAnAnswerAndASignInTakeTurns(t *testing.T) {
+	ctx := context.Background()
+	deadline := time.Date(2026, time.November, 1, 17, 0, 0, 0, time.UTC)
+	late := openRules(deadline)
+	late.Now = deadline.Add(5 * time.Minute)
+
+	t.Run("an answer waits for the sign-in and finds its row", func(t *testing.T) {
+		s := testStore(t)
+		seedRound(t, s)
+		person(t, s, 1, "Anya")
+		a, _, err := s.SignIn(ctx, telegramID(1), "", closedRules)
+		if err != nil {
+			t.Fatal(err)
+		}
+		siteAnswer(t, s, guestA, 9, 0)
+		// A sign-in halfway: it holds the person and has taken the guest in.
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if err := lockPerson(ctx, tx, 1); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE maply.site_player SET account_id = $1 WHERE id = $2`, a.ID, guestA); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			done <- s.InsertGuess(ctx, NewGuess{Date: accountDay, UserID: 1, Context: "dm", Pin: geo.Point{Lat: 1, Lon: 2},
+				AnsweredAt: late.Now, Deadline: late.Now.Add(time.Hour)})
+		}()
+		stillWaiting(t, done)
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; !errors.Is(err, ErrAlreadyAnswered) {
+			t.Fatalf("the answer after the sign-in = %v", err)
+		}
+		if n := countOf(t, s, `SELECT count(*) FROM maply.guess`); n != 0 {
+			t.Fatal("two answers of one person in a day")
+		}
+	})
+
+	t.Run("a sign-in waits for the answer and drops the site row", func(t *testing.T) {
+		s := testStore(t)
+		seedRound(t, s)
+		person(t, s, 1, "Anya")
+		a, _, err := s.SignIn(ctx, telegramID(1), "", closedRules)
+		if err != nil {
+			t.Fatal(err)
+		}
+		siteAnswer(t, s, guestA, 9, 0)
+		// An answer in a chat halfway: it holds the person, its row not in yet.
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if err := lockPerson(ctx, tx, 1); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO maply.guess (date, user_id, context, lat, lon, answered_at, deadline_at)
+		            VALUES ('2026-11-01', 1, 'dm', 1, 2, '2026-11-01 17:04Z', '2026-11-01 18:00Z')`); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			_, err := s.AdoptGuest(ctx, a.ID, guestA, late)
+			done <- err
+		}()
+		stillWaiting(t, done)
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if n := countOf(t, s, `SELECT count(*) FROM maply.site_guess`); n != 0 {
+			t.Fatal("the site row stayed beside the Telegram answer")
+		}
+		if n := countOf(t, s, `SELECT count(*) FROM maply.guess`); n != 1 {
+			t.Fatal("the Telegram answer is gone")
+		}
+	})
+}
+
+// A guest's answer on its way while a sign-in takes the guest in waits for
+// it, and is refused: it would land in the account after the merge rules
+// ran.
+func TestAGuestAnswerWaitsForTheSignIn(t *testing.T) {
+	s := testStore(t)
+	seedRound(t, s)
+	ctx := context.Background()
+	exec(t, s, `INSERT INTO maply.site_player (id) VALUES ($1), ($2)`, guestA, guestB)
+	a, _, err := s.SignIn(ctx, googleID("g-a"), "", closedRules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `UPDATE maply.site_player SET account_id = $1 WHERE id = $2`, a.ID, guestA); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, time.November, 1, 9, 0, 0, 0, time.UTC)
+	g := NewSiteGuess{Date: accountDay, Player: guestA, Pin: geo.Point{Lat: 1, Lon: 2}, AnsweredAt: at, Deadline: at.Add(8 * time.Hour)}
+	done := make(chan error, 1)
+	go func() { done <- s.InsertSiteGuess(ctx, g) }()
+	stillWaiting(t, done)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; !errors.Is(err, ErrPlayerTaken) {
+		t.Fatalf("a guest's answer for a player taken in = %v", err)
+	}
+	if n := countOf(t, s, `SELECT count(*) FROM maply.site_guess`); n != 0 {
+		t.Fatal("the guest's answer went into the account")
+	}
+	// The account names its players; a guest's name does not reach them.
+	name := "Mallory"
+	if err := s.SitePlayer(ctx, guestA, &name); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOf(t, s, `SELECT count(*) FROM maply.site_player WHERE id = $1 AND name IS NULL`, guestA); n != 1 {
+		t.Fatal("a guest renamed the account's player")
+	}
+	// A guest nobody has taken answers as before.
+	g.Player = guestB
+	if err := s.InsertSiteGuess(ctx, g); err != nil {
+		t.Fatal(err)
 	}
 }

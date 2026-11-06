@@ -144,7 +144,7 @@ func (s *Server) freeViewer(w http.ResponseWriter, r *http.Request, lim *limiter
 	v := freeViewer{who: free.Who{Player: sv.Player}, lang: i18n.Resolve(r.URL.Query().Get("lang")), site: true}
 	if v.who.Player == "" && write {
 		v.who.Player = newPlayerID()
-		setPlayer(w, v.who.Player)
+		setPlayer(w, r, v.who.Player)
 	}
 	return v, nil
 }

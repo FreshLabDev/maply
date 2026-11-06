@@ -155,6 +155,36 @@ func (z Zones) FirstReveal(d Date) time.Time {
 	return first
 }
 
+// Within is loc when its clock at t is between the westmost and the
+// eastmost zone maply offers, else the nearer of those two. A day there
+// then begins after it has begun in some chat and reveals between the
+// first and the last chat's reveal: a zone further east, such as UTC+14,
+// would score its answers before any chat has its result.
+func (z Zones) Within(loc *time.Location, t time.Time) *time.Location {
+	_, off := t.In(loc).Zone()
+	var west, east *time.Location
+	var min, max int
+	for _, name := range ZoneChoices {
+		c := z.locs[name]
+		_, o := t.In(c).Zone()
+		if west == nil || o < min {
+			west, min = c, o
+		}
+		if east == nil || o > max {
+			east, max = c, o
+		}
+	}
+	switch {
+	case west == nil:
+		return loc
+	case off < min:
+		return west
+	case off > max:
+		return east
+	}
+	return loc
+}
+
 // LastReveal is when d's place is out in every zone maply offers. Until then
 // someone may still be answering d, so the day's world ranking is not final.
 func (z Zones) LastReveal(d Date) time.Time {

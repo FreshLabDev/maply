@@ -129,12 +129,32 @@ type NewGuess struct {
 	Deadline   time.Time
 }
 
+// InsertGuess stores the person's one answer of the day. A site answer of
+// the day that their account holds is that answer already: it stayed a site
+// row because it came, or was taken in, after their deadline, when they may
+// have seen the place in a chat, and a second answer in a chat could be one
+// given knowing it.
 func (s *Store) InsertGuess(ctx context.Context, g NewGuess) error {
 	var chatID any
 	if g.Context == "group" {
 		chatID = g.ChatID
 	}
-	tag, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("insert guess: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockPerson(ctx, tx, g.UserID); err != nil {
+		return fmt.Errorf("insert guess: %w", err)
+	}
+	var site bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (`+personSiteGuess+`)`, g.Date.Time(), g.UserID).Scan(&site); err != nil {
+		return fmt.Errorf("insert guess: %w", err)
+	}
+	if site {
+		return ErrAlreadyAnswered
+	}
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO guess (date, user_id, context, chat_id, lat, lon, answered_at, deadline_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (date, user_id) DO NOTHING`,
@@ -145,7 +165,38 @@ func (s *Store) InsertGuess(ctx context.Context, g NewGuess) error {
 	if tag.RowsAffected() == 0 {
 		return ErrAlreadyAnswered
 	}
-	return nil
+	return tx.Commit(ctx)
+}
+
+// personSiteGuess is the site rows of date $1 held by the account of the
+// Telegram person $2.
+const personSiteGuess = `
+	SELECT sg.lat, sg.lon FROM site_guess sg
+	  JOIN site_player sp ON sp.id = sg.player
+	  JOIN account a ON a.id = sp.account_id
+	 WHERE sg.date = $1 AND a.telegram_user_id = $2`
+
+// lockPerson holds the person's answers until the transaction ends. An
+// answer in a chat and a sign-in that settles the site's rows into Telegram
+// take turns: without it each could miss the other's uncommitted row, and
+// the day would end with two answers of one person.
+func lockPerson(ctx context.Context, tx pgx.Tx, userID int64) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('maply.person.' || $1::bigint::text, 0))`, userID)
+	return err
+}
+
+// PersonSitePin is the pin of the site answer of d that the Telegram
+// person's account holds, the earliest when there are several.
+func (s *Store) PersonSitePin(ctx context.Context, d round.Date, userID int64) (geo.Point, bool, error) {
+	var p geo.Point
+	err := s.pool.QueryRow(ctx, personSiteGuess+` ORDER BY sg.answered_at, sg.player LIMIT 1`, d.Time(), userID).Scan(&p.Lat, &p.Lon)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return geo.Point{}, false, nil
+	}
+	if err != nil {
+		return geo.Point{}, false, fmt.Errorf("person site pin: %w", err)
+	}
+	return p, true, nil
 }
 
 // Guess is one stored answer. Score fields are nil until it is scored, which

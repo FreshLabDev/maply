@@ -38,18 +38,28 @@ func (w Who) arg() any {
 	return w.Player
 }
 
-// siteRows is the condition on who's own rows of site_guess under alias a.
-func (w Who) siteRows(a string) string {
+// siteRows is the condition on who's own rows of site_guess under alias a,
+// on days up to closed, the placeholder of the latest day over everywhere.
+//
+// A Telegram person's site rows are the guests their account took in, and
+// they count only on a day over everywhere and only when given before the
+// day's first reveal. Before that the person may still answer the day in a
+// chat whose reveal is ahead, and the row's place would tell them where to
+// pin; a late row was given while the place was out in a chat they may
+// have seen. Both stay off every profile of theirs, their own too.
+func (w Who) siteRows(a, closed string) string {
+	upTo := a + "date <= " + closed
 	switch {
 	case w.UserID != 0:
 		return a + `player IN (SELECT sp.id FROM site_player sp JOIN account ac ON ac.id = sp.account_id
 		                        WHERE ac.telegram_user_id = $1)
+		   AND NOT ` + a + `late AND ` + upTo + `
 		   AND NOT EXISTS (SELECT 1 FROM guess t
 		                    WHERE t.user_id = $1 AND t.date = ` + a + `date AND ` + scored("t.") + `)`
 	case w.Account != "":
-		return a + "player IN (SELECT id FROM site_player WHERE account_id = $1::uuid)"
+		return a + "player IN (SELECT id FROM site_player WHERE account_id = $1::uuid) AND " + upTo
 	}
-	return a + "player = $1::uuid"
+	return a + "player = $1::uuid AND " + upTo
 }
 
 // scored is the condition on a guess or site_guess row that has its score.
@@ -80,14 +90,15 @@ type PlayedDay struct {
 	Of   int
 }
 
-// PlayedDays are who's scored answers on dates up to upTo, oldest first. The
-// caller decides upTo from what the viewer may see: a day still open
-// somewhere is not anyone else's to read.
-func (s *Store) PlayedDays(ctx context.Context, who Who, upTo round.Date) ([]PlayedDay, error) {
+// PlayedDays are who's scored answers on dates up to upTo, oldest first, and
+// their site rows only up to closed, the latest day over everywhere (see
+// siteRows). The caller decides upTo from what the viewer may see: a day
+// still open somewhere is not anyone else's to read.
+func (s *Store) PlayedDays(ctx context.Context, who Who, upTo, closed round.Date) ([]PlayedDay, error) {
 	days := `(SELECT DISTINCT ON (g.date) g.date, g.lat, g.lon, g.km, g.pts_km + g.pts_bonus AS points, 0 AS speed,
 	                 g.pts_bonus, NULL::bigint AS user_id, g.player
 	            FROM site_guess g
-	           WHERE ` + who.siteRows("g.") + ` AND g.date <= $2 AND ` + scored("g.") + `
+	           WHERE ` + who.siteRows("g.", "$3") + ` AND g.date <= $2 AND ` + scored("g.") + `
 	           ORDER BY g.date, g.answered_at, g.player)`
 	if who.UserID != 0 {
 		days = `SELECT date, lat, lon, km, pts_km + pts_bonus + COALESCE(pts_speed, 0) AS points, COALESCE(pts_speed, 0) AS speed,
@@ -107,7 +118,7 @@ func (s *Store) PlayedDays(ctx context.Context, who Who, upTo round.Date) ([]Pla
 		  LEFT JOIN day_place ds ON ds.player = d.player AND ds.date = d.date
 		 ORDER BY d.date`
 	arg := who.arg()
-	rows, err := s.pool.Query(ctx, q, arg, upTo.Time())
+	rows, err := s.pool.Query(ctx, q, arg, upTo.Time(), closed.Time())
 	if err != nil {
 		return nil, fmt.Errorf("played days: %w", err)
 	}
@@ -142,8 +153,9 @@ type Standing struct {
 }
 
 // Standings compare who's days on dates with every scored answer of those
-// days, Telegram and site alike, on points without the speed bonus.
-func (s *Store) Standings(ctx context.Context, who Who, dates []round.Date) ([]Standing, error) {
+// days, Telegram and site alike, on points without the speed bonus. Site
+// rows count up to closed, as in PlayedDays.
+func (s *Store) Standings(ctx context.Context, who Who, dates []round.Date, closed round.Date) ([]Standing, error) {
 	if len(dates) == 0 {
 		return nil, nil
 	}
@@ -153,7 +165,7 @@ func (s *Store) Standings(ctx context.Context, who Who, dates []round.Date) ([]S
 	}
 	mine := `(SELECT DISTINCT ON (g.date) g.date, g.pts_km + g.pts_bonus AS base
 	            FROM site_guess g
-	           WHERE ` + who.siteRows("g.") + ` AND g.date = ANY($2::date[]) AND ` + scored("g.") + `
+	           WHERE ` + who.siteRows("g.", "$3") + ` AND g.date = ANY($2::date[]) AND ` + scored("g.") + `
 	           ORDER BY g.date, g.answered_at, g.player)`
 	if who.UserID != 0 {
 		mine = `SELECT date, pts_km + pts_bonus AS base FROM guess
@@ -168,7 +180,7 @@ func (s *Store) Standings(ctx context.Context, who Who, dates []round.Date) ([]S
 		       count(*)
 		  FROM mine m JOIN day_score ds ON ds.date = m.date
 		 GROUP BY m.date
-		 ORDER BY m.date`, who.arg(), ts)
+		 ORDER BY m.date`, who.arg(), ts, closed.Time())
 	if err != nil {
 		return nil, fmt.Errorf("standings: %w", err)
 	}

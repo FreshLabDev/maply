@@ -274,3 +274,163 @@ func TestACookieTheAccountTookInOpensNothing(t *testing.T) {
 		t.Fatalf("the account's player has %d answers, %v", n, err)
 	}
 }
+
+// One answer a day for the bot and the site. A guest's answer that a
+// Telegram sign-in takes in after the person's deadline stays a site row,
+// and the bot takes no other answer of the day, from any chat. Aleś speaks
+// Belarusian (the DM's 20:00 is 17:00 UTC) and plays only in the Kyiv group
+// (18:00 UTC); he never wrote to the bot.
+func TestAGuestAnswerTakenInIsTheDaysAnswer(t *testing.T) {
+	hs := setup(t)
+	ctx := context.Background()
+	hs.srv.Members.(members)[[2]int64{kyivGroup, 7}] = true
+	inGroup := initData(7, "Aleś", "be", hs.payload(kyivGroup))
+	hs.now = time.Date(2026, time.December, 10, 9, 0, 0, 0, time.UTC)
+	hs.expect("GET", "/api/today", inGroup, "", http.StatusOK)
+
+	send := func(method, path, cookie, session, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: playerCookie, Value: cookie})
+		}
+		if session != "" {
+			req.AddCookie(&http.Cookie{Name: account.SessionCookie, Value: session})
+		}
+		rr := httptest.NewRecorder()
+		hs.h.ServeHTTP(rr, req)
+		return rr
+	}
+	// 09:00: a guest pins at random on the site, on Minsk's clock.
+	rr := send("POST", "/api/site/guess?tz=Europe/Minsk", "", "", `{"lat":10,"lon":10}`)
+	var guest string
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == playerCookie {
+			guest = c.Value
+		}
+	}
+	if rr.Code != http.StatusOK || guest == "" {
+		t.Fatalf("guest guess = %d %s", rr.Code, rr.Body)
+	}
+
+	// 17:05, past the DM's deadline: he signs in with Telegram and takes the
+	// guest's answer in. It stays a site row, marked late.
+	hs.now = time.Date(2026, time.December, 10, 17, 5, 0, 0, time.UTC)
+	session := hs.signIn(7, "Aleś")
+	if rr := send("POST", "/api/account/adopt", guest, session, `{"take":true}`); rr.Code != http.StatusOK {
+		t.Fatalf("adopt = %d %s", rr.Code, rr.Body)
+	}
+	var late bool
+	if err := hs.pool.QueryRow(ctx, `SELECT late FROM maply.site_guess WHERE player = $1`, guest).Scan(&late); err != nil || !late {
+		t.Fatalf("the guest's answer: late %v, %v", late, err)
+	}
+
+	// 17:10: the Kyiv group is still guessing, and takes no second answer
+	// of his.
+	hs.now = time.Date(2026, time.December, 10, 17, 10, 0, 0, time.UTC)
+	status, body := hs.do("POST", "/api/guess", inGroup, `{"lat":49.8419,"lon":24.0315}`)
+	if status != http.StatusConflict || !strings.Contains(body, "already_answered") || leaks(body) {
+		t.Fatalf("a group answer beside the site's = %d %s", status, body)
+	}
+	// The Mini App shows the answer he has and waits for the result: the
+	// place is not his to see before the group's reveal.
+	var today todayResponse
+	if err := json.Unmarshal([]byte(hs.expect("GET", "/api/today", inGroup, "", http.StatusOK)), &today); err != nil ||
+		today.Answer == nil || today.Answer.Lat != 10 || today.Answer.Lon != 10 {
+		t.Fatalf("today in the group = %+v, %v", today, err)
+	}
+	if status, body := hs.do("GET", "/api/result", inGroup, ""); status != http.StatusForbidden || leaks(body) {
+		t.Fatalf("result before the group's reveal = %d %s", status, body)
+	}
+	var n int
+	if err := hs.pool.QueryRow(ctx, `SELECT count(*) FROM maply.guess WHERE user_id = 7`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("%d Telegram answers beside the site's, %v", n, err)
+	}
+}
+
+// The site plays in a zone between the westmost and the eastmost maply
+// offers. UTC+14 would close a guest's answers, and score them, before any
+// chat's reveal.
+func TestTheSiteKeepsToTheZonesMaplyOffers(t *testing.T) {
+	hs := setup(t)
+	hs.now = time.Date(2026, time.December, 10, 8, 0, 0, 0, time.UTC)
+	send := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		rr := httptest.NewRecorder()
+		hs.h.ServeHTTP(rr, req)
+		return rr
+	}
+	for tz, want := range map[string]string{
+		"Etc/GMT-14":         "Australia/Sydney",
+		"Pacific/Honolulu":   "America/Los_Angeles",
+		"Asia/Yekaterinburg": "Asia/Yekaterinburg",
+	} {
+		var today todayResponse
+		if err := json.Unmarshal(send("GET", "/api/site/today?tz="+tz, "").Body.Bytes(), &today); err != nil || today.Zone != want {
+			t.Errorf("site today in %s: zone %q, want %q (%v)", tz, today.Zone, want, err)
+		}
+	}
+	if rr := send("POST", "/api/site/guess?tz=Etc/GMT-14", `{"lat":10,"lon":10}`); rr.Code != http.StatusOK {
+		t.Fatalf("an answer from UTC+14 = %d %s", rr.Code, rr.Body)
+	}
+	var deadline time.Time
+	if err := hs.pool.QueryRow(context.Background(), `SELECT deadline_at FROM maply.site_guess`).Scan(&deadline); err != nil {
+		t.Fatal(err)
+	}
+	if first := hs.srv.Zones.FirstReveal(hs.date); deadline.Before(first) {
+		t.Fatalf("the answer closes at %v, before the first reveal at %v", deadline, first)
+	}
+}
+
+// A browser from before the prefix keeps its guest: the old cookie is read
+// and moved to the new name. Once moved, an old cookie planted beside it is
+// not read.
+func TestAnOldGuestCookieMoves(t *testing.T) {
+	hs := setup(t)
+	hs.now = time.Date(2026, time.December, 10, 11, 0, 0, 0, time.UTC)
+	hs.signIn(9, "Somebody") // the site's sign-in, and its middleware
+	send := func(method, path, body string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		for _, c := range cookies {
+			req.AddCookie(c)
+		}
+		rr := httptest.NewRecorder()
+		hs.h.ServeHTTP(rr, req)
+		return rr
+	}
+	cookies := func(rr *httptest.ResponseRecorder) map[string]*http.Cookie {
+		out := map[string]*http.Cookie{}
+		for _, c := range rr.Result().Cookies() {
+			out[c.Name] = c
+		}
+		return out
+	}
+	rr := send("POST", "/api/site/guess?tz=Europe/Kyiv", `{"lat":49.9,"lon":24.1}`)
+	c := cookies(rr)[account.GuestCookie]
+	if rr.Code != http.StatusOK || c == nil || !c.Secure || !c.HttpOnly || c.Path != "/" || c.Domain != "" || !strings.HasPrefix(c.Name, "__Host-") {
+		t.Fatalf("guest answer = %d, cookie %+v", rr.Code, c)
+	}
+	guest := c.Value
+
+	answered := func(rr *httptest.ResponseRecorder) bool {
+		var today todayResponse
+		return json.Unmarshal(rr.Body.Bytes(), &today) == nil && today.Answer != nil
+	}
+	rr = send("GET", "/api/site/today?tz=Europe/Kyiv", "", &http.Cookie{Name: account.OldGuestCookie, Value: guest})
+	got := cookies(rr)
+	if !answered(rr) || got[account.GuestCookie] == nil || got[account.GuestCookie].Value != guest ||
+		got[account.OldGuestCookie] == nil || got[account.OldGuestCookie].MaxAge >= 0 {
+		t.Fatalf("the old cookie: answered %v, cookies %v", answered(rr), rr.Result().Cookies())
+	}
+	planted := "44444444-4444-4444-8444-444444444444"
+	rr = send("GET", "/api/site/today?tz=Europe/Kyiv", "",
+		&http.Cookie{Name: account.OldGuestCookie, Value: planted}, &http.Cookie{Name: account.GuestCookie, Value: guest})
+	if !answered(rr) || len(rr.Result().Cookies()) != 0 {
+		t.Fatalf("beside the new cookie the old one counted: answered %v, cookies %v", answered(rr), rr.Result().Cookies())
+	}
+}

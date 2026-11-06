@@ -166,8 +166,10 @@ the diff looks like.
   earliest site answer stays, and becomes the Telegram answer only when both
   the answer and the merge come before the person's Telegram deadline: after
   it they may have seen the place, and would pick the best of several
-  guests' answers. A Telegram answer is never replaced. The Mini App's
-  ticket links Google but never merges two accounts.
+  guests' answers. Such a row, kept for an account with Telegram, is marked
+  late and is the person's answer of the day: `/api/guess` and the bot take
+  no other. A Telegram answer is never replaced. The Mini App's ticket
+  links Google but never merges two accounts.
 - A name typed on the site is not checked: bot posts call that player "Guest".
   The site's write endpoints take only JSON from maply's own pages.
 - A profile shows its owner every scored day, today's too, signed in on
@@ -175,6 +177,11 @@ the diff looks like.
   account without Telegram looking at their own, gets only days over in
   every zone (`profile.LatestClosed`), with no pins, history or answer
   times. A world place and the percentile count only days over everywhere.
+  A guest's site answer that a Telegram account took in counts on that
+  person's profiles, their own too, only on a day over everywhere and only
+  when given before the day's first reveal (`site_guess.late`): before
+  that its place would tell them where to pin in a chat whose reveal is
+  ahead. `TestATakenGuestAnswerWaitsForTheDayToClose` covers it.
   A mini profile
   opens by an opaque handle (`profile.Handles`) that the server puts only
   next to a name it already shows, never on an anonymous row, so a handle
@@ -199,7 +206,9 @@ the diff looks like.
   zone, with no id, username, photo, handle, pins, history or answer
   times, and both ask search engines to stay away. "Hide me" closes it
   until the player shows again; the preview may stay at the edge for the
-  five minutes it is cached.
+  five minutes it is cached. The preview has one address: a query is
+  redirected to it, so new keys cannot make the edge fetch it again, and
+  only a drawing counts against the limit from everyone.
 - `/api/log` strips query strings, which can carry `initData`, and is rate
   limited per address and in total.
 - A free place never becomes a day's place: the day's queue reads
