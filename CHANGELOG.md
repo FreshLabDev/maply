@@ -144,7 +144,10 @@ For the operator:
   already existed.
 - An accounts page: link and unlink Telegram and Google, sign out here or on
   every device, delete the account. Two accounts merge when one's sign-in is
-  linked to the other; a closed day is never rewritten. In the Mini App,
+  linked to the other; a closed day is never rewritten. A guest's answer
+  that an account with Telegram takes in after the person's deadline stays
+  a site row, marked late, and the bot takes no other answer that day. In
+  the Mini App,
   linking Google opens the phone's browser with a five-minute ticket that
   names the Telegram account before going to Google; a Google that has an
   account of its own is linked from the site instead, so a ticket never

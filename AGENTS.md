@@ -166,8 +166,10 @@ the diff looks like.
   earliest site answer stays, and becomes the Telegram answer only when both
   the answer and the merge come before the person's Telegram deadline: after
   it they may have seen the place, and would pick the best of several
-  guests' answers. A Telegram answer is never replaced. The Mini App's
-  ticket links Google but never merges two accounts.
+  guests' answers. Such a row, kept for an account with Telegram, is marked
+  late and is the person's answer of the day: `/api/guess` and the bot take
+  no other. A Telegram answer is never replaced. The Mini App's ticket
+  links Google but never merges two accounts.
 - A name typed on the site is not checked: bot posts call that player "Guest".
   The site's write endpoints take only JSON from maply's own pages.
 - A profile shows its owner every scored day, today's too, signed in on

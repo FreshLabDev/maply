@@ -414,11 +414,21 @@ func (s *Store) unifyNames(ctx context.Context, tx pgx.Tx, accountID string) err
 // that answer came before the Telegram deadline, it was given blind, and it
 // becomes the Telegram answer; a Telegram answer already there wins, and the
 // site's go. One after the deadline stays a site row, below every Telegram
-// row: by then the person may have seen the place in a chat.
+// row: by then the person may have seen the place. It is marked late too,
+// as an answer given then would be, so it never counts as the person's day:
+// which of several browsers to sign in from may have been picked knowing
+// the place.
 func (s *Store) settle(ctx context.Context, tx pgx.Tx, accountID string, rules Rules) error {
 	var tgID int64
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(telegram_user_id, 0) FROM account WHERE id = $1`, accountID).Scan(&tgID); err != nil {
 		return fmt.Errorf("settle: %w", err)
+	}
+	if tgID != 0 {
+		// An answer in a chat at this moment waits, then sees the rows this
+		// one keeps; or it went in first, and the query below sees it.
+		if err := lockPerson(ctx, tx, tgID); err != nil {
+			return fmt.Errorf("settle: %w", err)
+		}
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT sg.date, sg.player::text, sg.lat, sg.lon, sg.answered_at
@@ -473,6 +483,11 @@ func (s *Store) settle(ctx context.Context, tx pgx.Tx, accountID string, rules R
 				return fmt.Errorf("settle: deadline: %w", err)
 			}
 			if x.at.After(deadline) || rules.Now.IsZero() || !rules.Now.Before(deadline) {
+				if !rules.Now.IsZero() {
+					if _, err := tx.Exec(ctx, `UPDATE site_guess SET late = true WHERE date = $1 AND player = $2 AND NOT late`, x.date, x.player); err != nil {
+						return fmt.Errorf("settle: mark late: %w", err)
+					}
+				}
 				continue
 			}
 			if _, err := tx.Exec(ctx, `

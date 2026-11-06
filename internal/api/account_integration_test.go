@@ -274,3 +274,77 @@ func TestACookieTheAccountTookInOpensNothing(t *testing.T) {
 		t.Fatalf("the account's player has %d answers, %v", n, err)
 	}
 }
+
+// One answer a day for the bot and the site. A guest's answer that a
+// Telegram sign-in takes in after the person's deadline stays a site row,
+// and the bot takes no other answer of the day, from any chat. Aleś speaks
+// Belarusian (the DM's 20:00 is 17:00 UTC) and plays only in the Kyiv group
+// (18:00 UTC); he never wrote to the bot.
+func TestAGuestAnswerTakenInIsTheDaysAnswer(t *testing.T) {
+	hs := setup(t)
+	ctx := context.Background()
+	hs.srv.Members.(members)[[2]int64{kyivGroup, 7}] = true
+	inGroup := initData(7, "Aleś", "be", hs.payload(kyivGroup))
+	hs.now = time.Date(2026, time.December, 10, 9, 0, 0, 0, time.UTC)
+	hs.expect("GET", "/api/today", inGroup, "", http.StatusOK)
+
+	send := func(method, path, cookie, session, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: playerCookie, Value: cookie})
+		}
+		if session != "" {
+			req.AddCookie(&http.Cookie{Name: account.SessionCookie, Value: session})
+		}
+		rr := httptest.NewRecorder()
+		hs.h.ServeHTTP(rr, req)
+		return rr
+	}
+	// 09:00: a guest pins at random on the site, on Minsk's clock.
+	rr := send("POST", "/api/site/guess?tz=Europe/Minsk", "", "", `{"lat":10,"lon":10}`)
+	var guest string
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == playerCookie {
+			guest = c.Value
+		}
+	}
+	if rr.Code != http.StatusOK || guest == "" {
+		t.Fatalf("guest guess = %d %s", rr.Code, rr.Body)
+	}
+
+	// 17:05, past the DM's deadline: he signs in with Telegram and takes the
+	// guest's answer in. It stays a site row, marked late.
+	hs.now = time.Date(2026, time.December, 10, 17, 5, 0, 0, time.UTC)
+	session := hs.signIn(7, "Aleś")
+	if rr := send("POST", "/api/account/adopt", guest, session, `{"take":true}`); rr.Code != http.StatusOK {
+		t.Fatalf("adopt = %d %s", rr.Code, rr.Body)
+	}
+	var late bool
+	if err := hs.pool.QueryRow(ctx, `SELECT late FROM maply.site_guess WHERE player = $1`, guest).Scan(&late); err != nil || !late {
+		t.Fatalf("the guest's answer: late %v, %v", late, err)
+	}
+
+	// 17:10: the Kyiv group is still guessing, and takes no second answer
+	// of his.
+	hs.now = time.Date(2026, time.December, 10, 17, 10, 0, 0, time.UTC)
+	status, body := hs.do("POST", "/api/guess", inGroup, `{"lat":49.8419,"lon":24.0315}`)
+	if status != http.StatusConflict || !strings.Contains(body, "already_answered") || leaks(body) {
+		t.Fatalf("a group answer beside the site's = %d %s", status, body)
+	}
+	// The Mini App shows the answer he has and waits for the result: the
+	// place is not his to see before the group's reveal.
+	var today todayResponse
+	if err := json.Unmarshal([]byte(hs.expect("GET", "/api/today", inGroup, "", http.StatusOK)), &today); err != nil ||
+		today.Answer == nil || today.Answer.Lat != 10 || today.Answer.Lon != 10 {
+		t.Fatalf("today in the group = %+v, %v", today, err)
+	}
+	if status, body := hs.do("GET", "/api/result", inGroup, ""); status != http.StatusForbidden || leaks(body) {
+		t.Fatalf("result before the group's reveal = %d %s", status, body)
+	}
+	var n int
+	if err := hs.pool.QueryRow(ctx, `SELECT count(*) FROM maply.guess WHERE user_id = 7`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("%d Telegram answers beside the site's, %v", n, err)
+	}
+}
