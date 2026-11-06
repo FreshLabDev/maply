@@ -300,6 +300,13 @@ func (s *Scheduler) worldMarkup(c db.Chat, d round.Date, lang string, final bool
 // final picture in every DM result and the final world line in every group
 // result. Both are edits, so a group still gets three messages a day.
 func (s *Scheduler) worldFinal(ctx context.Context, j db.Job) error {
+	// The job's own time is not trusted: a job planned or moved by hand, or a
+	// clock that jumped, would keep the day while it is still played
+	// somewhere, and the archive, the days and their strips read the place
+	// from day_closed.
+	if last := s.Zones.LastReveal(j.Date); s.now().Before(last) {
+		return laterError{last.Add(worldAfter)}
+	}
 	rd, ok, err := s.Store.RoundOn(ctx, j.Date)
 	if err != nil || !ok {
 		return orSkip(err)

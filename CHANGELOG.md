@@ -234,6 +234,10 @@ For the operator:
 
 - A day takes only a 360° panorama. The queue let an approved flat photo
   become a day; prod had 42 of them, now rejected by hand.
+- The final world job keeps a day as over in every zone only once the
+  latest reveal has passed, whenever the job runs. A job moved by hand or a
+  clock that jumped would have put a day still in play into the free
+  game's archive; it now goes back to the queue for its time.
 
 - `maply-places` wrote a heading of 359.96° as `360.0`, which the schema
   refuses, and the whole `places.sql` failed to load. It is written as `0.0`.
