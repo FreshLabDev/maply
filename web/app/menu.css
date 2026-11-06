@@ -1,0 +1,76 @@
+/* The menu at "/" (menu.js): the day's card first and largest, the free game's modes, then the days, the leaderboards
+   and the profile. A phone and a tablet have one column; a computer has the day and the modes side by side, the pages
+   in a row under them. The page itself is desktop.css's shell, .dk-page with .dk-wrap. Asterfield rules as in
+   app.css: one field colour, no shadows, rounded corners or transparency. */
+.pg:not(.on) { display: none; }
+.pg:focus { outline: none; }
+/* Over a page the day's clock and its table have nothing to say, and stay out of the reader's way. */
+.is-page .top .timer, .is-page .top .prog { visibility: hidden; }
+.dk-page a.mn-day, .dk-page a.mn-mode, .dk-page a.mn-more { color: var(--ink); text-decoration: none; }
+
+/* The day */
+.mn-dayslot { display: flex; }
+.mn-day { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--field-deep); }
+.mn-shot { display: block; height: 132px; background: var(--field-tint) 50% 50% / cover no-repeat; }
+.mn-shot.pano { background-size: 300% auto; background-position: 50% 52%; }
+.mn-cr { display: block; padding: 6px 16px 0; color: var(--ink-muted); font-size: 11px; line-height: 1.3; overflow-wrap: anywhere; }
+.mn-in { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 14px 16px 16px; }
+.mn-l { color: var(--ink-muted); font-size: 12px; }
+.mn-n { font: 700 44px/.95 var(--display); letter-spacing: .02em; white-space: nowrap; }
+.mn-st { margin: 0; color: var(--ink-soft); }
+.mn-score { margin: 2px 0 0; color: var(--ink-soft); font: 700 15px/1.1 var(--label); letter-spacing: .04em; text-transform: uppercase; }
+.mn-score b { font: 700 40px/1 var(--display); letter-spacing: .02em; color: var(--ink); white-space: nowrap; }
+.mn-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; margin-top: 10px; }
+.mn-clock:empty { display: none; }
+.mn-clock b { font: 700 26px/1 var(--display); letter-spacing: .02em; white-space: nowrap; }
+.mn-clock .up { color: var(--ink-muted); font-size: 12px; }
+.mn-go { display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 22px; margin-inline-start: auto;
+         background: var(--field); color: var(--ink); font: 700 15px/1 var(--label); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+/* Still to play: the one white button on the page. */
+.mn-play .mn-go { background: var(--panel); color: var(--on-panel); }
+
+/* The free game's modes: one list, no place in the world, the same green as the day. */
+.mn-free { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mn-h { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding-top: 6px; }
+.mn-h b { font: 700 28px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; }
+.mn-h .up { color: var(--ink-muted); font-size: 12px; }
+.mn-modes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.mn-mode { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 0 16px; background: var(--field-deep); }
+.mn-mode b { font: 700 22px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; overflow-wrap: anywhere; }
+.mn-mode em, .mn-more em { font-style: normal; color: var(--ink-muted); }
+
+/* The pages */
+.mn-pages { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.mn-more { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t e" "h e"; align-items: center; gap: 4px 12px; padding: 14px 16px; background: var(--field-deep); }
+.mn-more b { grid-area: t; font: 700 26px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; }
+.mn-more span { grid-area: h; color: var(--ink-muted); font-size: 14px; }
+.mn-more em { grid-area: e; font-size: 20px; }
+
+@media (hover: hover) {
+  .mn-day:hover .mn-go { background: var(--field-tint); }
+  .mn-play:hover .mn-go { background: var(--ink-soft); }
+  .mn-mode:hover, .mn-more:hover { box-shadow: inset 0 0 0 2px var(--field-tint); }
+  .mn-mode:hover em, .mn-more:hover em { color: var(--ink); }
+}
+
+/* ---------- Computer: the day and the modes side by side, the pages in a row ---------- */
+.desk .mn-dayslot { grid-column: span 7; }
+.desk .mn-free { grid-column: span 5; gap: 12px; }
+.desk .mn-pages { grid-column: 1 / -1; grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--gap); }
+/* The picture takes what the modes beside it leave. */
+.desk .mn-shot { flex: 1; height: auto; min-height: 220px; }
+.desk .mn-in { padding: 22px 28px 28px; gap: 8px; }
+.desk .mn-cr { padding: 8px 28px 0; }
+.desk .mn-n { font-size: 72px; }
+.desk .mn-score b { font-size: 56px; }
+.desk .mn-st { font-size: 17px; }
+.desk .mn-clock b { font-size: 34px; }
+.desk .mn-go { height: 56px; padding: 0 28px; font-size: 17px; }
+.desk .mn-h { padding-top: 0; }
+.desk .mn-h b { font-size: 34px; }
+.desk .mn-modes { flex: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(104px, 1fr); gap: 8px; }
+.desk .mn-mode { align-items: flex-end; padding: 18px 20px; }
+.desk .mn-mode b { font-size: 30px; }
+.desk .mn-more { padding: 24px 28px; }
+.desk .mn-more b { font-size: 34px; }
+.desk .mn-more span { font-size: 15px; }

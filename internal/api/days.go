@@ -184,6 +184,8 @@ type rankLine struct {
 	// Who is the player's handle for the mini profile, for a named Telegram
 	// player only.
 	Who string `json:"who,omitempty"`
+	// Anon is a player who hid themselves, "Anonymous" here.
+	Anon bool `json:"anon,omitempty"`
 }
 
 // dayMe is the viewer's own answer on a closed day, with the parts of its
@@ -283,8 +285,8 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 	if more.Thumb != "" {
 		resp.Thumb = thumbPath(more.Thumb, true)
 	}
-	// A player who asked to be hidden is a Telegram player to whoever is not
-	// in their groups, and has no handle there.
+	// A player who asked to be hidden is "Anonymous" to whoever is not in
+	// their groups, and has no handle there.
 	var ids []int64
 	for i, e := range world.Entries {
 		if e.UserID != 0 && e.UserID != v.user && i < rankShown {
@@ -306,7 +308,7 @@ func (s *Server) day(w http.ResponseWriter, r *http.Request) {
 			l := rankLine{Rank: e.Rank, Name: e.Name, Site: e.Site(), Km: e.Km, Points: e.Points, Me: me}
 			switch {
 			case hidden[e.UserID]:
-				l.Name = tgPlayer(v.lang)
+				l.Name, l.Anon = anonName(v.lang), true
 			case e.UserID != 0:
 				l.Who = handles.Of(e.UserID, scope)
 			}

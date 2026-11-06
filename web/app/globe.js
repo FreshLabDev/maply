@@ -177,7 +177,7 @@ const createGlobe = (() => {
     }
     function toMini(ms) {
       cancelAnimationFrame(tween); map.stop(); fitCanvas();
-      setMode("mini");
+      setMode("mini"); opening = false;
       const z0 = map.getZoom(), c0 = map.getCenter(), p0 = map.getPadding(), t0 = performance.now();
       const c1 = { lng: (guess || c0).lng, lat: miniLat((guess || c0).lat) }, dl = ((c1.lng - c0.lng + 540) % 360) - 180;
       if (!ms) { map.jumpTo({ ...miniCam(c1.lat), center: [c1.lng, c1.lat] }); return; }
@@ -201,7 +201,18 @@ const createGlobe = (() => {
       const c = bigCam();
       // Already big (the answer just went out): only the padding and the centre move, the zoom stays where it is.
       const zoom = was === "big" ? map.getZoom() : guess ? Math.max(map.getZoom(), 2.2) : c.zoom;
+      opening = true; openZoom = zoom;
       map.easeTo({ ...c, zoom, center: guess || map.getCenter(), duration: ms === undefined ? 750 : ms, easing: easeOut });
+    }
+    // A press on the map stops MapLibre's camera, the opening's padding and zoom with it: a click while the panel was
+    // opening left the globe small in the panel's corner. Once the camera stands still the big view takes its padding
+    // back, and its zoom unless the player has come closer.
+    let opening = false, openZoom = 0;
+    function settleOpen() {
+      if (!opening || mode !== "big" || touches || map.isMoving()) return;
+      const p = map.getPadding(), q = bigCam().padding, zoom = Math.max(map.getZoom(), openZoom);
+      if (["top", "right", "bottom", "left"].every((k) => Math.abs(p[k] - q[k]) < 1) && zoom - map.getZoom() < .01) { opening = false; return; }
+      map.easeTo({ padding: q, zoom, duration: 300, easing: easeOut });
     }
 
     // A camera call during a pinch resets the gesture, so in the big view the new padding waits until the map stands
@@ -210,7 +221,7 @@ const createGlobe = (() => {
     box.addEventListener("touchstart", (e) => { touches = e.touches.length; }, { passive: true });
     ["touchend", "touchcancel"].forEach((t) => box.addEventListener(t, (e) => {
       touches = e.touches.length;
-      if (!touches) { refitNow(); if (viewDue) keepInView(); }
+      if (!touches) { refitNow(); settleOpen(); if (viewDue) keepInView(); }
     }, { passive: true }));
     function refitNow() {
       if (!refitDue || !ready) return;
@@ -224,6 +235,7 @@ const createGlobe = (() => {
     const onResize = () => { fitCanvas(); refit(); };
     addEventListener("resize", onResize);
     map.on("moveend", refitNow);
+    map.on("moveend", settleOpen);
     // The box can change size with the window still: a screen moving the map into another part of the page.
     let boxSize = "";
     new ResizeObserver(() => {
@@ -408,6 +420,14 @@ const createGlobe = (() => {
       const lead = it.group === null ? [...friendAt.values()].find((x) => x.group && x.group.includes(it)) : it;
       (lead || it).e.classList.add("lit");
     }
+    // MapLibre works out how flat the globe is while drawing, after the camera's last move: a jump from the whole globe
+    // to a city left the HTML markers where the globe would have put them, the pin a dozen pixels off its line. The
+    // first frame after the camera stops puts them back.
+    function settleMarks() {
+      [marker, marks && marks.targetMarker, ...[...friendAt.values()].map((f) => f.m)].forEach((m) => { if (m) m.setLngLat(m.getLngLat()); });
+      layoutMarks();
+    }
+    map.on("moveend", () => { map.off("render", settleMarks); map.once("render", settleMarks); });
 
     // The answer: the place's target, the others' marks, the line from your pin. Layer order: the world's pins, the
     // others, the target above them, your own pin on top.
@@ -438,7 +458,7 @@ const createGlobe = (() => {
     // The opening frame: the place, your pin and the answers near them. An answer from the other side of the world would
     // zoom out to the whole globe and squeeze the two that matter into one dot, or turn them to its back.
     function frame(duration) {
-      setMode("big");
+      setMode("big"); opening = false;
       cancelAnimationFrame(tween); fitCanvas();
       const { W, H } = size(), i = insets(), c = marks.truth.lng, pts = [[c, marks.truth.lat]];
       if (guess) pts.push(near180([guess.lng, guess.lat], c));

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/FreshLabDev/maply/internal/i18n"
 )
 
 func TestReturnToStaysAPathOnTheSite(t *testing.T) {
@@ -111,6 +113,46 @@ func TestTelegramClaimsMakeAUser(t *testing.T) {
 		_ = json.Unmarshal([]byte(bad), &tc)
 		if _, err := tc.user(true); err == nil {
 			t.Errorf("%s gave a user", bad)
+		}
+	}
+}
+
+// The privacy page names the owner's Telegram for erasing answers, as a link,
+// in every language, and its text stays text.
+func TestPrivacyGivesTheOwnersTelegram(t *testing.T) {
+	svc := New(Config{Key: []byte("k1")})
+	for _, lang := range i18n.Codes() {
+		rec := httptest.NewRecorder()
+		svc.Privacy().ServeHTTP(rec, httptest.NewRequest("GET", "/privacy?lang="+lang, nil))
+		body := rec.Body.String()
+		if rec.Code != http.StatusOK || strings.Count(body, `<a href="https://t.me/amtiyo" dir="ltr">@amtiyo</a>`) != 1 ||
+			strings.Contains(body, "{contact}") || strings.Contains(body, "github.com") || strings.Contains(body, "&lt;a") {
+			t.Errorf("privacy in %s = %d, the contact is missing or broken", lang, rec.Code)
+		}
+		// Navigation is not CSP's to stop, and nothing here may name a target.
+		if csp := rec.Header().Get("Content-Security-Policy"); strings.Contains(csp, "navigate-to") || strings.Contains(body, "target=") {
+			t.Errorf("privacy in %s: CSP %q or a target on a link", lang, csp)
+		}
+	}
+}
+
+// A request that signs for itself is nobody on the site, whatever its
+// cookies: the handlers would otherwise take the guest cookie's player as it
+// is, even one an account has taken in, by sending any Authorization.
+func TestARequestThatSignsForItselfIsNobodyOnTheSite(t *testing.T) {
+	svc := New(Config{Key: []byte("k1")}) // no store: the middleware must not ask it
+	for _, auth := range []string{"tma query_id=x", "Basic eDp5", "x"} {
+		req := httptest.NewRequest("GET", "/api/site/today", nil)
+		req.Header.Set("Authorization", auth)
+		req.AddCookie(&http.Cookie{Name: GuestCookie, Value: "6f1c2a7e-3b4d-4e5f-8a9b-0c1d2e3f4a5b"})
+		req.AddCookie(&http.Cookie{Name: SessionCookie, Value: strings.Repeat("a", 43)})
+		var got Viewer
+		var ok bool
+		svc.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got, ok = ViewerFrom(r.Context())
+		})).ServeHTTP(httptest.NewRecorder(), req)
+		if !ok || got.Player != "" || got.SignedIn() || got.TelegramUserID != 0 {
+			t.Errorf("Authorization %q: viewer %+v, ok %v", auth, got, ok)
 		}
 	}
 }

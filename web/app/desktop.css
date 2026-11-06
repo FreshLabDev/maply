@@ -9,14 +9,16 @@
      1440 px. A Telegram Desktop window (384×694) is a phone until stretched or put full screen.
    - Words that name the input follow the device, not the width: a mouse reads "scroll to zoom", a finger "pinch".
 
-   The base for every screen on a computer (days, the free game, the profile)
-   - Header: 56 px (--top), the field colour, the logo and the day at the start, the screens' links in the middle
-     (Router.screen(…, { nav: { href, t } }) puts one there), the timer, a full screen button in Telegram Desktop,
-     and #acct at the end, an empty slot for the account's button.
-   - A page under the header: .dk-page, which scrolls on its own, over everything but the header, as the days' sheet
-     is. The screen that shows it puts the game out of reach with inert on body's other children (app.js's
-     behindSheet does it for the sheet). Inside, .dk-wrap: 1200 px at most (--page), a 12-column grid with 24 px
-     gaps (--gap).
+   The base for every screen on a computer (the menu, days, the leaderboards, the free game, the profile)
+   - Header: 56 px (--top), the field colour, the logo and the day at the start (the logo opens the menu), the
+     links in the middle: Play (the menu), Days, Leaderboards (desk.js), the timer, a full screen button in Telegram
+     Desktop, and #acct at the end, an empty slot for the account's button.
+   - The page shell, one for every page that is not the game, on every width: .dk-page, which scrolls on its own
+     under the header, over the game, under the sheet. The screen that shows it puts the game out of reach with inert
+     on body's other children (menu.js's cover, app.js's behindSheet for the sheet). Inside, .dk-wrap: --page wide at
+     most, 1440 px, one column on a phone and a tablet (640 px there), 12 columns with 24 px gaps (--gap) on a
+     computer. The menu and the leaderboards (menu.js) are such pages; the days' and the profile's sheets take the
+     same width. A column with numbers or a table gets the room it needs: nothing in it wraps or is cut.
    - Panels: .dk-card, a solid --field-deep plate with 24 px inside. No shadows, no rounded corners, no
      transparency, as everywhere in maply.
    - Type: .dk-h1 40 px and .dk-h2 28 px in the display face, .up for labels (app.css), 15 px text; links in
@@ -30,7 +32,7 @@
 */
 
 /* ---------- Every layout: input, focus, the header's slots ---------- */
-:root { --page: 1200px; --gap: 24px; }
+:root { --page: 1440px; --gap: 24px; }
 @media (hover: hover) and (pointer: fine) {
   :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   /* Inside the map the ring goes in, so the panel's edge does not cut it. */
@@ -47,7 +49,10 @@
 .top .timer { margin-inline-start: auto; }
 .nav, .mapctl { display: none; }
 .acct:empty { display: none; }
-.fs { flex: none; width: 32px; height: 32px; margin-inline-start: 10px; display: grid; place-items: center; color: var(--ink-soft); }
+.fs { flex: none; width: 32px; height: 32px; margin-inline-start: auto; display: grid; place-items: center; color: var(--ink-soft); }
+/* Beside the timer, or at the end on its own when the result has hidden the timer: the header spreads its items
+   apart, and the button would stand in the middle. */
+.top .timer:not(.hidden) + .fs { margin-inline-start: 10px; }
 .fs.on svg { transform: rotate(180deg); }
 .lbh { display: none; }
 
@@ -119,9 +124,12 @@
 .desk .toast { left: 0; right: 0; width: max-content; max-width: min(420px, calc(100% - 48px)); margin: 0 auto; top: calc(var(--top) + var(--safe-top) + 64px); }
 .desk .keys { right: auto; left: calc(24px + var(--safe-left)); bottom: 64px; width: 400px; }
 
-/* The days are a page under the header, its text in a column. */
+/* A sheet is a page under the header, its text in a column. The days and the profile are pages of the shell, as wide
+   as --page. */
 .desk .sheet { top: calc(var(--top) + var(--safe-top)); }
 .desk .sh-top, .desk .sh-body { padding-left: max(24px, calc(50% - 360px)); padding-right: max(24px, calc(50% - 360px)); }
+.desk .sheet:is([data-kind="days"], [data-kind="profile"], [data-kind="public"]) :is(.sh-top, .sh-body) {
+  padding-left: max(24px, calc(50% - var(--page) / 2)); padding-right: max(24px, calc(50% - var(--page) / 2)); }
 
 /* ---------- The game: the map is a panel in the bottom right corner ---------- */
 /* The box keeps the open panel's size and its canvas never resizes for a fold: folded, only the globe in its
@@ -251,11 +259,15 @@
 .friend.lit b { background: var(--ink); color: var(--field-deep); }
 .pinm.lit .pin { scale: 1.18; }
 
-/* ---------- Pages for other screens ---------- */
-.dk-page { position: fixed; z-index: 38; top: calc(var(--top) + var(--safe-top)); left: 0; right: 0; bottom: 0; overflow-y: auto; padding: 32px 24px 48px;
+/* ---------- The page shell ---------- */
+.dk-page { position: fixed; z-index: 38; top: calc(var(--top) + var(--safe-top)); left: 0; right: 0; bottom: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+           padding: 16px calc(16px + var(--safe-right)) calc(32px + var(--safe-bottom)) calc(16px + var(--safe-left));
            background: var(--field); font: 400 15px/1.45 var(--text); user-select: text; -webkit-user-select: text; }
 .dk-page a:not(.dk-btn) { color: var(--ink-soft); text-underline-offset: 3px; }
-.dk-wrap { max-width: var(--page); margin: 0 auto; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gap); }
+.dk-wrap { max-width: var(--page); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+@media (min-width: 768px) and (min-height: 500px) { html:not(.desk) .dk-wrap { max-width: 640px; } }
+.desk .dk-page { padding: 32px 24px 48px; }
+.desk .dk-wrap { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gap); }
 .dk-card { padding: 24px; background: var(--field-deep); }
 .dk-h1 { margin: 0; font: 700 40px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; }
 .dk-h2 { margin: 0; font: 700 28px/1.05 var(--display); letter-spacing: .02em; text-transform: uppercase; }

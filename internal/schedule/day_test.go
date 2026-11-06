@@ -225,3 +225,17 @@ func TestRedrawStuckLogsOnce(t *testing.T) {
 		t.Fatalf("logged %d times, want once per chat and error:\n%s", n, log.String())
 	}
 }
+
+// A DM's post opens the Mini App on the day, wherever the app is served: the
+// app's root is its menu.
+func TestDayURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://maply.example/":    "https://maply.example/today",
+		"https://maply.test":        "https://maply.test/today",
+		"https://host.example/app/": "https://host.example/app/today",
+	} {
+		if got := dayURL(in); got != want {
+			t.Errorf("dayURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

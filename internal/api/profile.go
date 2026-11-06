@@ -46,7 +46,7 @@ type ProfileStore interface {
 	Present(ctx context.Context, chatID int64, ids []int64) (map[int64]bool, error)
 	SharesGroup(ctx context.Context, viewer int64, ids []int64) (map[int64]bool, error)
 	HeadToHead(ctx context.Context, me, other int64, upTo round.Date) (int, int, error)
-	FreeGames(ctx context.Context, userID int64) ([]db.FreeGame, error)
+	FreeGames(ctx context.Context, w db.FreeWho) ([]db.FreeGame, error)
 	SeasonOf(ctx context.Context, first, last round.Date, chatID, userID int64) (db.SeasonRank, error)
 	TouchPerson(ctx context.Context, user tg.User) error
 }
@@ -137,6 +137,8 @@ type ownProfile struct {
 	Settings *profileSetting `json:"settings,omitempty"`
 	// Season is the month's season so far, the world's and the group's.
 	Season []seasonPlace `json:"season,omitempty"`
+	// Top is the player's place on each board of free play they are on.
+	Top []topPlace `json:"top,omitempty"`
 }
 
 type seasonPlace struct {
@@ -241,8 +243,8 @@ func (s *Server) ranked(ctx context.Context, ps ProfileStore, ask rankedAsk, lan
 
 // free reads the free tab. A failure there leaves the tab empty rather than
 // the profile: free play is another part of the service.
-func (s *Server) free(ctx context.Context, ps ProfileStore, userID int64) *profile.Free {
-	games, err := ps.FreeGames(ctx, userID)
+func (s *Server) free(ctx context.Context, ps ProfileStore, w db.FreeWho) *profile.Free {
+	games, err := ps.FreeGames(ctx, w)
 	if err != nil {
 		s.Log.Warn("free results not read", "error", err)
 		return nil
@@ -292,8 +294,9 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out.Settings = settingView(set)
-		out.Free = s.free(ctx, ps, v.user)
+		out.Free = s.free(ctx, ps, v.freeWho())
 		out.Season = s.season(ctx, ps, v, now)
+		out.Top = s.topPlaces(ctx, v)
 	default:
 		// A site player sees what the site shows: days over everywhere. An
 		// account keeps its days across browsers; a guest has the cookie's.
@@ -311,6 +314,12 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
+		// An account without Telegram plays free as its site player and
+		// keeps its games; a guest keeps none.
+		if v.account != "" {
+			out.Free = s.free(ctx, ps, v.freeWho())
+		}
+		out.Top = s.topPlaces(ctx, v)
 		// An account's site players share one name: the main one's.
 		if v.player != "" {
 			if out.Name, err = s.Store.SiteName(ctx, v.player); err != nil {
@@ -382,7 +391,7 @@ func (s *Server) mini(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	free := s.free(ctx, ps, id)
+	free := s.free(ctx, ps, db.FreeWho{UserID: id})
 	if free == nil {
 		free = &profile.Free{}
 	}
@@ -471,8 +480,8 @@ func (s *Server) touchProfile(ctx context.Context, ps ProfileStore, v profileVie
 	return ps.TouchPerson(ctx, v.person)
 }
 
-// tgPlayer is what the site's tables call a player who hid themselves.
-func tgPlayer(lang string) string { return i18n.T(lang, "app.prof.tg_player") }
+// anonName is what shared tables call a player who hid themselves.
+func anonName(lang string) string { return i18n.T(lang, "app.prof.anon") }
 
 // maskHidden is which of the Telegram players among ids asked to be hidden
 // from a viewer: their own groups still see them, whether the viewer looks

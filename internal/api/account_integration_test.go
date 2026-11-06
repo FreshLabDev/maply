@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -126,8 +127,18 @@ func TestATelegramAccountPlaysOnTheSite(t *testing.T) {
 	hs.siteExpect("GET", "/api/today", "not-a-session", "", http.StatusUnauthorized)
 	// A link from another site carries the Lax cookie; the GET would fix
 	// the DM's zone from its ?tz= and ?lang=.
-	for _, from := range []string{"cross-site", "same-site"} {
+	// So does one opened from an app or a letter ("none").
+	for _, from := range []string{"cross-site", "same-site", "none"} {
 		hs.siteExpect("GET", "/api/today?tz=Pacific/Honolulu&lang=en", oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", from)
+		hs.siteExpect("GET", "/api/profile?lang=ja", oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", from)
+	}
+	// A browser without Fetch Metadata: the link is a navigation, which
+	// asks for HTML; maply's script asks for anything.
+	navigation := "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+	hs.siteExpect("GET", "/api/today?tz=Pacific/Honolulu&lang=en", oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", "", "Accept", navigation)
+	hs.siteExpect("GET", "/api/profile", oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", "", "Accept", navigation)
+	if zone, err := hs.srv.Store.ChatZone(context.Background(), 1); err != nil || zone == "Pacific/Honolulu" {
+		t.Fatal("a link from another site set her DM's zone")
 	}
 
 	// She answers on the site: scored at once, with the speed bonus, the
@@ -201,4 +212,65 @@ func TestATelegramAccountPlaysOnTheSite(t *testing.T) {
 	}
 	// Sharing is the Mini App's.
 	hs.siteExpect("POST", "/api/share", oksana, `{}`, http.StatusServiceUnavailable)
+}
+
+// A guest cookie that names a player an account has taken in opens
+// nothing, also on a request that carries some Authorization: the site's
+// game and free play take such a request for a new guest, never for the
+// account's player.
+func TestACookieTheAccountTookInOpensNothing(t *testing.T) {
+	hs := freeSetup(t)
+	hs.now = time.Date(2026, time.December, 10, 11, 0, 0, 0, time.UTC)
+	send := func(method, path, cookie, body string, header ...string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		for i := 0; i+1 < len(header); i += 2 {
+			req.Header.Set(header[i], header[i+1])
+		}
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: playerCookie, Value: cookie})
+		}
+		rr := httptest.NewRecorder()
+		hs.h.ServeHTTP(rr, req)
+		return rr
+	}
+	cookieOf := func(rr *httptest.ResponseRecorder) string {
+		for _, c := range rr.Result().Cookies() {
+			if c.Name == playerCookie {
+				return c.Value
+			}
+		}
+		return ""
+	}
+	// A guest answers the day and starts a free game, then signs in with
+	// Google there: the account takes the guest in.
+	rr := send("POST", "/api/site/guess?tz=Europe/Kyiv", "", `{"lat":49.9,"lon":24.1}`)
+	guest := cookieOf(rr)
+	if rr.Code != http.StatusOK || guest == "" {
+		t.Fatalf("guest answer = %d %s", rr.Code, rr.Body)
+	}
+	rr = send("POST", "/api/free/solo", guest, `{"mode":"classic","seconds":0,"rounds":3}`)
+	var game struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &game); rr.Code != http.StatusOK || err != nil || game.ID == 0 {
+		t.Fatalf("guest solo = %d %s", rr.Code, rr.Body)
+	}
+	hs.signInGoogle("g-took", guest)
+
+	for _, auth := range []string{"", "Basic eDp5", "tma nonsense"} {
+		if rr := send("GET", fmt.Sprintf("/api/free/solo/%d", game.ID), guest, "", "Authorization", auth); rr.Code == http.StatusOK {
+			t.Errorf("Authorization %q: the account's game opened by the old cookie: %s", auth, rr.Body)
+		}
+		// The site's game: the old cookie is a new guest, whose answer is
+		// its own, not a second one of the account's player.
+		rr := send("POST", "/api/site/guess?tz=Europe/Kyiv", guest, `{"lat":10,"lon":10}`, "Authorization", auth)
+		if fresh := cookieOf(rr); rr.Code != http.StatusOK || fresh == "" || fresh == guest {
+			t.Errorf("Authorization %q: an answer by the old cookie = %d %s, cookie %q", auth, rr.Code, rr.Body, fresh)
+		}
+	}
+	var n int
+	if err := hs.pool.QueryRow(context.Background(), `SELECT count(*) FROM maply.site_guess WHERE player = $1`, guest).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("the account's player has %d answers, %v", n, err)
+	}
 }

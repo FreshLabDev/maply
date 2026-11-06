@@ -21,12 +21,14 @@ player, and production-minded.
 - The app is one page on many addresses: the server answers every path in
   `web.Pages` with `index.html`, and `web/app/router.js` maps the path to a
   screen. A screen registers itself there from its own file; a new address
-  goes into `Pages`. `index.html` names its files from the root.
+  goes into `Pages`. `index.html` names its files from the root. `/` is the
+  menu (`menu.js`) and `/today` the day: a post's button opens the day, the
+  bot's menu button and `/start` open the menu.
 - `desktop.css` lays the app out on a tablet and a computer over `app.css`.
   `html.desk` (from 1024×600, set by `desk.js`) marks the computer's layout;
-  the file's header documents the base a screen builds its own on. A screen
-  in the computer's header passes `nav: { href, t }` to `Router.screen`. The
-  phone's layout must not change.
+  the file's header documents the base a screen builds its own on: a page is
+  `.dk-page` with `.dk-wrap`, up to `--page` (1440 px). The header's links
+  are `desk.js`'s. The phone's layout must not change.
 - The result is a map card when `CARD_RENDERER_URL` names a headless Chromium:
   `internal/card` serves the page `/card/result/<chat>/<date>`, the renderer
   photographs it, and `schedule` sends the PNG. Any renderer failure falls back
@@ -98,6 +100,10 @@ player, and production-minded.
   Mini App, or the site with an account that has Telegram, which plays as
   the person and writes nothing to `core`) or an account with Google alone,
   which plays as its own site player. A guest plays alone, without records.
+  Its leaderboards (`/api/top`) count only games on a timer and never an
+  attempt at a challenge, one row a person or an account with their best:
+  an account's site players count for the account, or for its Telegram
+  person once it has one.
 
 ## Anti-Cheat Invariants
 
@@ -175,12 +181,15 @@ the diff looks like.
   cannot name a row before its reveal. The photo goes out only inside a
   group both are in, and the head to head counts only the days whose result
   that group has seen.
-- "Hide me" (`profile_setting.hide_me`) replaces the name with "Telegram
-  player" in the world's tables, the site's result and the days page for
-  everyone outside the person's own groups, from a DM too, and the mini
-  profile answers `404 hidden`. A group's own table and card, which a
-  player may forward, and the bot's posts, the world's podium in a DM
-  included, keep the name. A handle is scoped to its table
+- "Hide me" (`profile_setting.hide_me`) shows the player as "Anonymous"
+  with a plain avatar, without photo or handle, in the world's tables, the
+  site's result, the days page, the free play's leaderboards and the bot's
+  world lines (the look back's first, a group result's world first, the
+  month's world champion) for everyone outside the person's own groups,
+  from a DM too, and the mini profile answers `404 hidden`. A group's own
+  table and card, which a player may forward, and the bot's posts about
+  the group's own people keep the name. The world's podium picture is one
+  for every DM of a language, so it names nobody who hid. A handle is scoped to its table
   (`profile.Handles.Of`), so one player's rows in two tables cannot be
   matched by it.
 - A public page `/p/<slug>` exists only while its owner keeps it on. The

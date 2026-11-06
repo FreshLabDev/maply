@@ -16,6 +16,10 @@ import (
 
 const privacyCSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
+// The owner's Telegram, for erasing answers: "{contact}" in a line becomes
+// this link. The rest of the line stays text.
+const privacyContact = `<a href="https://t.me/amtiyo" dir="ltr">@amtiyo</a>`
+
 var privacyPage = template.Must(template.New("privacy").Parse(`<!doctype html>
 <html lang="{{.Lang}}" dir="{{.Dir}}">
 <head>
@@ -58,7 +62,7 @@ nav a[aria-current] { color: var(--ink); }
 
 type privacySection struct {
 	Head  string
-	Items []string
+	Items []template.HTML
 }
 
 type privacyLang struct {
@@ -71,7 +75,13 @@ type privacyLang struct {
 func (s *Service) Privacy() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lang := privacyLangOf(r)
-		items := func(key string) []string { return strings.Split(i18n.T(lang, key), "\n") }
+		items := func(key string) []template.HTML {
+			var out []template.HTML
+			for _, line := range strings.Split(i18n.T(lang, key), "\n") {
+				out = append(out, template.HTML(strings.ReplaceAll(template.HTMLEscapeString(line), "{contact}", privacyContact)))
+			}
+			return out
+		}
 		data := map[string]any{
 			"Lang": lang, "Dir": "ltr",
 			"Title": i18n.T(lang, "acct.privacy.title"), "Intro": i18n.T(lang, "acct.privacy.intro"),

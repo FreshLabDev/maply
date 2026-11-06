@@ -10,7 +10,8 @@
 //   Desk.start(game)            once the words are in: the panel and the keys. game is app.js's:
 //                               { view(), state(), open(), close(), pin(lngLat, point), globe, pano }
 //
-// The header's links and full screen button are written when the router opens the first screen, whichever it is.
+// The header's links (Play, the days, the leaderboards) and the full screen button are written when the router opens
+// the first screen, whichever it is.
 //
 // In the game the map is a panel in the bottom right corner. It opens when the mouse rests on the globe, on a click
 // or on M, and folds 600 ms after the mouse leaves, unless it is held open, a drag is going on or the keyboard is in
@@ -49,11 +50,14 @@ const Desk = (() => {
     if (!homes.has(id)) { const c = document.createComment(id); e.parentNode.insertBefore(c, e); homes.set(id, c); }
     return e;
   }
+  // A sheet, a page or the free game puts the game out of reach with inert on body's children, a plate among them.
+  // Moved into the side panel, a plate goes under the panel's state; moved back among body's children, it takes the
+  // panel's, which is theirs: otherwise a plate moved while the menu was over the game would stay inert after it.
   function put(id, into) {
     const e = home(id);
-    if (into) { if (e.parentNode !== into) into.appendChild(e); return; }
+    if (into) { if (e.parentNode !== into) { into.appendChild(e); e.inert = false; } return; }
     const c = homes.get(id);
-    if (c.nextSibling !== e) c.parentNode.insertBefore(e, c.nextSibling);
+    if (c.nextSibling !== e) { c.parentNode.insertBefore(e, c.nextSibling); e.inert = c.parentNode === document.body && $("side").inert; }
   }
   // Moving a node takes the focus off it: it goes back where it was, or, after the answer from the map's panel, to
   // the result.
@@ -77,7 +81,8 @@ const Desk = (() => {
   let inside = false, held = false, down = false, openT = 0, closeT = 0;
   const panel = () => on && game && game.state() === "guess";
   const isOpen = () => game.view() === "map";
-  const sheetOn = () => document.body.classList.contains("is-sheet");
+  // A sheet, a page of menu.js's or the free game over the day: the day's keys and the panel's hover wait.
+  const sheetOn = () => document.body.matches(".is-sheet, .is-page, .is-free");
   const inPanel = (e) => !!e && ["map", "act", "mapCtl"].some((id) => $(id).contains(e));
   // The keyboard in the panel keeps it open; a click that left the focus on the map does not, whatever key comes
   // after it. So the focus remembers whether a press or a key brought it.
@@ -222,12 +227,17 @@ const Desk = (() => {
   }
 
   /* The header */
+  // Play is the menu, and the day and the free game are reached from it; then the days and the leaderboards, when
+  // leaders.js is there. The profile and the sign-in are at the end, in #meBtn and #acct.
+  const LINKS = [["/", "days.play", ["menu", "today", "play", "party"]], ["/days", "days", ["days"]], ["/top", "desk.top", ["top"]]];
   function nav() {
     const esc = (s) => String(s).replace(/[&<>"']/g, (c) => "&#" + c.charCodeAt(0) + ";");
-    $("nav").innerHTML = Router.nav().map((x) => '<a href="' + esc(x.href) + '" data-route data-name="' + esc(x.name) + '">' + esc(T(x.t)) + '</a>').join("");
+    const top = !!(window.Leaders && typeof Leaders.show === "function");
+    $("nav").innerHTML = LINKS.filter(([href]) => href !== "/top" || top)
+      .map(([href, t, names]) => '<a href="' + href + '" data-route data-names="' + names.join(" ") + '">' + esc(T(t)) + '</a>').join("");
     mark(Router.current);
   }
-  const mark = (name) => $("nav").querySelectorAll("a").forEach((a) => a.setAttribute("aria-current", a.dataset.name === name ? "page" : "false"));
+  const mark = (name) => $("nav").querySelectorAll("a").forEach((a) => a.setAttribute("aria-current", a.dataset.names.split(" ").includes(name) ? "page" : "false"));
   // The header is written when the first screen opens, the words in by then, whether the page began with the day or
   // with another screen.
   let head = false;
@@ -302,7 +312,7 @@ const Desk = (() => {
     game.globe.map.on("move", () => { if ($("cross").classList.contains("on")) cross(); });
     game.globe.map.on("resize", cross);
     // Held open from an earlier day: the panel opens with the game.
-    game.globe.ready(() => { if (hold && panel() && !game.globe.answered) open("key"); });
+    game.globe.ready(() => { if (hold && panel() && !game.globe.answered && !sheetOn()) open("key"); });
   }
 
   return {

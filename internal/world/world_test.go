@@ -140,3 +140,66 @@ func TestSiteWinnerIsAGuestInEveryLanguage(t *testing.T) {
 		t.Errorf("ru: site winner named %q", got)
 	}
 }
+
+// hidingStore is a store where some players asked to be hidden.
+type hidingStore struct {
+	*fakeStore
+	hidden map[int64]bool
+}
+
+func (h hidingStore) Hidden(_ context.Context, ids []int64) (map[int64]bool, error) {
+	out := map[int64]bool{}
+	for _, id := range ids {
+		if h.hidden[id] {
+			out[id] = true
+		}
+	}
+	return out, nil
+}
+
+// A player who hid themselves is "Anonymous" with the plain face on the
+// final podium, in every DM alike; hiding draws the picture again.
+func TestPodiumNamesNobodyWhoHid(t *testing.T) {
+	ctx := context.Background()
+	zones, err := round.LoadZones()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := round.NewDate(2026, 11, 2)
+	clock := zones.LastReveal(d)
+	store := &fakeStore{kept: map[string]db.WorldCard{}}
+	store.answer(1, "Ana", 3, clock.Add(-3*time.Hour))
+	store.answer(2, "Bo", 30, clock.Add(-2*time.Hour))
+	hs := hidingStore{fakeStore: store, hidden: map[int64]bool{}}
+	var scene *anim.World
+	s := &Service{Store: hs, Zones: zones, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now: func() time.Time { return clock },
+		Draw: func(_ context.Context, sc anim.Scene) ([]byte, error) {
+			scene = sc.(*anim.World)
+			return []byte("mp4"), nil
+		}}
+
+	shown, err := s.Card(ctx, d, "ru", 0)
+	if err != nil || scene.Top[0].Name != "Ana" || scene.Top[0].Face != nil {
+		t.Fatalf("before hiding: %v, %+v", err, scene.Top[0])
+	}
+	hs.hidden[1] = true
+	if fresh, _ := s.Fresh(ctx, d, "ru", shown.Version, 0); fresh {
+		t.Error("the picture with her name is fresh after she hid")
+	}
+	c, err := s.Card(ctx, d, "ru", 0)
+	if err != nil || c.Version == shown.Version {
+		t.Fatalf("hidden card %v, same version %t", err, c.Version == shown.Version)
+	}
+	if scene.Top[0].Name != "Аноним" || scene.Top[0].Face != nobody || scene.Top[1].Name != "Bo" {
+		t.Fatalf("podium = %+v, %+v", scene.Top[0], scene.Top[1])
+	}
+	// The kept ranking keeps her: her own DM still finds her place.
+	if c.World.RankOf(1) != 1 || c.World.Entries[0].Name != "Ana" {
+		t.Fatalf("the card's ranking lost her: %+v", c.World.Entries[0])
+	}
+	// A language the faces don't write gets English.
+	if _, err := s.Card(ctx, d, "ja", 0); err != nil || scene.Top[0].Name != "Anonymous" {
+		t.Fatalf("ja podium = %v, %+v", err, scene.Top[0])
+	}
+}

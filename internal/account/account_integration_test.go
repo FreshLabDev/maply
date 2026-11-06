@@ -554,11 +554,25 @@ func TestUnlinkAndDelete(t *testing.T) {
 	if status, _ := b.send("DELETE", "/api/account", `{"confirm":"delete"}`, "Sec-Fetch-Site", "cross-site"); status != http.StatusBadRequest {
 		t.Fatalf("delete from another site = %d", status)
 	}
-	if status, _ := b.send("DELETE", "/api/account", `{"confirm":"delete"}`); status != http.StatusOK {
+	// A site player of the account sits in a free game under its name.
+	ctx := context.Background()
+	if _, err := s.pool.Exec(ctx, `
+		WITH p AS (INSERT INTO maply.site_player (id, account_id, name)
+		           SELECT '6f1c2a7e-3b4d-4e5f-8a9b-0c1d2e3f4a5b', id, 'Anya' FROM maply.account RETURNING id),
+		     g AS (INSERT INTO maply.free_game (kind, mode, rounds, status, created_at) VALUES ('solo', 'classic', 3, 'done', now()) RETURNING id)
+		INSERT INTO maply.free_member (game, m, player, name, joined_at, last_seen_at)
+		SELECT g.id, 1, p.id, 'Anya', now(), now() FROM g, p`); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := b.send("DELETE", "/api/account?lang=uk", `{"confirm":"delete"}`); status != http.StatusOK {
 		t.Fatalf("delete = %d", status)
 	}
 	if b.me() != nil || s.countOf(`SELECT count(*) FROM maply.account`) != 0 || s.countOf(`SELECT count(*) FROM maply.session`) != 0 {
 		t.Fatal("the account outlived its deletion")
+	}
+	// Its seat in the game is a guest's now, in the language it was deleted in.
+	if s.countOf(`SELECT count(*) FROM maply.free_member WHERE player = '6f1c2a7e-3b4d-4e5f-8a9b-0c1d2e3f4a5b' AND name = 'Гість'`) != 1 {
+		t.Fatal("the deleted account's seat kept its name")
 	}
 }
 

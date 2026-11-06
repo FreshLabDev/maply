@@ -8,6 +8,10 @@ try { PROF_TAB = localStorage.getItem("maply.prof.tab") === "free" ? "free" : "r
 
 // The letter in the header: the Telegram name, the name typed on the site, or a figure for a guest without one.
 const FIGURE = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="5.2" r="3" fill="currentColor"/><path d="M2 15c0-3.4 2.7-5.6 6-5.6s6 2.2 6 5.6z" fill="currentColor"/></svg>';
+// A player who hid themselves ("Hide me") is "Anonymous" in shared tables, with this plain avatar instead of a photo or
+// a letter, and with it instead of the Telegram mark on the days page.
+const anonAv = () => '<i class="av nobody">' + FIGURE + '</i>';
+const SRC_ANON = '<svg class="src" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#59826B"/><circle cx="12" cy="9.3" r="3.6" fill="#D8E1DC"/><path d="M5.6 19.4c.6-3.4 3.2-5.6 6.4-5.6s5.8 2.2 6.4 5.6" fill="#D8E1DC"/></svg>';
 function meLetter(name) {
   const n = String(name || (inTg && tg.initDataUnsafe.user && tg.initDataUnsafe.user.first_name) || (SITE ? siteName() : "")).trim();
   $("meBtn").innerHTML = n ? esc(initial(n)) : FIGURE;
@@ -115,7 +119,7 @@ function setTab(tab, first) {
   const box = $("profTab");
   box.setAttribute("aria-labelledby", "pt-" + tab);
   box.setAttribute("role", "tabpanel");
-  box.innerHTML = tab === "free" ? freeHTML(VIEW.free) : rankedHTML(VIEW);
+  box.innerHTML = tab === "free" ? freeHTML(VIEW.free, VIEW.top) : rankedHTML(VIEW);
   if (tab === "ranked") bindRanked(box);
   // A tab chosen from far down the other one brings the tabs back into view, not the panel's top under the header.
   const tabs = $("sheet").querySelector(".ptabs"), body = $("sheet").querySelector(".sh-body");
@@ -358,7 +362,7 @@ function historyHTML(history) {
 
 /* ---------- Free play ---------- */
 const timerName = (s) => s ? T("prof.timer_s", { n: fmt(s) }) : T("prof.no_timer");
-function freeHTML(f) {
+function freeHTML(f, top) {
   if (!f || !f.games) return '<p class="sh-wait">' + esc(T("prof.free_none")) + '</p>';
   let h = '<div class="ptiles">' +
     tile(T("prof.free_games"), fmt(f.games)) +
@@ -367,13 +371,28 @@ function freeHTML(f) {
     tile(T("prof.median"), f.median_km != null ? esc(kmT(f.median_km)) : none) +
     (f.duels ? tile(T("prof.duels"), fmt(f.duels.won) + ' : ' + fmt(f.duels.lost), esc(T("prof.duels_note"))) : "") +
     (f.beaten != null ? tile(T("prof.beaten"), esc(profPct(f.beaten))) : "") +
-    '</div>';
+    '</div>' + topHTML(top);
   if (f.records.length) h += section(T("prof.free_records"), '<ul class="precs">' + f.records.map((r) =>
     '<li><span>' + esc(timerName(r.seconds)) + ' · ' + esc(T("prof.rounds", { n: fmt(r.rounds) })) + '</span><b>' + fmt(r.points) + '</b></li>').join("") + '</ul>');
   if (f.streaks.length) h += section(T("prof.free_streaks"), '<ul class="precs">' + f.streaks.map((s) =>
     '<li><span>' + esc(timerName(s.seconds)) + '</span><b>' + fmt(s.streak) + '</b></li>').join("") + '</ul>');
   return h;
 }
+
+// The player's place on each board of free play they are on, all time; each opens its board (leaders.js).
+function topHTML(top) {
+  if (!top || !top.length || !window.Leaders) return "";
+  return section(T("lead.title"), '<ul class="precs lead-places">' + top.map((p) =>
+    '<li><button class="lead-at" data-b="' + esc(p.board) + '" data-s="' + p.seconds + '" data-r="' + (p.rounds || 0) + '"><span>' + esc(Leaders.label(p)) +
+    '<small>' + esc(T(p.board === "streak" ? "lead.unit_streak" : p.board === "timed" ? "lead.unit_timed" : "lead.unit_points")) + ': ' + fmt(p.score) + '</small></span>' +
+    '<b' + (p.rank === 1 ? ' class="gold"' : '') + '>' + placeOf(p) + '</b></button></li>').join("") + '</ul>');
+}
+document.addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest(".lead-at");
+  if (!a || !window.Leaders) return;
+  haptic("light");
+  Leaders.open({ board: a.dataset.b, seconds: Number(a.dataset.s), rounds: Number(a.dataset.r) });
+});
 
 /* ---------- Settings ---------- */
 function settingsHTML(d) {

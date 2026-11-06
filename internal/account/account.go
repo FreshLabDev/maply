@@ -72,7 +72,7 @@ type Store interface {
 	LinkOnly(ctx context.Context, accountID string, id db.Identity, rules db.Rules) (db.LinkResult, error)
 	Unlink(ctx context.Context, accountID, kind string) error
 	AdoptGuest(ctx context.Context, accountID, guest string, rules db.Rules) (int, error)
-	DeleteAccount(ctx context.Context, accountID string) error
+	DeleteAccount(ctx context.Context, accountID, guest string) error
 	AccountOf(ctx context.Context, id db.Identity) (db.Account, bool, error)
 	AccountView(ctx context.Context, accountID string) (db.AccountView, bool, error)
 	GuestOf(ctx context.Context, player string) (int, bool, error)
@@ -256,8 +256,8 @@ func (v Viewer) SignedIn() bool { return v.AccountID != "" }
 type viewerKey struct{}
 
 // ViewerFrom is the site viewer Middleware put in the context. ok is false
-// for a request that did not come through it, and for the Mini App, which
-// signs every request with initData instead.
+// for a request that did not come through it. A request that signs for
+// itself, as the Mini App's do with initData, is nobody on the site.
 func ViewerFrom(ctx context.Context) (Viewer, bool) {
 	v, ok := ctx.Value(viewerKey{}).(Viewer)
 	return v, ok
@@ -269,13 +269,16 @@ func WithViewer(ctx context.Context, v Viewer) context.Context {
 }
 
 // Middleware finds the site viewer of the request and puts it in its
-// context. A request that signs with initData is the Mini App's and gets
-// none. A guest cookie that names a player an account has taken in opens
+// context. A guest cookie that names a player an account has taken in opens
 // nothing: that browser is a new guest.
 func (s *Service) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" {
-			next.ServeHTTP(w, r)
+			// Signed for itself, the request is neither the session's
+			// account nor the guest cookie's player. Left without a viewer,
+			// a handler would take the cookie's player as it is, even one an
+			// account has taken in, by any Authorization at all.
+			next.ServeHTTP(w, r.WithContext(WithViewer(r.Context(), Viewer{})))
 			return
 		}
 		v, err := s.viewer(r)

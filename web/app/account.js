@@ -77,8 +77,8 @@ function acctClose() {
   const d = $("acctDlg");
   if (!d) return;
   d.remove();
-  const sheetOn = $("sheet").classList.contains("on");
-  for (const e of document.body.children) if (e.tagName !== "SCRIPT") e.inert = sheetOn && e.id !== "sheet" && e.id !== "toast";
+  // What was in reach under the dialog is again: the sheet, the menu's page or the game (app.js).
+  behindSheet();
   if (dlgFrom && document.contains(dlgFrom)) dlgFrom.focus({ preventScroll: true });
   dlgFrom = null;
 }
@@ -175,7 +175,8 @@ function drawAccounts() {
     location.reload();
   };
   if ($("acctDel")) $("acctDel").onclick = () => acctAsk(T("acct.delete_confirm"), async () => {
-    try { await acctPost("/api/account", { confirm: "delete" }, "DELETE"); } catch (e) { toast(acctText(e.message)); return; }
+    // The language names the account's seats in free games from now on: "Guest" in it.
+    try { await acctPost("/api/account?lang=" + encodeURIComponent(LANG), { confirm: "delete" }, "DELETE"); } catch (e) { toast(acctText(e.message)); return; }
     try { localStorage.removeItem(NAME); localStorage.removeItem(KEPT); } catch {}
     toast(T("acct.deleted"));
     if (inTg) { ME = null; openAccounts(acctBack); } else setTimeout(() => location.reload(), 900);

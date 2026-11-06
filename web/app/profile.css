@@ -156,8 +156,24 @@ img.pflag { display: inline-block; width: 21px; height: 14px; vertical-align: -2
   .pmap.world { max-height: 400px; }
   .pbig b { font-size: 36px; }
 }
+/* A computer: the profile is a page of the shell (desktop.css) and takes its width, up to --page. The eight numbers
+   stand in one row from 1280, the charts three abreast so their text stays near its size, the pins beside the
+   passport, the history in two columns. The mini profile keeps its column. */
+.desk .prof:not(.mini) { max-width: none; }
+.desk .prof:not(.mini) .pcharts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.desk .prof:not(.mini) .pcharts .psec:nth-child(4):not(.wide) + .psec.wide { grid-column: span 2; }
+.desk .prof:not(.mini) .pswitch small { max-width: 90ch; }
+.desk .prof:not(.mini) .phist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; }
+.desk .prof:not(.mini) .phist li { margin: 0; }
+@media (min-width: 1280px) {
+  .desk .prof:not(.mini) .ptiles:has(> .pt:nth-child(8)) { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+}
 @media (prefers-reduced-motion: reduce) { .pswitch input::after { transition: none; } }
 
 /* A name the server gave a handle opens that player's mini profile. */
 [data-who] { cursor: pointer; }
 .rk .w[data-who], .lb.all [data-who] { text-decoration: underline dotted var(--field-tint); text-underline-offset: 3px; }
+
+/* A player who hid themselves: a plain figure where a photo or a letter would be (profile.js, anonAv). */
+.av.nobody { background: var(--field-tint); color: var(--ink-soft); }
+.av.nobody svg { width: 72%; height: 72%; margin-top: 18%; }

@@ -172,8 +172,8 @@ function retryLoading() {
 }
 $("loader").addEventListener("click", retryLoading);
 addEventListener("online", retryLoading);
-// On a phone the logo opens the days; on a computer the header has links, and the logo goes home.
-$("logo").addEventListener("click", () => Router.go(Desk.on ? "/" : "/days"));
+// The logo opens the menu, on a phone as on a computer.
+$("logo").addEventListener("click", () => Router.go("/"));
 
 /* ---------- Countdown ---------- */
 // Before the answer the timer runs to the deadline: the earliest reveal among the person's chats. After it, to the reveal
@@ -254,7 +254,8 @@ function seePano() { const s = panoSeen(); pano.still(!s); $("pano").inert = !s;
 function toMap() {
   if (view === "map") return;
   view = "map"; document.body.classList.add("is-map"); haptic("light"); syncBack(); seePano();
-  $("map").inert = false; lookLabel();
+  // Open, but not reachable under a sheet or the menu.
+  behindSheet(); lookLabel();
   globe.toBig();
 }
 function toPhoto() {
@@ -271,8 +272,11 @@ $("map").inert = true;
 $("globeHit").addEventListener("click", toMap);
 // On a phone the button shows only over the map; in the computer's side panel it swaps the map and the panorama.
 $("look").addEventListener("click", () => view === "map" ? toPhoto() : toMap());
-// Over the free game the Back button is the free game's own.
-if (tgAt("6.1")) tg.BackButton.onClick(() => document.body.classList.contains("is-free") ? null : document.body.classList.contains("is-sheet") ? $("shBack").click() : toPhoto());
+// Over the free game the Back button is the free game's own. In the day it goes from the map to the photo, and from
+// the photo to the menu; on any other page to the page before.
+const mapBack = () => view === "map" && !(Desk.on && state === "guess");
+if (tgAt("6.1")) tg.BackButton.onClick(() => document.body.classList.contains("is-free") ? null : document.body.classList.contains("is-sheet") ? $("shBack").click()
+  : Router.current === "today" && mapBack() ? toPhoto() : Router.back("/"));
 // Splits the bottom strip into two buttons or merges it back into one.
 // The left button label depends on the stage: before the answer it invites a closer look, after the answer simply to enjoy.
 const LOOK = { guess: ["look_more", "look"], wait: ["admire", "admire"], reveal: ["walk", "walk"] };
@@ -300,8 +304,10 @@ function setCall(b, sub) {
 }
 
 // globe.js draws the globe, the pin and the answer; the layout above says where the small globe stands and what the
-// plates cover. The small globe turns only once the loading screen is gone.
-const globe = createGlobe({ el: $("map"), lang: LANG0, mini: miniAt, insets: reserve, haptic, spin: () => $("loader").classList.contains("gone") });
+// plates cover. The small globe turns only once the loading screen is gone, and not under a page or free play.
+const globe = createGlobe({ el: $("map"), lang: LANG0, mini: miniAt, insets: reserve, haptic,
+  spin: () => $("loader").classList.contains("gone") && !document.body.classList.contains("is-page") &&
+    !document.body.classList.contains("is-free") });
 // A tap beside the globe, in the void around it, returns to the photo. In the computer's panel the void is the
 // panel's own water, and a click there is a miss, not a way out.
 globe.on("beside", () => { if (!Desk.on) toPhoto(); });
@@ -403,7 +409,7 @@ function boardRow(r, i, cls, count) {
   const v = (n) => count ? "0" : fmt(n), b0 = r.pts - bonusOf(r.lvl) - r.sp;
   // Your own face shows your initial: the name beside it already says "you".
   const n = r.rank || i + 1, grp = r.grp ? '<b class="gi" title="' + esc(T("in_group")) + '">' + GROUP + '</b>' : "";
-  const face = '<i class="fc">' + (r.anon ? '<i class="av anon">?</i>' : av(r.me ? r.name || "" : r.who, r.me, r.photo)) + grp + '</i>';
+  const face = '<i class="fc">' + (r.anon ? '<i class="av anon">?</i>' : r.nobody ? anonAv() : av(r.me ? r.name || "" : r.who, r.me, r.photo)) + grp + '</i>';
   // A hidden name in this group opens at the chat's reveal; anyone else's once the day is over in every zone.
   const wait = T(r.grp && PHASE === "live" ? "anon_row" : "anon_world");
   const label = r.anon ? ' aria-label="' + esc([wait, r.grp ? T("in_group") : "", kmT(r.d), fmt(r.pts)].filter(Boolean).join(", ")) + '"' : "";
@@ -660,7 +666,7 @@ const rowsOf = (res) => res.table.map((r) => {
 function boardOf(res) {
   const rows = (res.board || []).map((r) => ({ who: r.me ? T("you") : r.name || (r.site ? T("guest") : ""), name: r.name || "",
     d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0, me: !!r.me, grp: !!r.group, photo: r.photo,
-    anon: !!r.hidden, key: r.key, rank: r.rank, handle: r.who || "" }));
+    anon: !!r.hidden, nobody: !!r.anon, key: r.key, rank: r.rank, handle: r.who || "" }));
   // An answer the site kept only in the browser is scored on the spot and has no place in the world: it shows as your
   // row without a rank, rather than "you didn't answer".
   const own = !rows.some((r) => r.me) && (res.table || []).find((r) => r.me && r.points != null);
@@ -746,7 +752,7 @@ function toReveal(res) {
   if (innerHeight < 640) $("place").classList.add("min");
   setLive(res);
   view = "map"; document.body.classList.add("is-map"); syncBack(); seePano();
-  $("map").inert = false; lookLabel();
+  behindSheet(); lookLabel();
   globe.frame(1200);
   haptic("success");
 }
@@ -830,13 +836,20 @@ function sheet(title, html, back, close) {
   $("shBack").focus({ preventScroll: true });
   return SHEET;
 }
-// While the sheet is open the page behind it is out of reach: Tab and a screen reader stay in the dialog.
-// On a computer the sheet is a page under the header, and the header's links stay in reach. The folded map stays out.
-function behindSheet(on) {
-  for (const e of document.body.children) if (e.id !== "sheet" && e.id !== "toast" && e.tagName !== "SCRIPT") e.inert = on && !(Desk.on && e.classList.contains("top"));
+// What is in reach, from the top layer down; the rest is inert, out of Tab's and a screen reader's way. While the
+// sheet is open, the sheet, and on a computer, where it is a page under the header, the header's links beside it.
+// Else one of menu.js's pages with the header (a mini profile over the leaderboards gives the page back). Else the
+// game, its folded map left out. The free game keeps only itself. The loading screen is never out of reach: its
+// retry is a tap. Every layer that opens or closes asks here, so none undoes another's.
+function behindSheet(on = $("sheet").classList.contains("on")) {
+  const page = document.querySelector(".pg.on"), free = document.body.classList.contains("is-free") && $("free");
+  for (const e of document.body.children) {
+    if (e.id === "sheet" || e.id === "toast" || e.id === "loader" || e.tagName === "SCRIPT") continue;
+    e.inert = free ? e !== free : on ? !(Desk.on && e.classList.contains("top")) : !!page && e !== page && !e.classList.contains("top");
+  }
   // On a computer the header stays usable beside the sheet, so the sheet is not modal there.
   $("sheet").setAttribute("aria-modal", String(!Desk.on));
-  if (!on) $("map").inert = view === "photo";
+  if (!free && !on && !page) $("map").inert = view === "photo";
 }
 function closeDays() {
   SHEET++;
@@ -846,8 +859,14 @@ function closeDays() {
 }
 // Escape is the sheet's own back button: from a day to the days, from the days out.
 addEventListener("keydown", (e) => { if (e.key === "Escape" && $("sheet").classList.contains("on")) { e.preventDefault(); $("shBack").click(); } });
-// The game is the page under every other: today has nothing of its own to open or close. The days are days.js's.
-Router.screen("today", /^\/(?:index\.html)?$/, { open() {}, nav: { href: "/", t: "desk.today", at: 1 } });
+// The day is /today, the page under every other: it has nothing of its own to open, only Telegram's Back, which
+// leads from it to the menu. Leaving it closes a sheet that has no address of its own (a mini profile, the world's
+// table), or the next page would open under it. The menu is menu.js's, the days days.js's.
+Router.screen("today", /^\/today$/, {
+  // Whatever closed before the day (the free game, a page) leaves its reach to be set again.
+  open() { syncBack(); behindSheet(); },
+  close() { if ($("sheet").classList.contains("on")) closeDays(); },
+});
 
 // The window crossed into the computer's layout or out of it: the same state, laid out again. The plates have moved
 // already; the map's box changed its place, so the camera starts over in it.
@@ -885,14 +904,18 @@ async function boot() {
   if (TODAY.lang && (TODAY.lang !== LANG || !textsLoaded)) { await loadTexts(TODAY.lang).catch(() => {}); setCall(T("where"), T("drop_pin")); }
   // The words are final now: the computer's header and keys can be written, and the page the address names can open.
   Desk.start({ view: () => view, state: () => state, open: toMap, close: toPhoto, pin: (lngLat, point) => { if (state === "guess") putPin(lngLat, point); }, globe, pano });
+  // A group's post opens the app with its signed payload and no address of its own: that is the day, not the menu.
+  // A DM's post names /today itself; the bot's menu button and /start open the menu.
+  if (!Router.current && inTg && tg.initDataUnsafe.start_param && /^\/(?:index\.html)?$/.test(location.pathname)) Router.go("/today", { replace: true });
+  // The day and the time of its result, before the first page: the menu writes them.
+  $("day").textContent = "#" + TODAY.day;
+  AT = new Intl.DateTimeFormat(numLang(), { timeZone: TODAY.zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(TODAY.reveal));
+  ZONE_NAME = ZONES[TODAY.zone] || "";
   Router.start();
   // The answer's bar says what it waits for: on a phone it is folded, in the computer's panel it is dimmed.
   if (state === "guess") split(false);
   loadShareTexts();
   if (typeof accountReady === "function") accountReady();
-  $("day").textContent = "#" + TODAY.day;
-  AT = new Intl.DateTimeFormat(numLang(), { timeZone: TODAY.zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(TODAY.reveal));
-  ZONE_NAME = ZONES[TODAY.zone] || "";
   pano.show({ image: TODAY.image, kind: TODAY.kind, heading: TODAY.heading || 0 });
   // Someone who has answered is told so at once, not asked to drop a pin while the map loads.
   if (TODAY.answer) setCall(T("sent"), T("result_at", { time: atZone() }));

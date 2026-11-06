@@ -27,11 +27,13 @@ function haptic(kind) {
   // A page opened by its address can buzz on its own before any tap; the browser refuses that and says so in the console.
   } else if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) navigator.vibrate(VIBRATE[kind]);
 }
-// Telegram's system Back button is shown while the globe is open and returns to the photo.
-// Telegram's Back closes the days page first, then goes from the map to the photo.
-// On a computer the guess's map is a panel beside the panorama, opened by hovering: not a screen to go back from.
+// Telegram's system Back button is on every page but the menu, the first page of all. It closes a sheet first; in the
+// day it goes from the map to the photo, then to the menu (app.js). On a computer the guess's map is a panel beside
+// the panorama, opened by hovering: not a screen to go back from. The free game shows it for its own Back.
 function syncBack() {
-  if (tgAt("6.1")) (view === "map" && !(Desk.on && state === "guess")) || document.body.classList.contains("is-sheet") ? tg.BackButton.show() : tg.BackButton.hide();
+  if (!tgAt("6.1")) return;
+  const c = document.body.classList;
+  c.contains("is-sheet") || c.contains("is-free") || (!!Router.current && Router.current !== "menu") ? tg.BackButton.show() : tg.BackButton.hide();
 }
 // External links open in Telegram's browser, otherwise the page leaves the Mini App.
 document.addEventListener("click", (e) => {

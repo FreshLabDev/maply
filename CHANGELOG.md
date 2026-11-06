@@ -84,10 +84,11 @@ For the operator:
   average per place and duels. Inside a shared group it adds the photo and
   "closer than you on 14 of 22 shared days", counted over the days that
   group has seen the result of. Names carry an opaque handle, never an id.
-- "Hide me" in the profile: the world's tables, the site's result and the
-  days page read "Telegram player" instead of the name for everyone outside
-  the person's own groups, and the mini profile does not open. The bot's
-  posts keep the name.
+- "Hide me" in the profile: for everyone outside the person's own groups
+  the world's tables, the site's result, the days page, the free play's
+  leaderboards and the bot's world lines show "Anonymous" with a plain
+  avatar instead of the name and photo, and the mini profile does not
+  open. The person's groups keep the name.
 - The month's season: the sum of a player's 20 best days. The 07:00 post of
   the 1st names the champion inside yesterday's look back, a group's own in
   a group and the world's in a DM with the person's place; no new message.
@@ -108,12 +109,32 @@ For the operator:
   dialog has "My profile without signing in".
 - In Telegram, Back goes to the page before, as it does in a browser: a day
   opened from the profile comes back to the profile, where it was.
+- Leaderboards of free play (`GET /api/top`, `web/app/leaders.js`): Country
+  streak, Against the clock, Blitz and Classic, a table for each timer and
+  length, over the last 7 days or all time. One row a player with their
+  best, and an equal result ranks whoever reached it first. Only games with
+  a timer count, and not an attempt at a challenge, whose places the friend
+  who made it could have told. Names, "Hide me" and the mini profile work
+  as in the world's tables. An account with Google alone has a row of its
+  own under its site name; an account with Telegram is its person, the
+  games its site players finished before the link included. The profile's
+  free play tab shows the player's place on each board they are on and
+  opens that board, and it counts the same games: a site account without
+  Telegram now has the tab too.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
   the screen the address names. `/days` opens the days and `/days/<n>` (or
   the day's date) a closed day, so a day can be linked and Back in the browser closes it. An
-  address without a screen yet shows today. In Telegram the address changes
+  address without a screen shows the menu. In Telegram the address changes
   without adding history, so Back stays Telegram's.
+- A menu at `/`. The day comes first and largest, with its picture: Play,
+  the answer sent and the clock to the result, or the player's own score and
+  world place. Beside it are the free game's modes, Classic, Blitz, Country
+  streak, Against the clock, the archive and With friends, in the day's
+  green with "no place in the world" over them, and under them the days,
+  the leaderboards and the profile. The day itself is at `/today`. A post's
+  button opens the day as before; the bot's menu button and `/start` open
+  the menu, and so does the logo. A phone gets the menu in one column.
 - Sign-in on the site with Telegram or Google, through our server by OpenID
   Connect with PKCE. Signed in with Telegram, the site is the bot's player:
   one answer a day across both, the DM's deadline with the speed bonus, the
@@ -129,7 +150,8 @@ For the operator:
   account of its own is linked from the site instead, so a ticket never
   merges.
 - `/privacy` says what maply keeps, what other players see and how to delete
-  the account, in the sixteen languages.
+  the account, in the sixteen languages. To have the answers erased as well,
+  it links the developer's Telegram.
 - The site's menu picks the interface language. Signed in with Telegram it is
   the language core keeps for every bot of the family, with "Follow
   Telegram"; otherwise the browser keeps it.
@@ -150,8 +172,8 @@ For the operator:
 - The country flags come from `country-flag-icons` 1.6.20, served by the
   service.
 
-- Free play, outside the day's ranking, at `/play`: from the DM's `/start`
-  panel and from the top of the days. Alone it is a Classic of 3, 5 or 10
+- Free play, outside the day's ranking, at `/play`: from the menu and the
+  DM's `/start` panel. Alone it is a Classic of 3, 5 or 10
   places on Blitz 30, 60, 90 or 120 s or no timer, or a Country streak on 30
   or 60 s that goes on while the country is right; the screen starts on the
   last game's settings, shows each place after the answer and ends with the
@@ -172,8 +194,11 @@ For the operator:
   panorama fills the screen and the map opens beside it as a panel, on hover, a
   click or M, in three sizes; after answering the map fills the screen and the
   score, the world's table and the buttons are in a sidebar. A header links
-  Today, Days and Free play. On a tablet the phone's layout gets a bigger globe
-  and centred buttons. The phone's layout is unchanged.
+  Play (the menu), Days and Leaderboards, with the profile or Sign in at its
+  end. The menu, the days, the profile and the leaderboards are pages up to
+  1440 px wide, in columns where numbers and tables do not wrap. On a tablet
+  the phone's layout gets a bigger globe and centred buttons. The phone's
+  layout is unchanged apart from the menu.
 - Keys: the arrows or WASD turn the panorama, + and − zoom it, Space drops a pin
   on the focused map, Enter answers, Esc folds the map, ? lists the keys. Hints
   follow the pointer, so a mouse is no longer told to use a finger.
@@ -198,6 +223,12 @@ For the operator:
 - The days page reads a page of thirty days in one query instead of about
   sixty, and pages back by a cursor to the first day.
 - A day's row no longer shows the group's numbers beside the world's.
+- A DM post's button opens `/today`. A post sent before this version opens
+  the app at `/`, which is now the menu, one tap from the day, and so does
+  the Play button under a forwarded result. In Telegram,
+  Back on the page the app opened with goes to the menu, and the menu has
+  none, so Telegram closes the app from there.
+- The free play card at the top of the days is gone: the menu leads there.
 
 ### Fixed
 
@@ -210,6 +241,12 @@ For the operator:
   occupied Luhansk, which its rules let through, and a plan no longer dies
   or spins when every country is used up. `screen.py` checks a frame outside
   every outline by its plan's country instead of letting it pass.
+- The result's pin, target and the others' marks stood off their points, up
+  to 40 px from the dashed line on a computer, after the map opened straight
+  on a city. They are set again once the camera stops.
+- A click or a double click on the computer's map panel while it was opening
+  left the globe small in the panel's corner. Once the camera stops, the
+  globe comes back to the middle at its size, closer if the player zoomed in.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

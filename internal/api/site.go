@@ -160,7 +160,7 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 	}
 	secret := s.boardSecret()
 	handles := s.handles()
-	names := nameRule{who: func(id int64) string { return handles.Of(id, handleScope("site", d, 0)) }, as: tgPlayer(lang)}
+	names := nameRule{who: func(id int64) string { return handles.Of(id, handleScope("site", d, 0)) }, as: anonName(lang)}
 	var ids []int64
 	for i, e := range world.Entries {
 		if e.UserID != 0 && i < boardShown {

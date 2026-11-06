@@ -97,6 +97,26 @@ func TestLookBackComesOnceTheDayAfter(t *testing.T) {
 	if late, _ := s.lateLookBack(ctx, "en", d, dm, pinOnly); !strings.Contains(late, "Your place in the world: 2 of 2") {
 		t.Errorf("look back after a pin request = %q", late)
 	}
+
+	// Ana hid herself: a stranger's DM reads "Anonymous"; her group, a group
+	// mate's DM and her own DM keep her name.
+	if err := store.SetHideMe(ctx, quiet, true); err != nil {
+		t.Fatal(err)
+	}
+	clock = d.At(7, 0, kyiv)
+	for _, tc := range []struct {
+		c    db.Chat
+		want string
+	}{
+		{db.Chat{ID: 99, Kind: "dm"}, "🥇 Anonymous"},
+		{grp, "🥇 Ana"},
+		{dm, "🥇 Ana"},
+		{db.Chat{ID: quiet, Kind: "dm"}, "🥇 Ana"},
+	} {
+		if back, err := s.yesterday(ctx, "en", d, tc.c); err != nil || !strings.Contains(back, tc.want) {
+			t.Errorf("look back in %d with Ana hidden = %q, %v; want %q", tc.c.ID, back, err, tc.want)
+		}
+	}
 }
 
 // A DM result tells the person about their own day: where the points came

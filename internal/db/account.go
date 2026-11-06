@@ -491,9 +491,11 @@ func (s *Store) settle(ctx context.Context, tx pgx.Tx, accountID string, rules R
 
 // DeleteAccount removes the account, its sign-ins, sessions and tickets. Its
 // site players stay, without a name: their rows read "Guest" and keep their
-// places in every ranking. Telegram answers stay too: they are the person's
-// game in the bot.
-func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
+// places in every ranking. A free game keeps the name its players had when
+// they joined, so the account's seats there take guest, the word a nameless
+// account plays under. Telegram answers stay too: they are the person's game
+// in the bot.
+func (s *Store) DeleteAccount(ctx context.Context, accountID, guest string) error {
 	if !uuidShape(accountID) {
 		return ErrNoAccount
 	}
@@ -508,6 +510,14 @@ func (s *Store) DeleteAccount(ctx context.Context, accountID string) error {
 	if err := tx.QueryRow(ctx, `SELECT true FROM account WHERE id = $1 FOR UPDATE`, accountID).Scan(&found); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNoAccount
 	} else if err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
+	if guest == "" || len([]rune(guest)) > 64 {
+		guest = "?"
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE free_member SET name = $2
+		 WHERE player IN (SELECT id FROM site_player WHERE account_id = $1) AND name <> $2`, accountID, guest); err != nil {
 		return fmt.Errorf("delete account: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE site_player SET name = NULL, account_id = NULL WHERE account_id = $1`, accountID); err != nil {
