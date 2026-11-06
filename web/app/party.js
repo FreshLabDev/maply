@@ -46,7 +46,7 @@
   // A party that cannot be opened. A guest of the site may not join one: records and friends come with an account.
   function gone(e) {
     stop();
-    K.top(T("party.title"), "", back);
+    K.top(T("party.title"), "");
     const sign = e.message === "sign_in" ? K.signIn() : "";
     K.page((sign || '<p class="fr-wait">' + esc(K.ferr(e)) + '</p>') + '<div class="fr-go"><button class="' + (sign ? "fr-sec" : "fr-pri") + '" data-act="pHome">' + esc(T("free.solo")) + '</button></div>');
   }
@@ -89,17 +89,20 @@
   }
 
   /* ---------- The screens ---------- */
-  // Back from a party is the free game's home; the party stays open there under "Back to friends".
-  const back = () => Router.back("/play");
+  // The lobby is a page of the top, its way up the menu. Back from a place or the end is the free game's settings,
+  // where the party stays open under "Back to friends". The free game keeps one entry of the history, so the menu is
+  // what comes before either.
+  const back = () => Router.go("/play", { replace: true });
   const placeTitle = (n) => T("free.place_n", { n: fmt(n), total: fmt(P.settings.rounds) });
   const DRAW = {
-    wait() { K.top(T("party.title"), "", back); K.wait(); },
+    wait() { K.top(T("party.title"), ""); K.wait(); },
+    // The players first on a phone; on a computer the settings on the left and the players beside them.
     lobby(ph, fresh) {
-      K.top(T("party.title"), T("party.code", { code: P.code }), back);
+      K.top(T("party.title"), T("party.code", { code: P.code }));
       const people = present();
-      let html = '<ul class="fr-mem">' + people.map((m) => '<li' + (m.m === P.me ? ' class="me"' : '') + '><i class="av">' + esc(initial(m.name)) + '</i><b lang="' + nameLang() + '">' + esc(m.name) + '</b>' +
-        (m.m === P.host ? '<span class="up">' + esc(T("party.host")) + '</span>' : m.m === P.me ? '<span class="up">' + esc(T("you")) + '</span>' : '') + '</li>').join("") + '</ul>';
-      html += K.settings(P.settings, true, !isHost());
+      let html = '<div class="fr-r"><p class="fr-l up">' + esc(T("free.players", { n: fmt(people.length) })) + '</p><ul class="fr-mem">' + people.map((m) => '<li' + (m.m === P.me ? ' class="me"' : '') + '><i class="av">' + esc(initial(m.name)) + '</i><b lang="' + nameLang() + '">' + esc(m.name) + '</b>' +
+        (m.m === P.host ? '<span class="up">' + esc(T("party.host")) + '</span>' : m.m === P.me ? '<span class="up">' + esc(T("you")) + '</span>' : '') + '</li>').join("") + '</ul></div>';
+      html += '<div class="fr-a">' + K.settings(P.settings, true, !isHost());
       html += '<p class="fr-best">' + esc(T("party.length", { n: fmt(Math.max(1, Math.round(P.length / 60))) })) + '</p>';
       html += '<div class="fr-go">';
       if (isHost()) {
@@ -107,7 +110,7 @@
         html += '<button class="fr-pri" data-act="pStart"' + (people.length < 2 ? " disabled" : "") + '>' + esc(T("party.start")) + '</button>';
       } else html += '<p class="fr-hint">' + esc(T("party.wait_host", { name: nameOf(P.host) })) + '</p>';
       html += '<button class="fr-sec" data-act="pInvite">' + esc(T("party.invite")) + '</button>' +
-        '<button class="fr-link" data-act="pLeave">' + esc(T("party.leave")) + '</button></div>';
+        '<button class="fr-link" data-act="pLeave">' + esc(T("party.leave")) + '</button></div></div>';
       K.page(html, "fr-lobby", !fresh);
     },
     count(ph) {
@@ -174,7 +177,7 @@
       if (fresh) haptic("success");
     },
     over() {
-      K.top(T("party.title"), "", back);
+      K.top(T("party.title"), "");
       K.page('<p class="fr-wait">' + esc(T("party.over")) + '</p><div class="fr-go"><button class="fr-pri" data-act="pHome">' + esc(T("free.solo")) + '</button></div>');
     },
   };
@@ -258,7 +261,7 @@
       b.disabled = true;
       try {
         const code = P.next || (await K.req("/api/party/" + CODE + "/rematch", {})).code;
-        Router.go("/party/" + code);
+        Router.go("/party/" + code, { replace: true });
       } catch (e) { b.disabled = false; toast(K.ferr(e)); }
     },
     pShare() {
@@ -267,7 +270,7 @@
       const text = "maply · " + K.setLabel(P.settings) + "\n" + T("party.share_text", { rank: fmt(me.rank), of: fmt(P.totals.length), points: fmt(me.points) });
       K.share(K.bot() && tgAt("6.1") ? "https://t.me/" + K.bot() + "/play" : location.origin + "/play", text);
     },
-    pHome() { Router.go("/play"); },
+    pHome() { Router.go("/play", { replace: true }); },
   });
   // A change of settings in the lobby goes to the server; the host's screen shows what the server kept.
   K.lobby = (b) => {
@@ -283,7 +286,7 @@
   async function join(code) {
     if (CODE === code && P) { render(); return; }
     stop();
-    K.top(T("party.title"), "", back);
+    K.top(T("party.title"), "");
     K.wait();
     let v;
     try { v = await K.req("/api/party/" + code + "/join", {}); } catch (e) { gone(e); return; }
@@ -291,13 +294,12 @@
   }
   K.party = {
     // From the solo settings: a lobby on them, with this player as its host.
-    // replace: opened from /play?with=friends, Back goes past it.
-    async create(set, replace) {
+    async create(set) {
       K.wait();
       let v;
       try { v = await K.req("/api/party", set); } catch (e) { toast(K.ferr(e)); K.home(); return; }
       run(v);
-      Router.go("/party/" + v.code, replace ? { replace: true } : undefined);
+      Router.go("/party/" + v.code, { replace: true });
     },
     open: join,
   };

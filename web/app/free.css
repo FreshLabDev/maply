@@ -68,17 +68,21 @@
 .fr-l + .fr-list, .fr-l + .rk { margin-top: 0; }
 .fr-list .fr-under { display: block; margin-top: 3px; }
 
-/* The archive: a row a day, the ones still open with the way in. */
+/* The archive: a row a day, its date over how the world did, the way in or your points at the end. */
 .fr-days { display: grid; gap: 2px; margin-top: 16px; }
-.fr-day { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 50px; padding: 0 12px;
-          background: var(--field-deep); color: var(--ink); text-align: start; }
-.fr-day b { font: 700 22px/1 var(--display); letter-spacing: .02em; }
+.fr-day { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "n d e" "n s e"; align-items: center; gap: 3px 12px; width: 100%;
+          min-height: 58px; padding: 8px 12px; background: var(--field-deep); color: var(--ink); text-align: start; }
+.fr-day b { grid-area: n; font: 700 22px/1 var(--display); letter-spacing: .02em; }
 .fr-day span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-soft); font-size: 15px; }
-.fr-day em { font: 700 12px/1 var(--label); font-style: normal; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+.fr-day .d { grid-area: d; }
+.fr-day .s { grid-area: s; color: var(--ink-muted); font-size: 12px; }
+.fr-day em { grid-area: e; font: 700 12px/1 var(--label); font-style: normal; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .fr-day.done em { color: var(--ink-soft); }
-.fr-day.done em i { font: 700 21px/1 var(--display); font-style: normal; color: var(--ink); }
+.fr-day em i { font: 700 21px/1 var(--display); font-style: normal; color: var(--ink); }
 .fr-day.off, .fr-day.off span { color: var(--ink-muted); }
 .fr-day.off em { font-family: inherit; font-weight: 400; font-size: 13px; line-height: 1.2; letter-spacing: 0; text-transform: none; white-space: normal; text-align: end; }
+.fr-day.mine em { display: grid; justify-items: end; gap: 3px; }
+.fr-day em small { font-size: 11px; color: var(--ink-muted); }
 
 /* Challenges: the ones on the free screen, and who made one. */
 .fr-chs { display: grid; gap: 2px; }
@@ -88,6 +92,17 @@
 .fr-ch span { grid-area: set; color: var(--ink-muted); font-size: 13px; }
 .fr-ch em { grid-area: go; font-style: normal; }
 .fr-chby { margin: 14px 0 0; font: 700 19px/1.2 var(--label); letter-spacing: .03em; }
+
+/* A mode's records: your best on its settings and your place on their board, the week's first three. */
+.fr-mine { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.fr-mine b { font: 700 56px/.9 var(--display); letter-spacing: .01em; }
+.fr-mine span { color: var(--ink-muted); }
+.fr-recs .fr-best { min-height: 0; margin-top: 8px; }
+.fr-recs .fr-hint { margin-top: 0; }
+.fr-recs .fr-in { margin-top: 20px; }
+.fr-home .fr-c { display: grid; gap: 2px; }
+.fr-home .fr-c .fr-wide { margin: 0; }
+.fr-home .fr-c + .fr-d .fr-hint { margin-top: 16px; }
 
 /* The lobby's players. */
 .fr-mem { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 2px; }
@@ -105,11 +120,16 @@
 .fr-play .fr-hb { display: grid; place-items: center; flex: none; margin-inline: -8px 2px; }
 .fr-play .fr-no { display: inline; }
 .fr-play #day { display: none; }
+/* The free game's own Back: none in Telegram, whose Back is the only one, and none on a computer's page of the top,
+   whose way up is the header. */
+.fr-tg #frBack, .fr-tg .fr-hb, .desk .fr-up #frBack { display: none; }
 .is-free #timer { display: none; }
 /* The clock stands where the day's countdown does; on a page it is empty and keeps the header's right side in place. */
 .is-free .fr-clock { display: flex; }
 .is-free:not(.fr-play) .fr-clock > * { display: none; }
 .fr-clock b { font-variant-numeric: tabular-nums; }
+/* The seconds apart from the score line before them. */
+.fr-clock span:not(:empty) + b { padding-inline-start: 10px; border-inline-start: 1px solid var(--field-tint); }
 .fr-clock b:empty { display: none; }
 .fr-clock.low b { color: var(--speed); }
 /* Under the header, the time left as a line. */
@@ -204,6 +224,37 @@
 .fr-act.one { grid-template-columns: 0fr 1fr; gap: 0; }
 .fr-act.one #frLook { padding: 0; color: transparent; }
 
+/* ---------- The pages on a computer: the mode's settings, the lobby and the archive as wide as the shell's pages ---------- */
+.desk .fr-pg.wide :is(.sh-top, .sh-body) { padding-left: max(24px, calc(50% - var(--page) / 2)); padding-right: max(24px, calc(50% - var(--page) / 2)); }
+.desk :is(.fr-home, .fr-lobby) { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); column-gap: var(--gap); align-items: start; align-content: start; }
+.desk :is(.fr-home, .fr-lobby) > .fr-sub { grid-column: 1 / -1; }
+/* The settings on the left; what the mode is and its records on the right, each a plate. */
+.desk .fr-home { grid-template-areas: "c c" "a d" "a r"; grid-template-rows: auto auto 1fr; row-gap: 16px; }
+.desk .fr-home .fr-c { grid-area: c; }
+.desk .fr-home .fr-a { grid-area: a; }
+.desk .fr-home .fr-d { grid-area: d; }
+.desk .fr-home .fr-r { grid-area: r; }
+.desk .fr-home :is(.fr-d, .fr-r) { padding: 24px; background: var(--field-deep); }
+.desk .fr-home .fr-d .fr-hint { margin: 0; }
+.desk .fr-home .fr-r > .fr-l:first-child, .desk .fr-home .fr-a > .fr-l:first-child { margin-top: 0; }
+.desk .fr-home .fr-r .fr-in { margin: 0; padding: 0; background: none; }
+.desk .fr-home .fr-r .fr-in + .fr-l { margin-top: 24px; }
+.desk .fr-home .fr-r .fr-ch { background: var(--field); }
+.desk .fr-home .fr-go { display: flex; }
+.desk .fr-home .fr-go > * { flex: 1; }
+/* The lobby: its settings on the left, the players beside them. */
+.desk .fr-lobby { grid-template-areas: "s s" "a r"; }
+.desk .fr-lobby > .fr-sub { grid-area: s; }
+.desk .fr-lobby .fr-a { grid-area: a; }
+.desk .fr-lobby .fr-r { grid-area: r; }
+/* The archive: a grid of days. */
+.desk .fr-arch > .fr-hint { max-width: 720px; }
+.desk .fr-days { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.desk .fr-day { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "n e" "d d" "s s"; align-items: start; align-content: start; row-gap: 8px;
+                min-height: 124px; padding: 18px; }
+.desk .fr-day b { font-size: 30px; }
+.desk .fr-day .s { white-space: normal; }
+
 /* ---------- The game on a computer ---------- */
 .desk .fr-stage { bottom: 0; }
 .desk .fr-compass { top: 12px; bottom: auto; left: 50%; right: auto; width: 480px; margin-left: -240px; }
@@ -258,6 +309,7 @@
 .fr-sbtns .fr-sec { background: var(--field); }
 
 @media (hover: hover) {
+  .desk .fr-home .fr-r .fr-ch:hover { background: var(--field-tint); }
   .fr-seg button:not(:disabled):not([aria-checked="true"]):hover, .fr-sec:not(:disabled):hover, .fr-wide.alt:hover, .fr-day:not(.off):hover, .fr-ch:hover, .fr-skip:hover, .fr-pb:hover, #frLook:hover { background: var(--field-tint); }
   .fr-pri:not(:disabled):hover, .fr-wide:not(.alt):hover, #frGo:not(:disabled):hover { background: var(--ink-soft); }
   .fr-sbtns .fr-sec:hover { background: var(--field-tint); }

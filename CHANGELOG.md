@@ -190,10 +190,14 @@ For the operator:
 
 - Free play, outside the day's ranking, at `/play`: from the menu and the
   DM's `/start` panel. Alone it is a Classic of 3, 5 or 10
-  places on Blitz 30, 60, 90 or 120 s or no timer, or a Country streak on 30
-  or 60 s that goes on while the country is right; the screen starts on the
-  last game's settings, shows each place after the answer and ends with the
-  record for those settings. With friends, up to eight play the same places
+  places on 60, 90 or 120 s or no timer, a Blitz on 30 s, or a Country streak
+  on 30 or 60 s that goes on while the country is right. Each mode has its
+  own screen, opened from its card in the menu: only its settings, on the
+  last game's where they fit, the player's record and place on the
+  settings' leaderboard, and the first three of the last 7 days. A game
+  shows each place after the answer and ends with the record for those
+  settings. Back goes one step up, and the settings, the archive and the
+  lobby lead to the menu; in Telegram only Telegram's Back is shown. With friends, up to eight play the same places
   at once: the host sets the time and the number of places, the bot prepares
   an invitation the player sends to any chat, a ribbon shows who has
   answered, and the final offers a rematch on the same settings. The speed
@@ -225,7 +229,9 @@ For the operator:
   and a record of its own. The archive: every day over in every zone, by the
   clock as well as by the final job's row, that the player has not answered
   or seen, one place each with no timer, and where the answer would have
-  stood in that day's table. A challenge: after a classic game on a timer,
+  stood in that day's table. Each day says how many played it and the
+  world's typical miss, as a target, and a day already played shows its
+  points. A challenge: after a classic game on a timer,
   friends play its places in the same order in their own time, once each,
   and the challenge's table shows the sums and marks the places someone had
   seen before. A player there is the person with every site player their
