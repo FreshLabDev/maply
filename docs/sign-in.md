@@ -13,7 +13,8 @@ test bot on another address registers its own.
 ## 1. Telegram: BotFather
 
 1. Open @BotFather's Mini App (the Open button in its chat), pick
-   @maplyin_bot, then Login Widget.
+   @maplyin_bot, then Bot Settings, then Web Login (Telegram's own guide
+   names it so; some versions of the Mini App call it Login Widget).
 2. Under Allowed URLs add the site and its callback, exactly:
    - `https://maply.ws04.cc`
    - `https://maply.ws04.cc/auth/telegram/callback`
