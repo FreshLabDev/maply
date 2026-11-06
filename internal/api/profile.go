@@ -175,10 +175,68 @@ func (s *Server) season(ctx context.Context, ps ProfileStore, v profileViewer, n
 
 type profileSetting struct {
 	HideMe bool `json:"hide_me"`
+	// Zone is the person's own zone, the DM's: the morning post and the
+	// result there, and the site, go by it. Zones is the choice, west to
+	// east.
+	Zone  string   `json:"zone,omitempty"`
+	Zones []string `json:"zones,omitempty"`
 }
 
-func settingView(ps db.ProfileSetting) *profileSetting {
-	return &profileSetting{HideMe: ps.HideMe}
+// settings is the profile's settings of the Telegram player user.
+func (s *Server) settings(ctx context.Context, ps ProfileStore, user int64) (*profileSetting, error) {
+	set, err := ps.ProfileSettingOf(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	zone, err := s.ownZone(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	return &profileSetting{HideMe: set.HideMe, Zone: zone, Zones: round.ZoneChoices}, nil
+}
+
+// ownZone is the zone of user's DM: the one stored, else their language's,
+// as the DM's first post fixes it.
+func (s *Server) ownZone(ctx context.Context, user int64) (string, error) {
+	zone, err := s.Store.ChatZone(ctx, user)
+	if err != nil || round.IsChoice(zone) {
+		return zone, err
+	}
+	lang, err := s.Store.UserLang(ctx, user)
+	if err != nil {
+		return "", err
+	}
+	return round.DefaultName(lang), nil
+}
+
+// Moving the own zone is refused as the bot's picker refuses it: a zone
+// where today is still open after the place was out here, or one a date
+// ahead before today's result.
+var (
+	errZoneTomorrow    = apiError{http.StatusConflict, "zone_tomorrow"}
+	errZoneAfterResult = apiError{http.StatusConflict, "zone_after_result"}
+)
+
+// setZone moves user's own zone to name, one of round.ZoneChoices.
+func (s *Server) setZone(ctx context.Context, user int64, name string) error {
+	if !round.IsChoice(name) {
+		return errBadRequest
+	}
+	cur, err := s.ownZone(ctx, user)
+	if err != nil {
+		return err
+	}
+	if cur == name {
+		return nil
+	}
+	from, to, now := s.Zones.For(cur, ""), s.Zones.For(name, ""), s.Now()
+	if round.Reopens(from, to, now) {
+		return errZoneTomorrow
+	}
+	if round.Outruns(from, to, now) {
+		return errZoneAfterResult
+	}
+	return s.Store.SetChatZone(ctx, user, name)
 }
 
 // rankedAsk is which numbers of whose a ranked tab holds: the days up to
@@ -294,11 +352,9 @@ func (s *Server) ownProfileOf(ctx context.Context, ps ProfileStore, v profileVie
 			name = v.name
 		}
 		out.Person = people.Telegram(v.user, name, true)
-		set, err := ps.ProfileSettingOf(ctx, v.user)
-		if err != nil {
+		if out.Settings, err = s.settings(ctx, ps, v.user); err != nil {
 			return ownProfile{}, err
 		}
-		out.Settings = settingView(set)
 		out.Free = s.free(ctx, ps, v.freeWho())
 		out.Season = s.season(ctx, ps, v, now)
 		out.Top = s.topPlaces(ctx, v)
@@ -402,11 +458,12 @@ func (s *Server) profileSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		HideMe *bool `json:"hide_me"`
+		HideMe *bool   `json:"hide_me"`
+		Zone   *string `json:"zone"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&body); err != nil || body.HideMe == nil {
+	if err := dec.Decode(&body); err != nil || (body.HideMe == nil) == (body.Zone == nil) {
 		s.fail(w, r, errBadRequest)
 		return
 	}
@@ -415,16 +472,21 @@ func (s *Server) profileSettings(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if err := ps.SetHideMe(ctx, v.user, *body.HideMe); err != nil {
-		s.fail(w, r, err)
-		return
+	if body.HideMe != nil {
+		err = ps.SetHideMe(ctx, v.user, *body.HideMe)
+	} else {
+		err = s.setZone(ctx, v.user, *body.Zone)
 	}
-	set, err := ps.ProfileSettingOf(ctx, v.user)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, settingView(set))
+	set, err := s.settings(ctx, ps, v.user)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, set)
 }
 
 // touchProfile records the person in core before a setting that refers to

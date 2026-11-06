@@ -74,3 +74,44 @@ func TestWorldNamesOpenWithTheirGroups(t *testing.T) {
 		t.Fatalf("NamedOn at 17:30 = %v, %v", open, err)
 	}
 }
+
+// The own zone is the DM's, shown and set in the profile's settings, with
+// the bot's picker's refusals.
+func TestOwnZoneInTheProfile(t *testing.T) {
+	hs := setup(t)
+	oksana := initData(1, "Oksana", "uk", "")
+	hs.now = time.Date(2026, time.December, 10, 10, 0, 0, 0, time.UTC)
+	settings := func(body string) profileSetting {
+		t.Helper()
+		var set profileSetting
+		if err := json.Unmarshal([]byte(body), &set); err != nil {
+			t.Fatal(err)
+		}
+		return set
+	}
+	var own ownProfile
+	if err := json.Unmarshal([]byte(hs.expect("GET", "/api/profile", oksana, "", http.StatusOK)), &own); err != nil {
+		t.Fatal(err)
+	}
+	if own.Settings == nil || own.Settings.Zone != "Europe/Kyiv" || len(own.Settings.Zones) != 16 {
+		t.Fatalf("settings = %+v", own.Settings)
+	}
+	if set := settings(hs.expect("POST", "/api/profile/settings", oksana, `{"zone":"Europe/Berlin"}`, http.StatusOK)); set.Zone != "Europe/Berlin" {
+		t.Fatalf("after Berlin = %+v", set)
+	}
+	if zone, err := hs.srv.Store.ChatZone(context.Background(), 1); err != nil || zone != "Europe/Berlin" {
+		t.Fatalf("DM zone = %q, %v", zone, err)
+	}
+	hs.expect("POST", "/api/profile/settings", oksana, `{"zone":"Pacific/Honolulu"}`, http.StatusBadRequest)
+	hs.expect("POST", "/api/profile/settings", oksana, `{"zone":"Europe/Kyiv","hide_me":true}`, http.StatusBadRequest)
+	// 19:30 UTC: past 20:00 in Berlin; New York is still on the day she has
+	// seen, Tokyo on tomorrow before her result.
+	hs.now = time.Date(2026, time.December, 10, 19, 30, 0, 0, time.UTC)
+	if body := hs.expect("POST", "/api/profile/settings", oksana, `{"zone":"America/New_York"}`, http.StatusConflict); body != `{"error":"zone_tomorrow"}`+"\n" {
+		t.Fatalf("west after the reveal = %s", body)
+	}
+	hs.now = time.Date(2026, time.December, 10, 16, 0, 0, 0, time.UTC)
+	if body := hs.expect("POST", "/api/profile/settings", oksana, `{"zone":"Asia/Tokyo"}`, http.StatusConflict); body != `{"error":"zone_after_result"}`+"\n" {
+		t.Fatalf("a date ahead before the result = %s", body)
+	}
+}

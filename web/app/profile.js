@@ -113,6 +113,7 @@ function drawProfile(d, back, kind, close) {
   const share = $("profShare");
   if (share) share.onclick = () => shareProfile(d);
   setTab(PROF_TAB, true);
+  bindZoneHead();
 }
 
 // The head of a profile: the face, the name and the username, and what to do with it. The own profile is the player's
@@ -121,6 +122,7 @@ function cardHTML(d) {
   const name = nameOf(d), u = d.u || (d.edit && d.edit.username) || "";
   let h = '<div class="phead">' + faceOf({ ...personOf(d), name }, "big") + '<div class="phead-t"><b lang="' + nameLang() + '" dir="auto">' + esc(name) + '</b>' +
     (u ? '<span class="phead-u" dir="ltr">@' + esc(u) + '</span>' : "") +
+    (d.me ? zoneHeadHTML(d.settings) : "") +
     '<span class="up">' + esc(T(d.guest || d.site ? "from_site" : "from_tg")) + '</span></div></div>';
   const acts = [];
   if (d.me && d.edit && typeof openEdit === "function") acts.push('<button class="pbtn" id="profEdit">' + esc(T("prof.edit")) + '</button>');
@@ -259,6 +261,7 @@ function bindRanked(box) {
 function bindSettings() {
   const hide = $("hideMe");
   if (hide) hide.onchange = () => saveHide(hide);
+  bindZone();
 }
 
 // A closed day's page, by its address; its Back comes back to the profile, where it was, with the focus on what was
@@ -468,11 +471,12 @@ document.addEventListener("click", (e) => {
 /* ---------- Settings ---------- */
 function settingsHTML(d) {
   if (!d.settings || !d.me) return "";
-  let h = '<label class="pswitch"><input type="checkbox" id="hideMe"' + (d.settings.hide_me ? " checked" : "") + '><span><b>' + esc(T("prof.hide_me")) + '</b>' +
+  let h = zoneHTML(d.settings);
+  h += '<label class="pswitch"><input type="checkbox" id="hideMe"' + (d.settings.hide_me ? " checked" : "") + '><span><b>' + esc(T("prof.hide_me")) + '</b>' +
     '<small>' + esc(T("prof.hide_me_note")) + '</small></span></label>';
   // Linked accounts live on the accounts screen; the profile only points there.
   if (typeof openAccounts === "function") h += '<button class="pbtn wide" id="profAccounts">' + esc(T("prof.accounts")) + ' ' + fwd() + '</button>';
-  return section(T("prof.settings"), h);
+  return section(T("prof.settings"), h, "pset");
 }
 async function saveHide(box) {
   haptic("select");
@@ -481,14 +485,131 @@ async function saveHide(box) {
   redrawSettings("hideMe");
 }
 // The settings drawn again from PROF, after a change and when a copy of the profile put aside comes back; the focus
-// goes back to the control named.
-function redrawSettings(focus) {
-  const set = $("hideMe") && $("hideMe").closest(".psec");
+// goes back to the control named, and the list of zones stays open when it was.
+function redrawSettings(focus, zonesOpen) {
+  const set = $("sheet").querySelector(".psec.pset");
   if (!set || !PROF || !PROF.settings) return;
   set.outerHTML = settingsHTML(PROF);
+  const head = $("profZoneHead");
+  if (head) head.outerHTML = zoneHeadHTML(PROF.settings);
   bindSettings();
+  bindZoneHead();
+  if (zonesOpen) openZones(true);
   const to = focus && $(focus);
   if (to) to.focus({ preventScroll: true });
+}
+
+/* ---------- The own zone ---------- */
+// The person's zone is their DM's: the morning post and the result there, and the site, go by it, and the world's names
+// open at 20:00 in it. The profile shows it as a clock with the time there now, and offers the zones maply knows, each
+// with its time, and the phone's when it is another.
+function zoneTime(zone, at) {
+  try { return new Intl.DateTimeFormat(numLang(), { timeZone: zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at || new Date()); } catch { return ""; }
+}
+// Minutes past midnight in a zone, for the clock's hands and for telling two zones' clocks apart.
+function zoneMinutes(zone, at) {
+  try {
+    const p = new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(at || new Date());
+    const n = (t) => Number((p.find((x) => x.type === t) || {}).value || 0);
+    return n("hour") % 24 * 60 + n("minute");
+  } catch { return -1; }
+}
+// A dial with the time in zone, and a dot at eight, where the day's result comes.
+function clockSVG(zone, at) {
+  const min = Math.max(0, zoneMinutes(zone, at));
+  const x = (deg, r) => (Math.sin(deg * Math.PI / 180) * r).toFixed(2), y = (deg, r) => (-Math.cos(deg * Math.PI / 180) * r).toFixed(2);
+  const hand = (cls, deg, r) => '<path class="' + cls + '" d="M0 0L' + x(deg, r) + ' ' + y(deg, r) + '"/>';
+  return '<svg class="pclock" viewBox="-20 -20 40 40" aria-hidden="true" data-clock="' + esc(zone) + '"><circle class="f" r="18"/>' +
+    '<circle class="rv" cx="' + x(240, 13.5) + '" cy="' + y(240, 13.5) + '" r="2.2"/>' +
+    hand("h", min % 720 / 2, 8.5) + hand("m", min % 60 * 6, 13) + '<circle class="c" r="1.8"/></svg>';
+}
+// The zone among the choices whose clock the phone keeps all year, as the server matches one: none when it has no twin.
+function phoneZone(zones) {
+  if (!tz) return "";
+  if (zones.includes(tz)) return tz;
+  const y = new Date().getUTCFullYear(), probes = [0, 3, 6, 9].map((m) => new Date(Date.UTC(y, m, 15, 12))).concat(new Date());
+  return zones.find((z) => probes.every((at) => zoneMinutes(z, at) === zoneMinutes(tz, at) && zoneMinutes(z, at) >= 0)) || "";
+}
+function zoneHTML(set) {
+  if (!set.zone || !set.zones) return "";
+  const now = new Date(), name = ZONES[set.zone] || set.zone, phone = phoneZone(set.zones);
+  let h = '<div class="pzone"><button type="button" class="pzone-now" id="profZone" aria-expanded="false" aria-controls="profZones">' + clockSVG(set.zone, now) +
+    '<span class="pzone-t"><span class="up">' + esc(T("prof.zone")) + '</span><b>' + esc(name) + '</b><small data-tz="' + esc(set.zone) + '" data-tpl="now">' +
+    esc(T("prof.zone_now", { time: zoneTime(set.zone, now) })) + '</small></span><i class="pzone-go" aria-hidden="true"></i></button>';
+  if (phone && phone !== set.zone) h += '<button type="button" class="pbtn wide pzone-phone" data-zone="' + esc(phone) + '">' + esc(T("prof.zone_phone", { zone: ZONES[phone] || phone })) + '</button>';
+  h += '<div class="pzone-list" id="profZones" role="radiogroup" aria-label="' + esc(T("prof.zone")) + '" hidden>' + set.zones.map((z) =>
+    '<label class="pzone-o' + (z === set.zone ? " on" : "") + '"><input type="radio" name="profZone" value="' + esc(z) + '"' + (z === set.zone ? " checked" : "") + '>' +
+    '<span>' + esc(ZONES[z] || z) + '</span><time data-tz="' + esc(z) + '">' + esc(zoneTime(z, now)) + '</time></label>').join("") + '</div>';
+  return h + '<p class="pzone-note">' + esc(T("prof.zone_note")) + '</p></div>';
+}
+// The own profile's head says the zone too, under the username: the time there and its name. A tap opens the list.
+function zoneHeadHTML(set) {
+  if (!set || !set.zone) return "";
+  return '<button type="button" class="phead-z" id="profZoneHead">' + clockSVG(set.zone) + '<span><time data-tz="' + esc(set.zone) + '">' + esc(zoneTime(set.zone)) + '</time> · ' +
+    esc(ZONES[set.zone] || set.zone) + '</span></button>';
+}
+// The head's zone opens the list in the settings, on the first tab.
+function bindZoneHead() {
+  const head = $("profZoneHead");
+  if (!head) return;
+  head.onclick = () => {
+    haptic("light");
+    if (!$("profZones")) setTab("ranked");
+    openZones(true, true);
+  };
+}
+function openZones(open, scroll) {
+  const list = $("profZones"), btn = $("profZone");
+  if (!list || !btn) return;
+  list.hidden = !open;
+  btn.setAttribute("aria-expanded", String(open));
+  if (open && scroll) btn.scrollIntoView({ block: "start", behavior: "smooth" });
+  if (open) zoneTick();
+}
+function bindZone() {
+  const btn = $("profZone");
+  if (btn) btn.onclick = () => { haptic("light"); openZones($("profZones").hidden); };
+  $("sheet").querySelectorAll('input[name="profZone"]').forEach((r) => { r.onchange = () => saveZone(r.value, true); });
+  const phone = $("sheet").querySelector(".pzone-phone");
+  if (phone) phone.onclick = () => saveZone(phone.dataset.zone, false);
+  zoneTick();
+}
+async function saveZone(zone, zonesOpen) {
+  haptic("select");
+  $("sheet").querySelectorAll('input[name="profZone"], .pzone-phone').forEach((e) => { e.disabled = true; });
+  try {
+    PROF.settings = await api("/api/profile/settings", { zone });
+    toast(T("prof.zone_saved", { zone: ZONES[zone] || zone }));
+    zoneMoved();
+  } catch (e) { toast(errorText(e)); }
+  redrawSettings(zonesOpen ? null : "profZone", zonesOpen);
+  const on = zonesOpen && $("sheet").querySelector('input[name="profZone"]:checked');
+  if (on) on.focus({ preventScroll: true });
+}
+// The day's screen goes by this zone in a DM and on the site: it is read again, and the page starts over when the move
+// changed its date.
+async function zoneMoved() {
+  if (!TODAY || TODAY.kind === "group") return;
+  const t = await api(todayPath()).catch(() => null);
+  if (!t) return;
+  if (t.date !== TODAY.date) { location.reload(); return; }
+  Object.assign(TODAY, { zone: t.zone, reveal: t.reveal, deadline: t.deadline });
+  AT = zoneTime(TODAY.zone, new Date(TODAY.reveal));
+  ZONE_NAME = ZONES[TODAY.zone] || "";
+}
+// The clocks on the page keep the time while it is open, a minute at a time.
+let ZONE_TICK = 0;
+function zoneTick() {
+  clearTimeout(ZONE_TICK);
+  const els = document.querySelectorAll("[data-tz], [data-clock]");
+  if (!els.length) return;
+  const now = new Date();
+  els.forEach((e) => {
+    if (e.dataset.clock) { e.outerHTML = clockSVG(e.dataset.clock, now); return; }
+    const t = zoneTime(e.dataset.tz, now);
+    e.textContent = e.dataset.tpl === "now" ? T("prof.zone_now", { time: t }) : t;
+  });
+  ZONE_TICK = setTimeout(zoneTick, 60000 - now.getSeconds() * 1000 - now.getMilliseconds() + 50);
 }
 // The accounts page opens over the profile, and its Back brings the profile back as it was: the address stays /me.
 document.addEventListener("click", (e) => {

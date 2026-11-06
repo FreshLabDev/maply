@@ -63,6 +63,7 @@ type Store interface {
 	UserLang(context.Context, int64) (string, error)
 	ManualLang(context.Context, int64) (string, error)
 	ChatZone(context.Context, int64) (string, error)
+	SetChatZone(context.Context, int64, string) error
 	World(context.Context, round.Date) (db.World, error)
 	DayPins(context.Context, round.Date) ([][2]float64, error)
 	NamedOn(context.Context, round.Zones, round.Date, []int64, time.Time) (map[int64]bool, error)

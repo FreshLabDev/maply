@@ -153,6 +153,46 @@ img.pflag { display: inline-block; width: 21px; height: 14px; vertical-align: -2
 
 .pswitch + .pswitch { margin-top: 2px; }
 
+/* The own zone: a dial with the time there and a dot at eight, where the day's result comes; under it the zones maply
+   knows, each with its time now, the chosen one in white. */
+.pclock { flex: none; width: 44px; height: 44px; }
+.pclock .f { fill: var(--field); stroke: var(--field-tint); stroke-width: 1.5; }
+.pclock .rv { fill: var(--ink-soft); }
+.pclock .h, .pclock .m { stroke: var(--ink); stroke-linecap: square; }
+.pclock .h { stroke-width: 3; }
+.pclock .m { stroke-width: 2; }
+.pclock .c { fill: var(--ink); }
+.pzone-now { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 68px; padding: 12px; background: var(--field-deep); color: var(--ink); text-align: start; }
+.pzone-now:focus-visible { outline: 2px solid var(--speed); outline-offset: -2px; }
+.pzone-t { flex: 1; min-width: 0; }
+.pzone-t .up { display: block; color: var(--ink-muted); font-size: 11px; letter-spacing: .08em; }
+.pzone-t b { display: block; margin-top: 4px; font: 700 22px/1.05 var(--display); letter-spacing: .02em; overflow-wrap: anywhere; }
+.pzone-t small { display: block; margin-top: 4px; color: var(--ink-soft); font-size: 13px; font-variant-numeric: tabular-nums; }
+.pzone-go { flex: none; width: 9px; height: 9px; margin: -4px 6px 0; border: solid var(--ink-muted); border-width: 0 2px 2px 0; transform: rotate(45deg); transition: transform .15s var(--ease); }
+.pzone-now[aria-expanded="true"] .pzone-go { margin-top: 4px; transform: rotate(-135deg); }
+.pzone .pbtn.wide { margin-top: 2px; }
+.pzone-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 2px; margin-top: 2px; }
+html.desk .pzone-list { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.pzone-list[hidden] { display: none; }
+/* A name too long to share its line with the time, "Central Europe" at 320 px, puts the time under it, not breaks a word. */
+.pzone-o { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 44px; padding: 10px 12px; background: var(--field-deep); cursor: pointer; }
+.pzone-o input { position: absolute; width: 1px; height: 1px; margin: 0; clip-path: inset(50%); }
+.pzone-o span { min-width: 0; font-weight: 600; }
+.pzone-o time { flex: none; margin-inline-start: auto; color: var(--ink-soft); font: 700 15px/1 var(--display); letter-spacing: .03em; font-variant-numeric: tabular-nums; }
+.pzone-o.on { background: var(--ink); color: var(--field-deep); }
+.pzone-o.on time { color: var(--field-deep); }
+.pzone-o:has(input:focus-visible) { outline: 2px solid var(--speed); outline-offset: -2px; }
+.pzone-o:has(input:disabled) { cursor: wait; }
+.pzone-note { margin: 8px 0 14px; color: var(--ink-muted); font-size: 13px; line-height: 1.35; }
+/* The head of the own profile says the zone: a small dial, the time there and its name. */
+.phead-z { display: flex; align-items: center; gap: 6px; margin-top: 6px; padding: 2px 0; background: none; color: var(--ink-soft); font: 600 14px/1.2 var(--text); text-align: start; font-variant-numeric: tabular-nums; }
+.phead-z .pclock { width: 22px; height: 22px; }
+.phead-z .pclock .f { stroke-width: 2.5; }
+.phead-z .pclock .h { stroke-width: 4; }
+.phead-z .pclock .m { stroke-width: 3; }
+.phead-z time { color: var(--ink); }
+.phead-z:focus-visible { outline: 2px solid var(--speed); outline-offset: 2px; }
+
 /* The editor of the own profile: the photo, the name and the username, each with what it means under it. Inputs are
    17 px so a phone does not zoom into them. */
 .pedit { max-width: 520px; }
