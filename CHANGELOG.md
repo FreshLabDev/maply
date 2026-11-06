@@ -11,6 +11,11 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Changed
+
+- The game picker shows the first three of all time on the chosen settings,
+  not of the last seven days. The leaderboards page keeps both periods.
+
 ### Fixed
 
 - An account that holds two answers of one day, a Telegram one and a guest's

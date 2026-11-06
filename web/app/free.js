@@ -611,7 +611,7 @@
     readRecords(s);
   }
 
-  /* ---------- Records: your best on the settings, your place on their board, the week's first three ---------- */
+  /* ---------- Records: your best on the settings, your place on their board, the first three of all time ---------- */
   // The boards are /api/top's: a game without a timer is on none, a blitz is the classic on 30 s.
   const TOP = new Map();
   const boardOf = (s) => !s.seconds ? "" : s.mode === "timed" ? "board=timed&seconds=180" : s.mode === "streak" ? "board=streak&seconds=" + s.seconds :
@@ -630,12 +630,12 @@
         : '<p class="fr-hint">' + esc(T("free.rec_none")) + '</p>';
     } else html += signIn();
     if (!boardOf(s)) return html + '<p class="fr-hint">' + esc(T("free.no_board")) + '</p></section>';
-    const week = topOf(s, "week");
-    if (week === false) return html + '</section>';
-    html += '<p class="fr-l up">' + esc(T("free.rec_week")) + '</p>';
-    if (!week) html += '<p class="fr-hint fr-busy">' + esc(lines("loading")[0]) + '</p>';
-    else if (!week.rows.length) html += '<p class="fr-hint">' + esc(T("free.rec_week_none")) + '</p>';
-    else html += table(week.rows.slice(0, 3).map((r) => ({ rank: r.rank, who: r, me: r.me, points: r.score })), true);
+    const all = topOf(s, "all");
+    if (all === false) return html + '</section>';
+    html += '<p class="fr-l up">' + esc(T("free.rec_all")) + '</p>';
+    if (!all) html += '<p class="fr-hint fr-busy">' + esc(lines("loading")[0]) + '</p>';
+    else if (!all.rows.length) html += '<p class="fr-hint">' + esc(T("free.rec_all_none")) + '</p>';
+    else html += table(all.rows.slice(0, 3).map((r) => ({ rank: r.rank, who: r, me: r.me, points: r.score })), true);
     return html + '</section>';
   }
   // The boards of the settings on screen, each read once; the block is drawn again when they come, if the settings
@@ -643,10 +643,10 @@
   async function readRecords(s) {
     const b = boardOf(s);
     if (!b) return;
-    const qs = (keeps() ? ["all", "week"] : ["week"]).map((p) => b + "&period=" + p).filter((q) => !TOP.has(q));
-    if (!qs.length) return;
-    qs.forEach((q) => TOP.set(q, undefined));
-    await Promise.all(qs.map((q) => req("/api/top?" + q).then((d) => TOP.set(q, d), () => TOP.set(q, false))));
+    const q = b + "&period=all";
+    if (TOP.has(q)) return;
+    TOP.set(q, undefined);
+    await req("/api/top?" + q).then((d) => TOP.set(q, d), () => TOP.set(q, false));
     const e = $("frRecs");
     if (e && SET && boardOf(SET) === b && $("frPage").classList.contains("fr-home")) e.outerHTML = records(SET);
   }
