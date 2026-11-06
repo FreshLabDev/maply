@@ -202,6 +202,9 @@ type NewGame struct {
 	Status   string
 	Host     Member
 	At       time.Time
+	// Day is the closed day a party from the archive plays; the zero time
+	// otherwise.
+	Day time.Time
 }
 
 type NewRound struct {
@@ -290,6 +293,15 @@ type Store interface {
 	// ErrNoRow is no such closed day; ErrDayAnswered and ErrDaySeen a day the
 	// player knows.
 	CreateFreeArchive(ctx context.Context, dayNo int, closed time.Time, g NewGame) (int64, error)
+	// CreateFreeArchiveParty makes the lobby of a party on closed day dayNo,
+	// hosted by g.Host. ErrNoRow is no such closed day; ErrDayAnswered and
+	// ErrDaySeen a day the host knows.
+	CreateFreeArchiveParty(ctx context.Context, dayNo int, closed time.Time, g NewGame) (int64, error)
+	// FreeDayKnown is whether the player answered the day, or had its place
+	// in a free game, as any of their people.
+	FreeDayKnown(ctx context.Context, w Who, day time.Time) (answered, seen bool, err error)
+	// FreeDayPlace is the place of a closed day.
+	FreeDayPlace(ctx context.Context, day time.Time) (int64, error)
 	// FreeDayRank is where an answer worth base points would have stood
 	// among a closed day's answers, counted without their speed bonus, and
 	// of how many, the answer included. A tie counts as behind.

@@ -416,8 +416,13 @@ func (s *Server) partyNew(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	var set free.Settings
-	if err := readBody(w, r, &set); err != nil {
+	// Day is the number of a day from the archive, for a party that plays
+	// one; the settings then name the archive and the timer.
+	var b struct {
+		free.Settings
+		Day int `json:"day"`
+	}
+	if err := readBody(w, r, &b); err != nil {
 		s.freeFail(w, r, err)
 		return
 	}
@@ -425,7 +430,12 @@ func (s *Server) partyNew(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	p, err := s.Free.NewParty(r.Context(), v.who, v.user.FirstName, v.lang, set)
+	var p free.PartyView
+	if b.Settings.Mode == free.Archive {
+		p, err = s.Free.NewArchiveParty(r.Context(), v.who, v.user.FirstName, v.lang, b.Settings, b.Day)
+	} else {
+		p, err = s.Free.NewParty(r.Context(), v.who, v.user.FirstName, v.lang, b.Settings)
+	}
 	if err != nil {
 		s.freeFail(w, r, err)
 		return
@@ -576,7 +586,7 @@ func (s *Server) partyInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code := r.PathValue("code")
-	set, status, err := s.Free.PartySettings(r.Context(), v.who, code)
+	set, status, day, err := s.Free.PartySettings(r.Context(), v.who, code)
 	if err != nil {
 		s.freeFail(w, r, err)
 		return
@@ -595,7 +605,7 @@ func (s *Server) partyInvite(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"link": link})
 		return
 	}
-	caption := InviteCaption(v.lang, set)
+	caption := InviteCaption(v.lang, set, day)
 	var raw [12]byte
 	_, _ = rand.Read(raw[:])
 	key := base64.RawURLEncoding.EncodeToString(raw[:])
@@ -619,14 +629,24 @@ func (s *Server) siteLink(path string) string {
 	return strings.TrimRight(s.AppURL, "/") + path
 }
 
-// InviteCaption is a party's settings in a line: "Blitz · 5 places · 30 s".
-func InviteCaption(lang string, set free.Settings) string {
+// InviteCaption is a game's settings in a line: "Blitz · 5 places · 30 s",
+// "Country streak · 60 s", "Against the clock · 3 min", "Day #41 · 90 s". day
+// is the number of the day a party from the archive plays, 0 otherwise.
+func InviteCaption(lang string, set free.Settings, day int) string {
+	seconds := i18n.T(lang, "free.seconds", "n", strconv.Itoa(set.Seconds))
+	switch set.Mode {
+	case free.Streak:
+		return i18n.T(lang, "free.streak") + " · " + seconds
+	case free.Timed:
+		return i18n.T(lang, "free.timed")
+	case free.Archive:
+		return i18n.T(lang, "free.archive_day", "n", strconv.Itoa(day)) + " · " + seconds
+	}
 	parts := []string{}
 	if set.Seconds == 30 {
 		parts = append(parts, i18n.T(lang, "free.blitz"))
 	}
-	parts = append(parts, i18n.T(lang, "free.rounds."+strconv.Itoa(set.Rounds)),
-		i18n.T(lang, "free.seconds", "n", strconv.Itoa(set.Seconds)))
+	parts = append(parts, i18n.T(lang, "free.rounds."+strconv.Itoa(set.Rounds)), seconds)
 	return strings.Join(parts, " · ")
 }
 

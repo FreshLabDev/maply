@@ -73,7 +73,11 @@ type PartyView struct {
 	Me        int          `json:"me"`
 	Members   []MemberView `json:"members"`
 	StartedAt *time.Time   `json:"started_at"`
-	Rounds    []PartyRound `json:"rounds"`
+	// EndsAt is when a game against the clock ends, for everyone at once.
+	EndsAt *time.Time `json:"ends_at,omitempty"`
+	// Day is the closed day a party from the archive plays.
+	Day    *DayView     `json:"day,omitempty"`
+	Rounds []PartyRound `json:"rounds"`
 	// Totals is the standing over the closed places; the final one once the
 	// game is done.
 	Totals []Line `json:"totals"`
@@ -92,6 +96,14 @@ type MemberView struct {
 	// wait for them.
 	Away bool `json:"away,omitempty"`
 	Left bool `json:"left,omitempty"`
+	// Out is a player whose streak is over: they watch the rest.
+	Out bool `json:"out,omitempty"`
+	// Against the clock, where each player is: the places they answered,
+	// their points and the countries found. Nothing more of their game is
+	// shown until it is over for everyone.
+	Done      int `json:"done,omitempty"`
+	Points    int `json:"points,omitempty"`
+	Countries int `json:"countries,omitempty"`
 }
 
 type PartyRound struct {
@@ -105,6 +117,9 @@ type PartyRound struct {
 	Repeat   bool       `json:"repeat,omitempty"`
 	// Answered is who has answered, while the place is open.
 	Answered []int `json:"answered,omitempty"`
+	// Playing, in a streak, is who stood for the place; the other players
+	// were out and only watched it.
+	Playing []int `json:"playing,omitempty"`
 	// Place and Guesses come when it has closed.
 	Place   *PlaceView  `json:"place,omitempty"`
 	Guesses []GuessView `json:"guesses,omitempty"`
@@ -290,6 +305,9 @@ func (s *Service) step(ctx context.Context, p *party, now time.Time) (bool, erro
 		}
 		return false, nil
 	case StatusPlaying:
+		if g.Settings.Mode == Timed {
+			return s.stepTimed(ctx, p, now)
+		}
 		r, ok := p.snap.last()
 		if !ok {
 			return false, nil
@@ -309,7 +327,7 @@ func (s *Service) step(ctx context.Context, p *party, now time.Time) (bool, erro
 			}
 			return true, s.close(ctx, p, r, at)
 		}
-		if r.N >= g.Settings.Rounds || p.exhausted {
+		if !p.more(r) {
 			end := r.ClosedAt.Add(RevealFor(g.Settings.Seconds))
 			if now.Before(end) {
 				return false, nil
@@ -339,6 +357,18 @@ func (s *Service) present(p *party) []Member {
 // or missed the last two places.
 func (s *Service) allAnswered(p *party, r Round, now time.Time) bool {
 	answered := 0
+	// A streak waits for everyone still in it, silent or not, until the time
+	// is up: a place closed early on someone whose phone lost the signal
+	// would end their streak.
+	if p.snap.Game.Settings.Mode == Streak {
+		for _, m := range p.snap.standing(r.N) {
+			if !p.answered(r.N, m.M) {
+				return false
+			}
+			answered++
+		}
+		return answered > 0
+	}
 	for _, m := range p.snap.Members {
 		if m.FromRound > r.N {
 			continue
@@ -360,7 +390,7 @@ func (s *Service) allAnswered(p *party, r Round, now time.Time) bool {
 func (s *Service) close(ctx context.Context, p *party, r Round, at time.Time) error {
 	set := p.snap.Game.Settings
 	var next *NewRound
-	if r.N < set.Rounds {
+	if p.more(r) {
 		c, repeat, err := s.pick(ctx, p.snap.Game.ID)
 		if errors.Is(err, ErrNoPlace) {
 			s.Log.Warn("free pool has no place left for a party", "game", p.snap.Game.ID)
@@ -407,15 +437,34 @@ func (s *Service) party(ctx context.Context, w Who, code string) (*party, Member
 }
 
 // NewParty makes a lobby on set with w as its host. A lobby w was hosting is
-// given up.
+// given up. A day from the archive has NewArchiveParty.
 func (s *Service) NewParty(ctx context.Context, w Who, name, lang string, set Settings) (PartyView, error) {
 	s.init()
 	if !w.Keeps() {
 		return PartyView{}, ErrSignIn
 	}
-	if !set.ValidParty() {
+	if !set.ValidParty() || set.Mode == Archive {
 		return PartyView{}, ErrBadRequest
 	}
+	return s.lobby(ctx, w, name, lang, set, 0)
+}
+
+// NewArchiveParty makes a lobby on closed day dayNo, on a timer the host
+// picked: everyone plays that one place together. Nobody who answered the day
+// or had its place can be in it, the host included.
+func (s *Service) NewArchiveParty(ctx context.Context, w Who, name, lang string, set Settings, dayNo int) (PartyView, error) {
+	s.init()
+	if !w.Keeps() {
+		return PartyView{}, ErrSignIn
+	}
+	if !set.ValidParty() || set.Mode != Archive || dayNo <= 0 {
+		return PartyView{}, ErrBadRequest
+	}
+	return s.lobby(ctx, w, name, lang, set, dayNo)
+}
+
+// lobby makes the lobby, giving up the one w hosted before.
+func (s *Service) lobby(ctx context.Context, w Who, name, lang string, set Settings, dayNo int) (PartyView, error) {
 	now := s.Now()
 	open, err := s.Store.OpenFreeGames(ctx, w, Party)
 	if err != nil {
@@ -438,8 +487,17 @@ func (s *Service) NewParty(ctx context.Context, w Who, name, lang string, set Se
 			return PartyView{}, ferr
 		}
 	}
-	id, err := s.create(ctx, NewGame{Kind: Party, Settings: set, Status: StatusLobby, At: now,
-		Host: Member{M: 1, Who: w, Name: nameOr(name), JoinedAt: now, FromRound: 1, LastSeen: now}})
+	game := NewGame{Kind: Party, Settings: set, Status: StatusLobby, At: now,
+		Host: Member{M: 1, Who: w, Name: nameOr(name), JoinedAt: now, FromRound: 1, LastSeen: now}}
+	var id int64
+	if dayNo > 0 {
+		id, err = s.createArchiveParty(ctx, dayNo, game)
+		if errors.Is(err, ErrNoRow) {
+			return PartyView{}, ErrNotFound
+		}
+	} else {
+		id, err = s.create(ctx, game)
+	}
 	if err != nil {
 		return PartyView{}, err
 	}
@@ -451,6 +509,19 @@ func (s *Service) NewParty(ctx context.Context, w Who, name, lang string, set Se
 	me, _ := p.snap.member(w)
 	p.seen[me.M], p.saved[me.M] = now, now
 	return s.partyView(ctx, p, me, now, lang)
+}
+
+// createArchiveParty is create for a party on a day, drawing a new code if
+// one is taken.
+func (s *Service) createArchiveParty(ctx context.Context, dayNo int, g NewGame) (int64, error) {
+	for i := 0; ; i++ {
+		g.Code = newCode()
+		id, err := s.Store.CreateFreeArchiveParty(ctx, dayNo, s.closed(s.Now()), g)
+		if errors.Is(err, ErrCodeTaken) && i < 3 {
+			continue
+		}
+		return id, err
+	}
 }
 
 func nameOr(name string) string {
@@ -507,6 +578,11 @@ func (s *Service) Join(ctx context.Context, w Who, name, code, lang string) (v P
 		switch g.Status {
 		case StatusLobby:
 		case StatusPlaying:
+			// Against the clock everyone has the same three minutes from the
+			// start, so there is no joining once it has begun.
+			if g.Settings.Mode == Timed {
+				return PartyView{}, ErrTooLate
+			}
 			r, _ := p.snap.last()
 			from = r.N
 			if !now.Before(r.StartsAt) {
@@ -522,7 +598,9 @@ func (s *Service) Join(ctx context.Context, w Who, name, code, lang string) (v P
 					from = r.N + 1
 				}
 			}
-			if from > g.Settings.Rounds {
+			// A streak has no last place but the one the game ends on.
+			if g.Settings.Mode == Streak && r.ClosedAt != nil && !p.more(r) ||
+				g.Settings.Mode != Streak && from > g.Settings.Rounds {
 				return PartyView{}, ErrTooLate
 			}
 		default:
@@ -530,6 +608,11 @@ func (s *Service) Join(ctx context.Context, w Who, name, code, lang string) (v P
 		}
 		if len(s.present(p)) >= MaxMembers {
 			return PartyView{}, ErrFull
+		}
+		if !g.Day.IsZero() {
+			if err := s.dayOpen(ctx, w, g.Day); err != nil {
+				return PartyView{}, err
+			}
 		}
 		next := 1
 		for _, m := range p.snap.Members {
@@ -601,6 +684,11 @@ func (s *Service) SetParty(ctx context.Context, w Who, code, lang string, set Se
 	if p.snap.Game.Host != me.M {
 		return PartyView{}, ErrNotHost
 	}
+	// A lobby on a day from the archive is that day's and nothing else, and
+	// no other lobby turns into one: the day is chosen before the lobby.
+	if (set.Mode == Archive) != !p.snap.Game.Day.IsZero() {
+		return PartyView{}, ErrBadRequest
+	}
 	if set != p.snap.Game.Settings {
 		if err := s.Store.SetFreeSettings(ctx, p.snap.Game.ID, set); err != nil {
 			return PartyView{}, err
@@ -648,14 +736,30 @@ func (s *Service) StartParty(ctx context.Context, w Who, code, lang string, vers
 	if len(present) == 2 {
 		kind = Duel
 	}
-	c, repeat, err := s.pick(ctx, g.ID)
-	if err != nil {
-		return PartyView{}, err
+	var place int64
+	var repeat bool
+	if g.Settings.Mode == Archive {
+		// Asked again at the start: someone may have played the day since
+		// they joined.
+		for _, m := range present {
+			if err := s.dayOpen(ctx, m.Who, g.Day); err != nil {
+				return PartyView{}, err
+			}
+		}
+		if place, err = s.Store.FreeDayPlace(ctx, g.Day); err != nil {
+			return PartyView{}, err
+		}
+	} else {
+		c, again, err := s.pick(ctx, g.ID)
+		if err != nil {
+			return PartyView{}, err
+		}
+		place, repeat = c.PlaceID, again
 	}
 	starts := now.Add(Countdown)
 	ends := starts.Add(g.Settings.Limit())
 	ok, err := s.Store.StartFree(ctx, g.ID, version, kind, now,
-		NewRound{N: 1, PlaceID: c.PlaceID, Repeat: repeat, StartsAt: starts, EndsAt: &ends})
+		NewRound{N: 1, PlaceID: place, Repeat: repeat, StartsAt: starts, EndsAt: &ends})
 	if err != nil {
 		return PartyView{}, err
 	}
@@ -672,7 +776,9 @@ func (s *Service) StartParty(ctx context.Context, w Who, code, lang string, vers
 // everyone the place waits for has answered, it closes at once.
 func (s *Service) GuessParty(ctx context.Context, w Who, code, lang string, in GuessIn) (v PartyView, err error) {
 	s.init()
-	if in.Skip || in.Pin == nil || !in.Pin.Valid() {
+	// Only against the clock may a place be passed, at the cost of the time
+	// it took.
+	if in.Pin != nil && !in.Pin.Valid() || in.Pin == nil && !in.Skip {
 		return PartyView{}, ErrBadRequest
 	}
 	p, me, err := s.party(ctx, w, code)
@@ -691,6 +797,12 @@ func (s *Service) GuessParty(ctx context.Context, w Who, code, lang string, in G
 	if g.Status != StatusPlaying {
 		return PartyView{}, ErrOver
 	}
+	if g.Settings.Mode == Timed {
+		return s.guessTimed(ctx, p, me, now, lang, in)
+	}
+	if in.Skip {
+		return PartyView{}, ErrBadRequest
+	}
 	r, ok := p.snap.round(in.N)
 	switch {
 	case !ok:
@@ -703,6 +815,8 @@ func (s *Service) GuessParty(ctx context.Context, w Who, code, lang string, in G
 		return PartyView{}, ErrAnswered
 	case r.ClosedAt != nil || now.After(r.Over()):
 		return PartyView{}, ErrClosed
+	case g.Settings.Mode == Streak && !standsAt(p.snap.standing(in.N), me.M):
+		return PartyView{}, ErrOut
 	}
 	pl, err := s.place(ctx, r.PlaceID)
 	if err != nil {
@@ -776,6 +890,11 @@ func (s *Service) Rematch(ctx context.Context, w Who, name, code string) (string
 		p.mu.Unlock()
 		return "", ErrOrder
 	}
+	// Everyone has had the day's place now: there is nothing to play again.
+	if g.Settings.Mode == Archive {
+		p.mu.Unlock()
+		return "", ErrBadRequest
+	}
 	var next int64
 	for i := 0; ; i++ {
 		next, err = s.Store.RematchFree(ctx, g.ID, NewGame{Kind: Party, Code: newCode(), Settings: g.Settings,
@@ -804,15 +923,17 @@ func (s *Service) Rematch(ctx context.Context, w Who, name, code string) (string
 	return nc, nil
 }
 
-// PartySettings is the settings of a party w is in, for the invitation.
-func (s *Service) PartySettings(ctx context.Context, w Who, code string) (Settings, string, error) {
+// PartySettings is the settings of a party w is in, for the invitation, its
+// status, and the number of the day a party from the archive plays, 0 for any
+// other.
+func (s *Service) PartySettings(ctx context.Context, w Who, code string) (Settings, string, int, error) {
 	s.init()
 	p, _, err := s.party(ctx, w, code)
 	if err != nil {
-		return Settings{}, "", err
+		return Settings{}, "", 0, err
 	}
 	defer p.mu.Unlock()
-	return p.snap.Game.Settings, p.snap.Game.Status, nil
+	return p.snap.Game.Settings, p.snap.Game.Status, p.snap.Game.DayNo, nil
 }
 
 func (s *Service) partyView(ctx context.Context, p *party, me Member, now time.Time, lang string) (PartyView, error) {
@@ -822,23 +943,57 @@ func (s *Service) partyView(ctx context.Context, p *party, me Member, now time.T
 		Version: g.Version, Length: int(Length(set) / time.Second), Reveal: int(RevealFor(set.Seconds) / time.Second),
 		Countdown: int(Countdown / time.Second), Grace: int(Grace / time.Second), Host: g.Host, Me: me.M,
 		StartedAt: utc(g.StartedAt), Members: []MemberView{}, Rounds: []PartyRound{}, Totals: []Line{}, Next: g.NextCode}
+	if g.DayNo != 0 {
+		v.Day = &DayView{N: g.DayNo, Date: g.Day.Format(time.DateOnly)}
+	}
+	playing := g.Status == StatusPlaying
+	// Where a streak stands: the place in play, or the one just closed.
+	standsFor := 1
+	if r, ok := p.snap.last(); ok {
+		standsFor = r.N
+		if r.ClosedAt != nil {
+			standsFor++
+		}
+	}
 	for _, m := range players(&p.snap) {
 		if g.Status == StatusLobby && m.LeftAt != nil {
 			continue
 		}
-		v.Members = append(v.Members, MemberView{M: m.M, Person: m.Who.person(m.Name, m.M == me.M), From: m.FromRound,
-			Away: g.Status == StatusPlaying && away(m, p.snap.Rounds, p.answered), Left: m.LeftAt != nil})
+		mv := MemberView{M: m.M, Person: m.Who.person(m.Name, m.M == me.M), From: m.FromRound, Left: m.LeftAt != nil}
+		switch set.Mode {
+		case Streak:
+			mv.Out = playing && m.LeftAt == nil && p.snap.out(m, standsFor)
+		case Timed:
+			mv.Done, mv.Points, mv.Countries = p.snap.progress(m.M)
+		default:
+			mv.Away = playing && away(m, p.snap.Rounds, p.answered)
+		}
+		v.Members = append(v.Members, mv)
+	}
+	if set.Mode == Timed && playing {
+		return s.timedView(ctx, p, me, v, lang)
 	}
 	var closed []Round
 	var shown []Guess
-	for _, r := range p.snap.Rounds {
+	for i, r := range p.snap.Rounds {
 		pl, err := s.place(ctx, r.PlaceID)
 		if err != nil {
 			return PartyView{}, err
 		}
+		closedAt := r.ClosedAt
+		// A game against the clock has no place that closes: all of them
+		// are open to everyone when it is over.
+		if set.Mode == Timed && g.FinishedAt != nil {
+			closedAt = g.FinishedAt
+		}
 		pr := PartyRound{N: r.N, Image: s.imagePath(g.ID, r.N), Kind: pl.Kind, Heading: pl.Heading,
-			StartsAt: r.StartsAt.UTC(), EndsAt: utc(r.EndsAt), ClosedAt: utc(r.ClosedAt), Repeat: r.Repeat}
-		if r.ClosedAt == nil {
+			StartsAt: r.StartsAt.UTC(), EndsAt: utc(r.EndsAt), ClosedAt: utc(closedAt), Repeat: r.Repeat}
+		if set.Mode == Streak {
+			for _, m := range p.snap.standing(r.N) {
+				pr.Playing = append(pr.Playing, m.M)
+			}
+		}
+		if closedAt == nil {
 			for _, gs := range p.snap.Guesses {
 				if gs.N == r.N {
 					pr.Answered = append(pr.Answered, gs.M)
@@ -863,10 +1018,31 @@ func (s *Service) partyView(ctx context.Context, p *party, me Member, now time.T
 				}
 			}
 		}
+		// A streak can go on for long: while it is played the app needs the
+		// place in play and the one before, and the whole list at the end.
+		if set.Mode == Streak && playing && i < len(p.snap.Rounds)-2 {
+			continue
+		}
 		v.Rounds = append(v.Rounds, pr)
 	}
 	if len(closed) > 0 {
 		v.Totals = Lines(set, players(&p.snap), closed, shown)
 	}
 	return v, nil
+}
+
+// progress is where a player stands against the clock: the places they have
+// answered, their points and the countries they found.
+func (s *Snapshot) progress(m int) (done, points, countries int) {
+	for _, g := range s.Guesses {
+		if g.M != m {
+			continue
+		}
+		done++
+		points += g.Points()
+		if g.CountryOK {
+			countries++
+		}
+	}
+	return
 }

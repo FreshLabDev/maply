@@ -143,7 +143,7 @@ func (s *Server) challengeInvite(w http.ResponseWriter, r *http.Request) {
 			best = max(best, l.Points)
 		}
 	}
-	caption := InviteCaption(v.lang, c.Settings)
+	caption := InviteCaption(v.lang, c.Settings, 0)
 	var raw [12]byte
 	_, _ = rand.Read(raw[:])
 	msg, err := s.Invites.SavePreparedText(r.Context(), v.user.ID, telegram.PreparedText{

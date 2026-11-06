@@ -32,7 +32,9 @@ type Line struct {
 
 // Lines sums every member's game over the places the game has had, ranked.
 // A place before a late player joined counts as a miss for the tie, and not
-// as played.
+// as played. A streak counts a player's places up to their first miss, where
+// they are out and only watch; against the clock a player has only the places
+// they reached, each at their own pace.
 func Lines(s Settings, members []Member, rounds []Round, guesses []Guess) []Line {
 	byKey := map[[2]int]Guess{}
 	for _, g := range guesses {
@@ -44,7 +46,18 @@ func Lines(s Settings, members []Member, rounds []Round, guesses []Guess) []Line
 		l := Line{M: m.M, FromRound: m.FromRound, KmRounds: []float64{}}
 		streak := true
 		for _, r := range rounds {
+			if s.Mode == Streak {
+				if !streak {
+					break
+				}
+				if r.N < m.FromRound {
+					continue
+				}
+			}
 			g, ok := byKey[[2]int{r.N, m.M}]
+			if s.Mode == Timed && !ok {
+				continue
+			}
 			if r.N >= m.FromRound {
 				l.Played++
 			}
@@ -75,13 +88,20 @@ func Lines(s Settings, members []Member, rounds []Round, guesses []Guess) []Line
 		}
 		out = append(out, l)
 	}
-	Rank(out)
+	RankFor(s.Mode, out)
 	return out
 }
 
-// better is whether a stands above b: more points, then fewer kilometres in
-// all, then less time in all.
-func better(a, b Line) bool {
+// better is whether a stands above b: the mode's own score first (a streak's
+// length, the countries found against the clock), then more points, then
+// fewer kilometres in all, then less time in all.
+func better(mode string, a, b Line) bool {
+	switch {
+	case mode == Streak && a.Streak != b.Streak:
+		return a.Streak > b.Streak
+	case mode == Timed && a.Countries != b.Countries:
+		return a.Countries > b.Countries
+	}
 	if a.Points != b.Points {
 		return a.Points > b.Points
 	}
@@ -91,22 +111,25 @@ func better(a, b Line) bool {
 	return a.TimeMs < b.TimeMs
 }
 
-// Rank orders lines best first and gives each its place. Lines equal in all
-// three share a place.
-func Rank(lines []Line) {
+// Rank orders lines of a classic game best first and gives each its place.
+// Lines equal in all three share a place.
+func Rank(lines []Line) { RankFor(Classic, lines) }
+
+// RankFor is Rank for the mode's own order.
+func RankFor(mode string, lines []Line) {
 	sort.SliceStable(lines, func(i, j int) bool {
-		if better(lines[i], lines[j]) != better(lines[j], lines[i]) {
-			return better(lines[i], lines[j])
+		if better(mode, lines[i], lines[j]) != better(mode, lines[j], lines[i]) {
+			return better(mode, lines[i], lines[j])
 		}
 		return lines[i].M < lines[j].M
 	})
 	for i := range lines {
 		lines[i].Rank, lines[i].Beaten = 1, 0
 		for j := range lines {
-			if better(lines[j], lines[i]) {
+			if better(mode, lines[j], lines[i]) {
 				lines[i].Rank++
 			}
-			if better(lines[i], lines[j]) {
+			if better(mode, lines[i], lines[j]) {
 				lines[i].Beaten++
 			}
 		}

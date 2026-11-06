@@ -76,12 +76,16 @@ func insertGame(ctx context.Context, q execer, g free.NewGame) (int64, error) {
 	if g.Code != "" {
 		code = g.Code
 	}
+	var day any
+	if !g.Day.IsZero() {
+		day = g.Day
+	}
 	var id int64
 	err := q.QueryRow(ctx, `
-		INSERT INTO free_game (code, kind, mode, seconds, rounds, host, status, created_at, started_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $7 = 'playing' THEN $8::timestamptz END)
+		INSERT INTO free_game (code, kind, mode, seconds, rounds, host, status, created_at, started_at, day)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $7 = 'playing' THEN $8::timestamptz END, $9)
 		RETURNING id`,
-		code, g.Kind, g.Settings.Mode, nullInt(g.Settings.Seconds), nullInt(g.Settings.Rounds), g.Host.M, g.Status, g.At).Scan(&id)
+		code, g.Kind, g.Settings.Mode, nullInt(g.Settings.Seconds), nullInt(g.Settings.Rounds), g.Host.M, g.Status, g.At, day).Scan(&id)
 	if codeTaken(err) {
 		return 0, free.ErrCodeTaken
 	}
@@ -135,9 +139,9 @@ func (s *Store) FreeSnapshot(ctx context.Context, id int64) (free.Snapshot, erro
 	b.Queue(`
 		SELECT g.id, COALESCE(g.code, ''), g.kind, g.mode, COALESCE(g.seconds, 0), COALESCE(g.rounds, 0),
 		       g.host, g.status, g.version, COALESCE(n.code, ''), g.created_at, g.started_at, g.finished_at,
-		       a.date, COALESCE(r.day_no, 0), CASE WHEN g.kind = 'challenge' THEN c.game ELSE 0 END, COALESCE(c.code, '')
+		       COALESCE(a.date, g.day), COALESCE(r.day_no, 0), CASE WHEN g.kind = 'challenge' THEN c.game ELSE 0 END, COALESCE(c.code, '')
 		  FROM free_game g LEFT JOIN free_game n ON n.id = g.next_id
-		  LEFT JOIN free_archive a ON a.game = g.id LEFT JOIN round r ON r.date = a.date
+		  LEFT JOIN free_archive a ON a.game = g.id LEFT JOIN round r ON r.date = COALESCE(a.date, g.day)
 		  LEFT JOIN free_attempt t ON t.game = g.id LEFT JOIN free_challenge c ON c.id = t.challenge
 		 WHERE g.id = $1`, id).QueryRow(func(row pgx.Row) error {
 		g := &snap.Game

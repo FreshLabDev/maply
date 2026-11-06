@@ -146,3 +146,60 @@ func TestChallengeOverHTTP(t *testing.T) {
 		t.Fatalf("vera's place 1: %+v", r)
 	}
 }
+
+func TestPartyModesOverHTTP(t *testing.T) {
+	hs := freeSetup(t)
+	invites := &fakeInvites{}
+	hs.srv.Invites = invites
+	oksana := initData(1, "Oksana", "uk", "")
+	ivan := initData(2, "Ivan", "ru", "")
+	vera := initData(7, "Vera", "be", "")
+	hs.expect("GET", "/api/today", ivan, "", 200)
+	hs.seedPast(3, "JP", "asia", pastAnswer{user: 2, km: 50, points: 3400, speed: 200})
+	caption := func(code, who string) string {
+		t.Helper()
+		before := len(invites.sent)
+		hs.expect("POST", "/api/party/"+code+"/invite", who, "", 200)
+		if len(invites.sent) != before+1 {
+			t.Fatalf("no invitation for %s", code)
+		}
+		return invites.sent[before].Description
+	}
+	// A lobby is made on any mode, and the host switches it: the caption follows.
+	lobby := decode[free.PartyView](t, hs.expect("POST", "/api/party", oksana, `{"mode":"streak","seconds":60,"rounds":0}`, 200))
+	code := lobby.Code
+	if lobby.Settings.Mode != free.Streak || lobby.Length != 0 {
+		t.Fatalf("a streak lobby: %+v", lobby)
+	}
+	if c := caption(code, oksana); c != "Серія країн · 60 с" {
+		t.Fatalf("streak caption %q", c)
+	}
+	hs.expect("POST", "/api/party/"+code+"/settings", oksana, `{"mode":"timed","seconds":180,"rounds":0}`, 200)
+	if c := caption(code, oksana); c != "На час · 3 хв" {
+		t.Fatalf("timed caption %q", c)
+	}
+	hs.expect("POST", "/api/party/"+code+"/settings", oksana, `{"mode":"timed","seconds":60,"rounds":0}`, 400)
+	hs.expect("POST", "/api/party/"+code+"/settings", oksana, `{"mode":"archive","seconds":90,"rounds":1}`, 400)
+	// A day of the archive: its number rides with the settings. A day Ivan answered
+	// is no day for him, as host or as a guest of someone else's.
+	day := `{"mode":"archive","seconds":90,"rounds":1,"day":97}`
+	if body := hs.expect("POST", "/api/party", ivan, day, 409); !strings.Contains(body, "day_answered") {
+		t.Fatalf("ivan hosts the day he answered: %s", body)
+	}
+	hs.expect("POST", "/api/party", oksana, `{"mode":"archive","seconds":90,"rounds":1,"day":96}`, 404)
+	hs.expect("POST", "/api/party", oksana, `{"mode":"archive","seconds":90,"rounds":1}`, 400)
+	dayLobby := decode[free.PartyView](t, hs.expect("POST", "/api/party", oksana, day, 200))
+	if dayLobby.Day == nil || dayLobby.Day.N != 97 || dayLobby.Settings.Mode != free.Archive || dayLobby.Settings.Seconds != 90 {
+		t.Fatalf("a lobby on a day: %+v", dayLobby)
+	}
+	if strings.Contains(hs.expect("GET", "/api/party/"+dayLobby.Code, oksana, "", 200), "JP") {
+		t.Fatal("the lobby names the place")
+	}
+	if c := caption(dayLobby.Code, oksana); c != "День #97 · 90 с" {
+		t.Fatalf("day caption %q", c)
+	}
+	if body := hs.expect("POST", "/api/party/"+dayLobby.Code+"/join", ivan, "", 409); !strings.Contains(body, "day_answered") {
+		t.Fatalf("ivan joins the day he answered: %s", body)
+	}
+	hs.expect("POST", "/api/party/"+dayLobby.Code+"/join", vera, "", 200)
+}

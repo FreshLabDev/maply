@@ -64,11 +64,22 @@ func TestSettings(t *testing.T) {
 		{Settings{Classic, 0, 5}, true, false, "classic/0/5", 0},
 		{Settings{Classic, 45, 5}, false, false, "", 0},
 		{Settings{Classic, 60, 7}, false, false, "", 0},
-		{Settings{Streak, 30, 0}, true, false, "streak/30", 0},
-		{Settings{Streak, 60, 0}, true, false, "streak/60", 0},
+		// A streak has no length: it goes on while someone is right.
+		{Settings{Streak, 30, 0}, true, true, "streak/30", 0},
+		{Settings{Streak, 60, 0}, true, true, "streak/60", 0},
 		{Settings{Streak, 0, 0}, false, false, "", 0},
 		{Settings{Streak, 90, 0}, false, false, "", 0},
 		{Settings{Streak, 60, 5}, false, false, "", 0},
+		{Settings{Timed, 180, 0}, true, true, "timed/180", 3.08},
+		{Settings{Timed, 120, 0}, false, false, "", 0},
+		{Settings{Timed, 180, 5}, false, false, "", 0},
+		// A day from the archive is taken, not chosen, alone; together the
+		// host picks a timer, never none.
+		{Settings{Archive, 0, 1}, false, false, "", 0},
+		{Settings{Archive, 60, 1}, false, true, "archive/60/1", 1.25},
+		{Settings{Archive, 120, 1}, false, true, "archive/120/1", 2.25},
+		{Settings{Archive, 30, 1}, false, false, "", 0},
+		{Settings{Archive, 60, 3}, false, false, "", 0},
 		{Settings{"region", 60, 5}, false, false, "", 0},
 	} {
 		if got := c.s.ValidSolo(); got != c.solo {
@@ -262,5 +273,63 @@ func TestImagePathIsSigned(t *testing.T) {
 	}
 	if len(p) > 64 {
 		t.Errorf("path %q", p)
+	}
+}
+
+func TestStreakPartyLinesStopAtTheMiss(t *testing.T) {
+	set := Settings{Streak, 30, 0}
+	members := []Member{{M: 1, FromRound: 1}, {M: 2, FromRound: 1}, {M: 3, FromRound: 2}}
+	rounds := []Round{{N: 1}, {N: 2}, {N: 3}}
+	right := func(n, m int, pts int) Guess {
+		return Guess{N: n, M: m, Pin: pin(0, 0), PtsKm: pts, CountryOK: true, Km: 10}
+	}
+	lines := Lines(set, members, rounds, []Guess{
+		right(1, 1, 3000), right(2, 1, 3000), right(3, 1, 3000),
+		right(1, 2, 3000), {N: 2, M: 2, Pin: pin(0, 0), PtsKm: 100, Km: 900},
+		// A pin after the miss is not part of the line.
+		right(3, 2, 5000),
+		right(2, 3, 3000),
+	})
+	byM := map[int]Line{}
+	for _, l := range lines {
+		byM[l.M] = l
+	}
+	if byM[1].Streak != 3 || byM[2].Streak != 1 || byM[3].Streak != 1 {
+		t.Errorf("streaks: %d %d %d", byM[1].Streak, byM[2].Streak, byM[3].Streak)
+	}
+	if byM[2].Played != 2 || byM[2].Answered != 2 {
+		t.Errorf("a line stops at its miss: %+v", byM[2])
+	}
+	// 2 and 3 tie on the streak; 2's points decide.
+	if lines[0].M != 1 || lines[1].M != 2 || lines[2].M != 3 {
+		t.Errorf("order: %d %d %d", lines[0].M, lines[1].M, lines[2].M)
+	}
+	// 3 came in at place 2, where it answered; place 3 went by unanswered.
+	if byM[3].Played != 2 || byM[3].Answered != 1 {
+		t.Errorf("a late player is counted from their place: %+v", byM[3])
+	}
+}
+
+func TestTimedPartyRanksCountriesFirst(t *testing.T) {
+	set := Settings{Timed, 180, 0}
+	members := []Member{{M: 1, FromRound: 1}, {M: 2, FromRound: 1}}
+	rounds := []Round{{N: 1}, {N: 2}, {N: 3}}
+	lines := Lines(set, members, rounds, []Guess{
+		// 1 is quick and far; 2 found more countries with fewer points.
+		{N: 1, M: 1, Pin: pin(0, 0), PtsKm: 4000, CountryOK: true, Km: 5},
+		{N: 2, M: 1, Pin: pin(0, 0), PtsKm: 4000, Km: 700},
+		{N: 3, M: 1, Pin: pin(0, 0), PtsKm: 4000, Km: 700},
+		{N: 1, M: 2, Pin: pin(0, 0), PtsKm: 2000, CountryOK: true, Km: 300},
+		{N: 2, M: 2, Pin: pin(0, 0), PtsKm: 2000, CountryOK: true, Km: 300},
+	})
+	if lines[0].M != 2 || lines[0].Countries != 2 || lines[1].Countries != 1 {
+		t.Fatalf("countries decide: %+v", lines)
+	}
+	// Place 3 was never reached by 2: it is not played, not a miss.
+	if lines[0].Played != 2 || lines[1].Played != 3 {
+		t.Errorf("played: %d %d", lines[0].Played, lines[1].Played)
+	}
+	if lines[0].Km != 600 {
+		t.Errorf("a place not reached adds no kilometres: %v", lines[0].Km)
 	}
 }

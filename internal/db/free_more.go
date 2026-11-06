@@ -147,26 +147,8 @@ func (s *Store) createArchive(ctx context.Context, dayNo int, closed time.Time, 
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return 0, fmt.Errorf("archive day %d: %w", dayNo, err)
 	}
-	// As any of the person's people: a day answered as a guest before signing
-	// in, or taken as the account's site player before Telegram was linked,
-	// is known all the same.
-	var answered, seen bool
-	err = tx.QueryRow(ctx, `
-		WITH `+whoOne+`, `+people+`
-		SELECT EXISTS (SELECT 1 FROM guess WHERE date = $3 AND user_id IN (SELECT user_id FROM me_u))
-		    OR EXISTS (SELECT 1 FROM site_guess WHERE date = $3 AND player IN (SELECT player FROM me_p)),
-		       EXISTS (SELECT 1 FROM free_round fr JOIN free_member fm ON fm.game = fr.game
-		                WHERE fr.place_id = $4
-		                  AND (fm.user_id IN (SELECT user_id FROM me_u) OR fm.player IN (SELECT player FROM me_p)))`,
-		user, player, date, place).Scan(&answered, &seen)
-	if err != nil {
+	if err := dayKnown(ctx, tx, g.Host.Who, date, place); err != nil {
 		return 0, fmt.Errorf("archive day %d: %w", dayNo, err)
-	}
-	switch {
-	case answered:
-		return 0, free.ErrDayAnswered
-	case seen:
-		return 0, free.ErrDaySeen
 	}
 	id, err := insertGame(ctx, tx, g)
 	if err != nil {
@@ -177,6 +159,96 @@ func (s *Store) createArchive(ctx context.Context, dayNo int, closed time.Time, 
 		return 0, fmt.Errorf("archive day %d: %w", dayNo, err)
 	}
 	if err := insertRound(ctx, tx, id, free.NewRound{N: 1, PlaceID: place, StartsAt: g.At}); err != nil {
+		return 0, err
+	}
+	return id, tx.Commit(ctx)
+}
+
+// dayKnown is ErrDayAnswered or ErrDaySeen when w answered the day or had its
+// place, as any of their people: a day answered as a guest before signing in,
+// or taken as the account's site player before Telegram was linked, is known
+// all the same.
+func dayKnown(ctx context.Context, q interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}, w free.Who, date time.Time, place int64) error {
+	user, player := whoArgs(w)
+	var answered, seen bool
+	err := q.QueryRow(ctx, `
+		WITH `+whoOne+`, `+people+`
+		SELECT EXISTS (SELECT 1 FROM guess WHERE date = $3 AND user_id IN (SELECT user_id FROM me_u))
+		    OR EXISTS (SELECT 1 FROM site_guess WHERE date = $3 AND player IN (SELECT player FROM me_p)),
+		       EXISTS (SELECT 1 FROM free_round fr JOIN free_member fm ON fm.game = fr.game
+		                WHERE fr.place_id = $4
+		                  AND (fm.user_id IN (SELECT user_id FROM me_u) OR fm.player IN (SELECT player FROM me_p)))`,
+		user, player, date, place).Scan(&answered, &seen)
+	switch {
+	case err != nil:
+		return err
+	case answered:
+		return free.ErrDayAnswered
+	case seen:
+		return free.ErrDaySeen
+	}
+	return nil
+}
+
+// FreeDayKnown asks dayKnown of a closed day.
+func (s *Store) FreeDayKnown(ctx context.Context, w free.Who, day time.Time) (answered, seen bool, err error) {
+	place, err := s.FreeDayPlace(ctx, day)
+	if err != nil {
+		return false, false, err
+	}
+	switch err := dayKnown(ctx, s.pool, w, day, place); {
+	case errors.Is(err, free.ErrDayAnswered):
+		return true, false, nil
+	case errors.Is(err, free.ErrDaySeen):
+		return false, true, nil
+	default:
+		return false, false, err
+	}
+}
+
+// FreeDayPlace is the place of a day; the caller has checked that the day is
+// closed.
+func (s *Store) FreeDayPlace(ctx context.Context, day time.Time) (int64, error) {
+	var place int64
+	err := s.pool.QueryRow(ctx, `SELECT place_id FROM round WHERE date = $1`, day).Scan(&place)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, free.ErrNoRow
+	}
+	if err != nil {
+		return 0, fmt.Errorf("free day place %s: %w", day.Format(time.DateOnly), err)
+	}
+	return place, nil
+}
+
+// CreateFreeArchiveParty makes the lobby of a party on a closed day. The
+// lobby holds no place yet: it comes when the party starts, as a party's first
+// always does, and the day is asked about again for everyone in it.
+func (s *Store) CreateFreeArchiveParty(ctx context.Context, dayNo int, closed time.Time, g free.NewGame) (int64, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var date time.Time
+	var place int64
+	err = tx.QueryRow(ctx, `
+		SELECT r.date, r.place_id FROM round r JOIN day_closed dc ON dc.date = r.date
+		  JOIN place p ON p.id = r.place_id AND p.kind = 'panorama'
+		 WHERE r.day_no = $1 AND dc.date <= $2::date`, dayNo, closed).Scan(&date, &place)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, free.ErrNoRow
+	}
+	if err != nil {
+		return 0, fmt.Errorf("archive party day %d: %w", dayNo, err)
+	}
+	if err := dayKnown(ctx, tx, g.Host.Who, date, place); err != nil {
+		return 0, fmt.Errorf("archive party day %d: %w", dayNo, err)
+	}
+	g.Day = date
+	id, err := insertGame(ctx, tx, g)
+	if err != nil {
 		return 0, err
 	}
 	return id, tx.Commit(ctx)

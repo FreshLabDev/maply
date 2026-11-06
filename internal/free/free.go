@@ -84,7 +84,11 @@ type Settings struct {
 
 var (
 	partySeconds = []int{30, 60, 90, 120}
-	soloSeconds  = []int{0, 30, 60, 90, 120}
+	// archiveSeconds is a day from the archive played together. The timer is
+	// the host's pick, and there is no "no timer": one player who walked away
+	// would hold everyone.
+	archiveSeconds = []int{60, 90, 120}
+	soloSeconds    = []int{0, 30, 60, 90, 120}
 	// streakSeconds has no "no timer": without one a streak turns into a
 	// search for the answer on the internet.
 	streakSeconds = []int{30, 60}
@@ -122,10 +126,20 @@ var ArchiveSettings = Settings{Mode: Archive, Rounds: 1}
 // a solo game, and an attempt at a challenge.
 func alone(kind string) bool { return kind == Solo || kind == Challenge }
 
-// ValidParty is whether a party may play on s. A party has no "no timer": one
-// player who walked away would hold everyone.
+// ValidParty is whether a party may play on s: every mode but a challenge. A
+// party has no "no timer": one player who walked away would hold everyone.
 func (s Settings) ValidParty() bool {
-	return s.Mode == Classic && in(s.Seconds, partySeconds) && in(s.Rounds, allRounds)
+	switch s.Mode {
+	case Classic:
+		return in(s.Seconds, partySeconds) && in(s.Rounds, allRounds)
+	case Streak:
+		return in(s.Seconds, streakSeconds) && s.Rounds == 0
+	case Timed:
+		return s.Seconds == TimedSeconds && s.Rounds == 0
+	case Archive:
+		return in(s.Seconds, archiveSeconds) && s.Rounds == 1
+	}
+	return false
 }
 
 // Key names the settings a record is kept for: "classic/60/5",
@@ -154,8 +168,15 @@ func RevealFor(seconds int) time.Duration {
 }
 
 // Length is how long a party on s lasts when everyone answers at the end of
-// the time: what the lobby shows under the settings.
+// the time: what the lobby shows under the settings. A streak goes on while
+// someone is right, so it has none.
 func Length(s Settings) time.Duration {
+	switch s.Mode {
+	case Streak:
+		return 0
+	case Timed:
+		return Countdown + s.Limit() + Grace
+	}
 	return time.Duration(s.Rounds) * (s.Limit() + Grace + RevealFor(s.Seconds) + Countdown)
 }
 
