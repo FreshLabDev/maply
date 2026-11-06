@@ -127,8 +127,18 @@ func TestATelegramAccountPlaysOnTheSite(t *testing.T) {
 	hs.siteExpect("GET", "/api/today", "not-a-session", "", http.StatusUnauthorized)
 	// A link from another site carries the Lax cookie; the GET would fix
 	// the DM's zone from its ?tz= and ?lang=.
-	for _, from := range []string{"cross-site", "same-site"} {
+	// So does one opened from an app or a letter ("none").
+	for _, from := range []string{"cross-site", "same-site", "none"} {
 		hs.siteExpect("GET", "/api/today?tz=Pacific/Honolulu&lang=en", oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", from)
+		hs.siteExpect("GET", "/api/profile?lang=ja", oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", from)
+	}
+	// A browser without Fetch Metadata: the link is a navigation, which
+	// asks for HTML; maply's script asks for anything.
+	navigation := "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+	hs.siteExpect("GET", "/api/today?tz=Pacific/Honolulu&lang=en", oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", "", "Accept", navigation)
+	hs.siteExpect("GET", "/api/profile", oksana, "", http.StatusBadRequest, "Sec-Fetch-Site", "", "Accept", navigation)
+	if zone, err := hs.srv.Store.ChatZone(context.Background(), 1); err != nil || zone == "Pacific/Honolulu" {
+		t.Fatal("a link from another site set her DM's zone")
 	}
 
 	// She answers on the site: scored at once, with the speed bonus, the
