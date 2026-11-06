@@ -11,6 +11,8 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.16 - 2026-11-06
+
 For the operator:
 
 - Apply core migration 021 (`core.touch_person`) before deploying. The
@@ -19,6 +21,15 @@ For the operator:
   `TELEGRAM_LOGIN_CLIENT_ID`/`_SECRET` and `GOOGLE_CLIENT_ID`/`_SECRET`, and
   `APP_URL`; `docs/sign-in.md` lists the steps. Without them the site plays
   as before and its sign-in buttons are greyed out.
+- Migration 018 adds the site's accounts (`account`, `session`,
+  `link_ticket`, `site_player.account_id`). Migration 019 adds free play
+  (`free_game`, `free_member`, `free_round`, `free_guess`, `free_result`) and
+  `place.pool`, which is `daily` for every place already kept.
+- Free play needs its own pool. Load the free places after the deploy, when
+  019 has added `place.pool`, and put their pictures in the stack's image
+  directory first: a batch's `places.sql` with `pool = 'free'` and its
+  `upload/` folder. A rerun of `places.sql` adds nothing. Until it is loaded,
+  free play draws only from closed days.
 - Migration 017 adds `place.thumb_yaw` and the table `day_thumb`. After the
   deploy the service draws a strip for every day already kept, one at a
   time, in the background.
