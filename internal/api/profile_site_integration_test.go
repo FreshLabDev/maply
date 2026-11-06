@@ -199,3 +199,93 @@ func TestATelegramAccountKeepsItsGuestDays(t *testing.T) {
 		t.Fatalf("her mini profile = %+v", mini)
 	}
 }
+
+// A guest's answer that a Telegram account took in stays off the person's
+// own profile until the day is over everywhere: before that its place
+// would tell them where to pin in a chat whose reveal is ahead. A row the
+// guest gave after the first reveal never counts. Found by the days
+// session's review.
+func TestATakenGuestAnswerWaitsForTheDayToClose(t *testing.T) {
+	hs := setup(t)
+	ctx := context.Background()
+	store := hs.srv.Store.(*db.Store)
+	// Aleś speaks Belarusian (DM on Minsk, 17:00 UTC) and plays only in the
+	// Kyiv group (18:00 UTC). He never wrote to the bot.
+	hs.srv.Members.(members)[[2]int64{kyivGroup, 7}] = true
+	inGroup := initData(7, "Aleś", "be", hs.payload(kyivGroup))
+	hs.now = time.Date(2026, time.December, 10, 9, 0, 0, 0, time.UTC)
+	hs.expect("GET", "/api/today", inGroup, "", http.StatusOK)
+
+	send := func(method, path, cookie, session, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: playerCookie, Value: cookie})
+		}
+		if session != "" {
+			req.AddCookie(&http.Cookie{Name: account.SessionCookie, Value: session})
+		}
+		rr := httptest.NewRecorder()
+		hs.h.ServeHTTP(rr, req)
+		return rr
+	}
+	// 09:00: a guest answers blindly on the site, on Minsk's clock.
+	rr := send("POST", "/api/site/guess?tz=Europe/Minsk", "", "", `{"lat":10,"lon":10}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("guest guess = %d %s", rr.Code, rr.Body.String())
+	}
+	var guest string
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == playerCookie {
+			guest = c.Value
+		}
+	}
+
+	// 17:05: the site row is past its deadline and scored by any poll.
+	hs.now = time.Date(2026, time.December, 10, 17, 5, 0, 0, time.UTC)
+	rd, _, err := store.RoundOn(ctx, hs.date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer, err := store.Answer(ctx, rd.PlaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hs.srv.scoreDay(ctx, hs.date, answer, hs.now); err != nil {
+		t.Fatal(err)
+	}
+	// He signs in on the site with Telegram and takes the guest's answers.
+	session := hs.signIn(7, "Aleś")
+	if rr := send("POST", "/api/account/adopt", guest, session, `{"take":true}`); rr.Code != http.StatusOK {
+		t.Fatalf("adopt = %d %s", rr.Code, rr.Body.String())
+	}
+	place := func() bool {
+		t.Helper()
+		rr := send("GET", "/api/profile?lang=be", "", session, "")
+		if rr.Code != http.StatusOK {
+			t.Fatalf("profile = %d %s", rr.Code, rr.Body.String())
+		}
+		return strings.Contains(rr.Body.String(), "Львоў") || strings.Contains(rr.Body.String(), `"UA"`)
+	}
+	if place() {
+		t.Fatal("the own profile names today's place while the Kyiv group still takes answers")
+	}
+	// In the Mini App too, from the group.
+	if _, body := hs.do("GET", "/api/profile", inGroup, ""); strings.Contains(body, `"UA"`) {
+		t.Fatalf("the Mini App's profile names today's place: %s", body)
+	}
+
+	// Over everywhere, the guest's day is his.
+	hs.now = hs.srv.Zones.LastReveal(hs.date).Add(time.Minute)
+	if !place() {
+		t.Error("the day over everywhere left out the answer his account took in")
+	}
+	// A guest's answer given after the first reveal never is.
+	if _, err := hs.pool.Exec(ctx, `UPDATE maply.site_guess SET late = true WHERE date = $1`, hs.date.Time()); err != nil {
+		t.Fatal(err)
+	}
+	if place() {
+		t.Error("a late site answer counts on the Telegram person's profile")
+	}
+}

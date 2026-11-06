@@ -175,6 +175,11 @@ the diff looks like.
   account without Telegram looking at their own, gets only days over in
   every zone (`profile.LatestClosed`), with no pins, history or answer
   times. A world place and the percentile count only days over everywhere.
+  A guest's site answer that a Telegram account took in counts on that
+  person's profiles, their own too, only on a day over everywhere and only
+  when given before the day's first reveal (`site_guess.late`): before
+  that its place would tell them where to pin in a chat whose reveal is
+  ahead. `TestATakenGuestAnswerWaitsForTheDayToClose` covers it.
   A mini profile
   opens by an opaque handle (`profile.Handles`) that the server puts only
   next to a name it already shows, never on an anonymous row, so a handle
@@ -199,7 +204,9 @@ the diff looks like.
   zone, with no id, username, photo, handle, pins, history or answer
   times, and both ask search engines to stay away. "Hide me" closes it
   until the player shows again; the preview may stay at the edge for the
-  five minutes it is cached.
+  five minutes it is cached. The preview has one address: a query is
+  redirected to it, so new keys cannot make the edge fetch it again, and
+  only a drawing counts against the limit from everyone.
 - `/api/log` strips query strings, which can carry `initData`, and is rate
   limited per address and in total.
 - A free place never becomes a day's place: the day's queue reads

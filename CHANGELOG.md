@@ -104,7 +104,8 @@ For the operator:
   in the bot; with Google alone it holds the account's site days from every
   browser it has taken in, one answer a day. A Telegram player's profile
   also counts the days their account's guest played on the site before the
-  sign-in, where there is no Telegram answer. The site's header keeps one
+  sign-in, where there is no Telegram answer, once the day is over
+  everywhere and only an answer given before the day's first reveal. The site's header keeps one
   button: the account's menu opens the profile, and a guest's sign-in
   dialog has "My profile without signing in".
 - In Telegram, Back goes to the page before, as it does in a browser: a day

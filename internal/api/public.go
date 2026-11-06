@@ -25,6 +25,14 @@ type Stills interface {
 	Still(ctx context.Context, userID int64, lang string) ([]byte, error)
 }
 
+// keptStills says which pictures are drawn already, so serving one costs
+// nothing of the limit on drawing.
+type keptStills interface {
+	Kept(userID int64, lang string) []byte
+}
+
+var _ keptStills = (*profile.Service)(nil)
+
 var (
 	errNoPage = apiError{http.StatusNotFound, "not_found"}
 	slugForm  = regexp.MustCompile(`^[A-Za-z0-9_-]{22}$`)
@@ -37,16 +45,18 @@ type publicProfile struct {
 }
 
 // publicOwner is whose page the request's slug names. The slug is the
-// page's only key: fail logs the route's pattern, not the path.
-func (s *Server) publicOwner(w http.ResponseWriter, r *http.Request) (ProfileStore, int64, bool) {
+// page's only key: fail logs the route's pattern, not the path. Finding the
+// owner is one indexed read and counts per address; all, when set, is the
+// limit from everyone on what comes after it, so made-up links from many
+// addresses do not use it up for the pages that exist.
+func (s *Server) publicOwner(w http.ResponseWriter, r *http.Request, all *limiter) (ProfileStore, int64, bool) {
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	ps := s.profileStore()
 	if ps == nil {
 		s.fail(w, r, errUnavailable)
 		return nil, 0, false
 	}
-	// A page reads a player's whole history: per address and from everyone.
-	if !s.ipLimit.allowIP(clientIP(r)) || !s.profAll.allowKey("") {
+	if !s.ipLimit.allowIP(clientIP(r)) {
 		s.fail(w, r, errRateLimited)
 		return nil, 0, false
 	}
@@ -64,12 +74,17 @@ func (s *Server) publicOwner(w http.ResponseWriter, r *http.Request) (ProfileSto
 		s.fail(w, r, errNoPage)
 		return nil, 0, false
 	}
+	if all != nil && !all.allowKey("") {
+		s.fail(w, r, errRateLimited)
+		return nil, 0, false
+	}
 	return ps, id, true
 }
 
 // publicPage is the page's numbers.
 func (s *Server) publicPage(w http.ResponseWriter, r *http.Request) {
-	ps, id, ok := s.publicOwner(w, r)
+	// A page reads a player's whole history: from everyone together too.
+	ps, id, ok := s.publicOwner(w, r, s.profAll)
 	if !ok {
 		return
 	}
@@ -98,14 +113,22 @@ func (s *Server) publicCard(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errUnavailable)
 		return
 	}
-	_, id, ok := s.publicOwner(w, r)
-	if !ok {
+	// The picture has one address. Cloudflare keys its copy by the query
+	// too, so "?x=1", "?x=2" would each come here: any query is sent back to
+	// the address without one, which the edge then keeps.
+	if r.URL.RawQuery != "" {
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+		slug := r.PathValue("slug")
+		if !slugForm.MatchString(slug) {
+			s.fail(w, r, errNoPage)
+			return
+		}
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		http.Redirect(w, r, "/api/p/"+slug+"/card.png", http.StatusMovedPermanently)
 		return
 	}
-	// Drawing takes a moment. Cloudflare keeps the picture for the minutes
-	// below, so a preview fetched in many chats reaches the bot once.
-	if !s.cardAll.allowKey("") {
-		s.fail(w, r, errRateLimited)
+	_, id, ok := s.publicOwner(w, r, nil)
+	if !ok {
 		return
 	}
 	// In the owner's language, whoever fetches it: one picture per player.
@@ -114,14 +137,29 @@ func (s *Server) publicCard(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	png, err := s.Stills.Still(r.Context(), id, i18n.Resolve(lang))
-	if errors.Is(err, profile.ErrNothing) {
-		s.fail(w, r, errNoPage)
-		return
+	lang = i18n.Resolve(lang)
+	png := []byte(nil)
+	if k, ok := s.Stills.(keptStills); ok {
+		png = k.Kept(id, lang)
 	}
-	if err != nil {
-		s.fail(w, r, err)
-		return
+	if png == nil {
+		// Drawing takes a moment, so only a drawing counts against everyone:
+		// a picture drawn already is served to any number of fetches.
+		// Cloudflare keeps it for the minutes below, so a preview fetched in
+		// many chats reaches the bot once.
+		if !s.cardAll.allowKey("") {
+			s.fail(w, r, errRateLimited)
+			return
+		}
+		png, err = s.Stills.Still(r.Context(), id, lang)
+		if errors.Is(err, profile.ErrNothing) {
+			s.fail(w, r, errNoPage)
+			return
+		}
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "image/png")
 	// Short: a link turned off or replaced takes its picture with it once

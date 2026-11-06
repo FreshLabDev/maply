@@ -56,6 +56,14 @@ func (s *Service) Still(ctx context.Context, userID int64, lang string) ([]byte,
 	return buf.Bytes(), nil
 }
 
+// Kept is the person's picture if Still has drawn it today, else nil.
+func (s *Service) Kept(userID int64, lang string) []byte {
+	k := stillKey{userID, lang, LatestClosed(s.Zones, s.now())}
+	s.stillMu.Lock()
+	defer s.stillMu.Unlock()
+	return s.stills[k]
+}
+
 // publicScene is the profile picture as a stranger may see it: the days up
 // to upTo, without the pins.
 func publicScene(data db.Profile, lang string, upTo round.Date) *anim.Profile {
