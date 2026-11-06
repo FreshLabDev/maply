@@ -1,4 +1,4 @@
-/* Profile: the player's numbers, charts drawn in SVG, the map of their pins and the passport. Same rules as the app:
+/* Profile: the player's numbers, charts drawn in SVG, and the passport's map of the world with their pins. Same rules as the app:
    one field colour, white ink, gold only for the best, no shadows, rounded corners or transparency. */
 
 /* The letter at the end of the header, after the timer. */
@@ -37,8 +37,11 @@
 .pbig span { display: block; margin-top: 6px; color: var(--ink-muted); font-size: 14px; }
 .pbig-s { margin: 0 0 8px; font: 700 22px/1.1 var(--display); letter-spacing: .02em; }
 
-.ptiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; margin: 0 0 16px; }
-.pt { min-width: 0; padding: 10px 12px 12px; background: var(--field-deep); }
+/* The tiles fill their rows: each is its row's share, --k tiles to the row, as profile.js's tilesHTML counted them
+   for a phone (--a), from 560 px (--b) and on a computer's own profile (--c). Half a pixel less, so rounding never
+   pushes the last of a row to the next; growing takes it back. */
+.ptiles { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 16px; }
+.pt { --k: var(--a, 2); flex: 1 0 calc((100% - (var(--k) - 1) * 2px) / var(--k) - .5px); min-width: 0; padding: 10px 12px 12px; background: var(--field-deep); }
 .pt .up { display: block; color: var(--ink-muted); font-size: 11px; letter-spacing: .08em; line-height: 1.2; }
 .pt b { display: block; margin-top: 6px; font: 700 28px/1 var(--display); letter-spacing: .02em; overflow-wrap: anywhere; }
 .pt small { display: block; margin-top: 4px; color: var(--ink-soft); font-size: 13px; }
@@ -77,17 +80,23 @@
 .pmap { display: block; width: 100%; height: auto; background: var(--field-deep); direction: ltr; }
 .pmap .land { fill: none; stroke: var(--field-tint); stroke-linecap: round; }
 .pmap .land.gold { stroke: var(--speed); }
-.pmap .pp { stroke: var(--field-deep); }
+/* A pin: an edge that parts it from the land, its colour inside; profile.js keeps their radii in pixels. The farthest
+   are hollow: filled, they would read as the land's dots. */
+.pmap .pin.edge { fill: var(--field-deep); }
+.pmap .pin.p1 { fill: var(--speed); }
+.pmap .pin.p2 { fill: var(--ink); }
+.pmap .pin.p3 { fill: var(--ink-muted); }
+.pmap .pin.edge.p4 { fill: var(--ink-muted); }
+.pmap .pin.pp.p4 { fill: var(--field-deep); }
 /* A pin that opens its day: a wide invisible target, and a ring when it has the keyboard's focus. */
 .pmap .go { cursor: pointer; outline: none; }
-.pmap .hit { fill: none; pointer-events: all; }
-.pmap .ring { fill: none; stroke: none; }
-.pmap .go:focus-visible .ring { stroke: var(--ink); }
-.p1 { fill: var(--speed); background: var(--speed); }
-.p2 { fill: var(--ink); background: var(--ink); }
-.p3 { fill: var(--ink-muted); background: var(--ink-muted); }
-/* The farthest are hollow: filled, they would read as the land's dots. */
-.pmap .pp.p4 { fill: var(--field-deep); stroke: var(--ink-muted); }
+.pmap .pin.hit { fill: none; pointer-events: all; }
+.pmap .pin.ring, .pmap .pin.gap { fill: none; }
+.pmap .go:focus-visible .pin.ring { fill: var(--ink); }
+.pmap .go:focus-visible .pin.gap { fill: var(--field-deep); }
+.p1 { background: var(--speed); }
+.p2 { background: var(--ink); }
+.p3 { background: var(--ink-muted); }
 .plegend .p4 { background: var(--field-deep); outline: 1.5px solid var(--ink-muted); outline-offset: -1.5px; }
 .plegend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 0; color: var(--ink-soft); font-size: 13px; }
 .plegend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -138,35 +147,36 @@ img.pflag { display: inline-block; width: 21px; height: 14px; vertical-align: -2
 .plink .pbtn { flex: 1 1 0; min-height: 44px; background: var(--field-deep); }
 .plink .pbtn:focus-visible, .plink input:focus-visible { outline: 2px solid var(--speed); outline-offset: -2px; }
 
-/* The month's season under the main tiles, with what it counts. */
+/* The month's season ends the tiles, and its note follows them. */
 .ptiles.pseason { margin-bottom: 0; }
 .pseason-n { margin: 8px 0 16px; }
 
 .prof.mini .pcard .av.ph { background: var(--field-deep); }
 
 @media (min-width: 560px) {
-  .ptiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .pt { --k: var(--b, 4); }
 }
-/* Charts are drawn a phone wide and scale with their column: two columns keep their text near its size. */
+/* Charts are drawn a phone wide and scale with their column: two columns keep their text near its size. The third,
+   the continents, takes the row the passport's map would otherwise leave half empty. */
 @media (min-width: 700px) {
   .pcharts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .psec.wide { grid-column: 1 / -1; }
+  .psec.wide, .pcharts .psec:nth-child(3):not(.wide) { grid-column: 1 / -1; }
 }
 @media (min-width: 1024px) {
   .pmap.world { max-height: 400px; }
   .pbig b { font-size: 36px; }
 }
-/* A computer: the profile is a page of the shell (desktop.css) and takes its width, up to --page. The eight numbers
-   stand in one row from 1280, the charts three abreast so their text stays near its size, the pins beside the
-   passport, the history in two columns. The mini profile keeps its column. */
+/* A computer: the profile is a page of the shell (desktop.css) and takes its width, up to --page. The numbers
+   stand up to eight to a row from 1280, the charts three abreast so their text stays near its size, the passport's
+   map under them across the page, the history in two columns. The mini profile keeps its column. */
 .desk .prof:not(.mini) { max-width: none; }
 .desk .prof:not(.mini) .pcharts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.desk .prof:not(.mini) .pcharts .psec:nth-child(4):not(.wide) + .psec.wide { grid-column: span 2; }
+.desk .prof:not(.mini) .pcharts .psec:nth-child(3):not(.wide) { grid-column: auto; }
 .desk .prof:not(.mini) .pswitch small { max-width: 90ch; }
 .desk .prof:not(.mini) .phist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; }
 .desk .prof:not(.mini) .phist li { margin: 0; }
 @media (min-width: 1280px) {
-  .desk .prof:not(.mini) .ptiles:has(> .pt:nth-child(8)) { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+  .desk .prof:not(.mini) .pt { --k: var(--c, 4); }
 }
 @media (prefers-reduced-motion: reduce) { .pswitch input::after { transition: none; } }
 

@@ -116,7 +116,11 @@ people only the boards know, in the family's languages; six are the stand's
 own, Аня in the middle of each board so her row stands among others; three
 are accounts with Google alone. Giulia and Лена hid themselves, so Аня and a
 guest see them as "Anonymous", Лена in the day's world table and on the days
-page too, as she is in none of Аня's groups. The games have no places,
+page too, as she is in none of Аня's groups. The seventeen also play the
+days closed everywhere, from a DM, so a row opens a mini profile with
+numbers and they swell the days' world tables; each who does not hide has a
+public page at `/p/devtop-0000000000020NN`, linked from the panel. Rows of
+the Google accounts have no mini profile, as in the service. The games have no places,
 which is how "Засеять таблицы заново" tells them from games played on the
 stand: it plays them again up to the stand's clock and keeps the rest.
 

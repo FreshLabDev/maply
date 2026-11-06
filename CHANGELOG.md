@@ -76,11 +76,13 @@ For the operator:
 - The player's profile in the Mini App, behind the name's letter at the end of
   the header and at `/me`: points, the 30-day average, streaks, the typical
   miss, the share of countries and cities found, the best day and world place,
-  and the average percentile over the days that are over everywhere. Four
+  and the average percentile over the days that are over everywhere, in tiles
+  that fill their rows at every width, the month's season among them. Three
   charts drawn in SVG (points over 30 days with the median, misses by
-  distance, continents, a map of one's own pins that opens a closed day), the
-  passport of countries found, the history by day and the free play numbers
-  once `free_result` exists. A site guest gets the same from the cookie,
+  distance, continents), the passport: one map of the world with the
+  countries found in gold and one's own pins over them, a pin opening its
+  closed day, then the history by day and the free play numbers once
+  `free_result` exists. A site guest gets the same from the cookie,
   closed days only, with a note to sign in.
 - A tap on a name in the world's tables opens a mini profile: days, streak,
   the 30-day average, best world place, countries, and from free play the
@@ -124,7 +126,9 @@ For the operator:
   games its site players finished before the link included. The profile's
   free play tab shows the player's place on each board they are on and
   opens that board, and it counts the same games: a site account without
-  Telegram now has the tab too.
+  Telegram now has the tab too. On a phone in a browser the page has its own
+  Back to the menu before the title; in Telegram Back is Telegram's, and a
+  computer has the header.
 - The app's screens have addresses: the server answers `/days`, `/days/<day>`,
   `/me`, `/play`, `/party/<code>` and `/p/<id>` with the app, and the app opens
   the screen the address names. `/days` opens the days and `/days/<n>` (or
