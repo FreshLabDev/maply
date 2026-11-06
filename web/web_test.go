@@ -266,7 +266,12 @@ func TestAppKeysExist(t *testing.T) {
 	for _, key := range []string{"compass_n", "compass_ne", "compass_e", "compass_se", "compass_s", "compass_sw", "compass_w", "compass_nw",
 		"loading", "on_water", "on_land", "moved", "error.network", "error.left", "error.unavailable", "error.bad_request", "error.internal",
 		// The profile's keys that the pattern above does not catch: with a digit, or picked at run time.
-		"prof.avg30", "prof.stamp_streak30", "prof.stamp_city1km", "prof.tab_ranked", "prof.tab_free", "prof.no_days_guest"} {
+		"prof.avg30", "prof.stamp_streak30", "prof.stamp_city1km", "prof.tab_ranked", "prof.tab_free", "prof.no_days_guest",
+		// The rating's choices, picked at run time (leaders.js).
+		"rate.p7", "rate.p30", "rate.pall", "rate.sub_7", "rate.sub_30", "rate.sub_all",
+		"rate.c_world", "rate.c_groups", "rate.c_played", "rate.s_score", "rate.s_avg", "rate.s_days", "rate.s_km",
+		"rate.l_cartographer", "rate.l_navigator", "rate.l_traveler", "rate.l_tourist", "rate.l_novice",
+		"rate.card_active", "rate.card_accurate", "rate.card_day", "rate.card_streak"} {
 		if !known[key] {
 			t.Errorf("the app builds %q, which internal/i18n does not have", key)
 		}
