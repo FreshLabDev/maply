@@ -897,9 +897,11 @@
         esc(l.name) + '</span>' + how + '</span><b>' + (l.status === "done" ? fmt(l.points) : "") + '</b></li>';
     }
     html += '</ol><div class="fr-go">';
-    if (CH.mine == null) html += '<button class="fr-pri" data-act="take">' + esc(T("free.take")) + '</button>';
-    else if (CH.status === "playing") html += '<button class="fr-pri" data-act="mine">' + esc(T("free.continue")) + '</button>';
-    if (CH.mine != null) html += '<button class="' + (CH.status === "playing" ? "fr-sec" : "fr-pri") + '" data-act="invite">' + esc(T("free.invite_friends")) + '</button>';
+    // A line of theirs without a game to open is an attempt made before Telegram was linked: taken once all the same.
+    const took = CH.mine != null || CH.lines.some((l) => l.me);
+    if (!took) html += '<button class="fr-pri" data-act="take">' + esc(T("free.take")) + '</button>';
+    else if (CH.mine != null && CH.status === "playing") html += '<button class="fr-pri" data-act="mine">' + esc(T("free.continue")) + '</button>';
+    if (took) html += '<button class="' + (CH.mine != null && CH.status === "playing" ? "fr-sec" : "fr-pri") + '" data-act="invite">' + esc(T("free.invite_friends")) + '</button>';
     page(html + '<button class="fr-link" data-act="home">' + esc(T("free.title")) + '</button></div>', "fr-ch-page");
   }
 

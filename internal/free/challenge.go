@@ -43,11 +43,23 @@ type ChallengeView struct {
 	Settings Settings        `json:"settings"`
 	By       string          `json:"by"`
 	Lines    []ChallengeLine `json:"lines"`
-	// Mine is the asker's game at the challenge, nil before they take it,
-	// and Status how it stands.
+	// Mine is the asker's game at the challenge, nil before they take it or
+	// when they took it as another of their people, and Status how it
+	// stands. Their line is marked Me either way.
 	Mine   *int64    `json:"mine"`
 	Status string    `json:"status,omitempty"`
 	Now    time.Time `json:"now"`
+}
+
+// In is whether the asker has an attempt at the challenge, as any of their
+// people: whoever is in it may send it on.
+func (v ChallengeView) In() bool {
+	for _, l := range v.Lines {
+		if l.Me {
+			return true
+		}
+	}
+	return v.Mine != nil
 }
 
 // ChallengeLine is one attempt: its sums so far, ranked once finished.
@@ -60,8 +72,13 @@ type ChallengeLine struct {
 	Seen   int    `json:"seen,omitempty"`
 }
 
-// ErrNotDone is a game that is not over yet.
-var ErrNotDone = &Error{409, "not_done"}
+var (
+	// ErrNotDone is a game that is not over yet.
+	ErrNotDone = &Error{409, "not_done"}
+	// ErrChallengeTaken is a challenge the person took as another of their
+	// people: as the account's site player before linking Telegram.
+	ErrChallengeTaken = &Error{409, "challenge_taken"}
+)
 
 // MakeChallenge makes a challenge of a solo classic on a timer that w has
 // finished, or gives the one made of it before.
@@ -108,7 +125,7 @@ func (s *Service) ChallengeOf(ctx context.Context, w Who, code string) (Challeng
 	if !ValidCode(code) {
 		return ChallengeView{}, ErrNotFound
 	}
-	c, err := s.Store.FreeChallenge(ctx, code)
+	c, err := s.Store.FreeChallenge(ctx, code, w)
 	if errors.Is(err, ErrNoRow) {
 		return ChallengeView{}, ErrNotFound
 	}
@@ -119,13 +136,14 @@ func (s *Service) ChallengeOf(ctx context.Context, w Who, code string) (Challeng
 		if _, err := s.SoloGame(ctx, w, a.Game, ""); err != nil {
 			return ChallengeView{}, err
 		}
-		if c, err = s.Store.FreeChallenge(ctx, code); err != nil {
+		if c, err = s.Store.FreeChallenge(ctx, code, w); err != nil {
 			return ChallengeView{}, err
 		}
 	}
 	return challengeView(c, w, s.Now()), nil
 }
 
+// attempt is w's own attempt, the one they may open and play.
 func (c ChallengeRow) attempt(w Who) (Attempt, bool) {
 	if !w.Keeps() {
 		return Attempt{}, false
@@ -136,6 +154,16 @@ func (c ChallengeRow) attempt(w Who) (Attempt, bool) {
 		}
 	}
 	return Attempt{}, false
+}
+
+// taken is whether any of the asker's people has an attempt.
+func (c ChallengeRow) taken() bool {
+	for _, a := range c.Attempts {
+		if a.Own {
+			return true
+		}
+	}
+	return false
 }
 
 // challengeView ranks the finished attempts, best first, and puts the rest
@@ -157,7 +185,7 @@ func challengeView(c ChallengeRow, w Who, now time.Time) ChallengeView {
 	for _, l := range done {
 		a := c.Attempts[l.M-1]
 		l.M = 0
-		v.Lines = append(v.Lines, ChallengeLine{Line: l, Name: a.Name, Me: w.Keeps() && a.who().Same(w),
+		v.Lines = append(v.Lines, ChallengeLine{Line: l, Name: a.Name, Me: a.Own,
 			Maker: a.Maker, Status: a.Status, Seen: a.Seen})
 	}
 	for _, a := range c.Attempts {
@@ -166,7 +194,7 @@ func challengeView(c ChallengeRow, w Who, now time.Time) ChallengeView {
 		}
 		l := a.Line
 		l.M, l.Rank, l.Beaten = 0, 0, 0
-		v.Lines = append(v.Lines, ChallengeLine{Line: l, Name: a.Name, Me: w.Keeps() && a.who().Same(w),
+		v.Lines = append(v.Lines, ChallengeLine{Line: l, Name: a.Name, Me: a.Own,
 			Maker: a.Maker, Status: a.Status, Seen: a.Seen})
 	}
 	if a, ok := c.attempt(w); ok {
@@ -186,7 +214,7 @@ func (s *Service) TakeChallenge(ctx context.Context, w Who, name, code, lang str
 	if !ValidCode(code) {
 		return SoloView{}, ErrNotFound
 	}
-	c, err := s.Store.FreeChallenge(ctx, code)
+	c, err := s.Store.FreeChallenge(ctx, code, w)
 	if errors.Is(err, ErrNoRow) {
 		return SoloView{}, ErrNotFound
 	}
@@ -196,6 +224,8 @@ func (s *Service) TakeChallenge(ctx context.Context, w Who, name, code, lang str
 	id := int64(0)
 	if a, ok := c.attempt(w); ok {
 		id = a.Game
+	} else if c.taken() {
+		return SoloView{}, ErrChallengeTaken
 	} else {
 		if name == "" {
 			name = "?"

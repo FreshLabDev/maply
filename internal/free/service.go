@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/scoring"
 )
 
@@ -62,8 +63,12 @@ type Service struct {
 	Countries *geo.Countries
 	// ImageKey signs the rounds' picture addresses.
 	ImageKey []byte
-	Now      func() time.Time
-	Log      *slog.Logger
+	// Zones are where a day's reveals come. A closed day comes to free play
+	// only once the clock says it is over in every one of them; without
+	// them, maply's own are loaded.
+	Zones round.Zones
+	Now   func() time.Time
+	Log   *slog.Logger
 	// Intn draws among the places nobody has seen; nil is math/rand.
 	Intn func(int) int
 
@@ -91,6 +96,14 @@ func (s *Service) init() {
 		}
 		if s.Intn == nil {
 			s.Intn = mrand.IntN
+		}
+		// Zones with no zone in them would call every day over.
+		if s.Zones.LastReveal(round.NewDate(2026, time.January, 1)).IsZero() {
+			if z, err := round.LoadZones(); err != nil {
+				s.Log.Error("free: zones", "err", err)
+			} else {
+				s.Zones = z
+			}
 		}
 		if len(s.ImageKey) == 0 {
 			s.ImageKey = make([]byte, 32)
@@ -130,9 +143,24 @@ func (s *Service) judge(p Place, pin geo.Point) scoring.Score {
 	return scoring.Judge(pin, scoring.Place{Point: p.Point, Country: p.Country, Continent: p.Continent, City: p.CityShape}, s.Countries)
 }
 
+// closed is the newest date over in every zone at now. day_closed is
+// written by the world's final job; the clock is checked as well, so a row
+// written early, by hand or by a job run before its time, never brings a
+// place someone may still be answering. Without zones nothing is over.
+func (s *Service) closed(now time.Time) time.Time {
+	d := s.Zones.Newest(now)
+	if s.Zones.LastReveal(d).IsZero() {
+		return time.Time{}
+	}
+	for s.Zones.LastReveal(d).After(now) {
+		d = d.AddDays(-1)
+	}
+	return d.Time()
+}
+
 // pick draws the next place of a game and the moment it is for.
 func (s *Service) pick(ctx context.Context, id int64) (Candidate, bool, error) {
-	cands, used, err := s.Store.FreeCandidates(ctx, id)
+	cands, used, err := s.Store.FreeCandidates(ctx, id, s.closed(s.Now()))
 	if err != nil {
 		return Candidate{}, false, err
 	}

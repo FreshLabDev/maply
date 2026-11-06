@@ -124,7 +124,7 @@ func (s *Server) challengeInvite(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	if c.Mine == nil {
+	if !c.In() {
 		s.freeFail(w, r, free.ErrNotMember)
 		return
 	}

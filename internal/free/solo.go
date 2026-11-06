@@ -108,7 +108,7 @@ func (s *Service) SoloHome(ctx context.Context, w Who) (Home, error) {
 	s.init()
 	h := Home{Last: DefaultSolo, Best: map[string]int{}, Challenges: []ChallengeBrief{}}
 	if !w.Valid() {
-		days, err := s.Store.FreeArchive(ctx, w)
+		days, err := s.Store.FreeArchive(ctx, w, s.closed(s.Now()))
 		h.Archive = len(days)
 		return h, err
 	}
@@ -119,7 +119,7 @@ func (s *Service) SoloHome(ctx context.Context, w Who) (Home, error) {
 	if ok {
 		h.Last = last
 	}
-	days, err := s.Store.FreeArchive(ctx, w)
+	days, err := s.Store.FreeArchive(ctx, w, s.closed(s.Now()))
 	if err != nil {
 		return Home{}, err
 	}

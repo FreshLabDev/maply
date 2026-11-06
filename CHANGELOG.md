@@ -36,6 +36,9 @@ For the operator:
   to a site player as well as to a Telegram person (`free_result.player`,
   `free_attempt.player`), and adds the index the free game's leaderboards
   read. Nothing to do before or after.
+- Migration 026 only replaces the function of the trigger that keeps a
+  place's pool, so a place any round names stays the day's; it reads and
+  writes no row.
 
 ### Added
 
@@ -210,13 +213,16 @@ For the operator:
   computer's layout follows.
 - Free play gets three more ways to play. "Against the clock": three minutes
   for as many countries as one can find, with skipping and no speed bonus,
-  and a record of its own. The archive: every day over in every zone that
-  the player has not answered or seen, one place each with no timer, and
-  where the answer would have stood in that day's table. A challenge: after
-  a classic game on a timer, friends play its places in the same order in
-  their own time, once each, and the challenge's table shows the sums and
-  marks the places someone had seen before. Challenges need an account, as
-  parties do; a site guest plays the archive.
+  and a record of its own. The archive: every day over in every zone, by the
+  clock as well as by the final job's row, that the player has not answered
+  or seen, one place each with no timer, and where the answer would have
+  stood in that day's table. A challenge: after a classic game on a timer,
+  friends play its places in the same order in their own time, once each,
+  and the challenge's table shows the sums and marks the places someone had
+  seen before. A player there is the person with every site player their
+  account holds: a day answered as a guest before signing in is answered,
+  and a challenge taken before Telegram was linked is taken. Challenges
+  need an account, as parties do; a site guest plays the archive.
 
 ### Changed
 

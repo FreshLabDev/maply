@@ -229,10 +229,11 @@ type Store interface {
 	FreeSnapshot(ctx context.Context, id int64) (Snapshot, error)
 	// FreeCandidates is every place the game may get next, and the countries
 	// its places so far are in.
-	FreeCandidates(ctx context.Context, id int64) ([]Candidate, map[string]bool, error)
+	// closed is the newest date over in every zone.
+	FreeCandidates(ctx context.Context, id int64, closed time.Time) ([]Candidate, map[string]bool, error)
 	FreePlace(ctx context.Context, placeID int64) (Place, error)
 	// FreeKnown is whether the player has had the place: answered its day,
-	// or had it in a free game.
+	// or had it in a free game, as any of their people.
 	FreeKnown(ctx context.Context, w Who, placeID int64) (bool, error)
 	InsertFreeRound(ctx context.Context, id int64, r NewRound) error
 	// InsertFreeGuess is false when the player has answered the place already.
@@ -269,14 +270,14 @@ type Store interface {
 	// FreeRoundPlace is the place of a game's place n.
 	FreeRoundPlace(ctx context.Context, game int64, n int) (int64, error)
 
-	// FreeArchive is every day closed in every zone, newest first, as the
-	// player may take it from the archive.
-	FreeArchive(ctx context.Context, w Who) ([]ArchiveDay, error)
+	// FreeArchive is every day closed in every zone by closed, newest first,
+	// as the player may take it from the archive.
+	FreeArchive(ctx context.Context, w Who, closed time.Time) ([]ArchiveDay, error)
 	// CreateFreeArchive makes the player's game of closed day dayNo with its
 	// place begun at g.At, or gives the game they took the day in before.
 	// ErrNoRow is no such closed day; ErrDayAnswered and ErrDaySeen a day the
 	// player knows.
-	CreateFreeArchive(ctx context.Context, dayNo int, g NewGame) (int64, error)
+	CreateFreeArchive(ctx context.Context, dayNo int, closed time.Time, g NewGame) (int64, error)
 	// FreeDayRank is where an answer worth base points would have stood
 	// among a closed day's answers, counted without their speed bonus, and
 	// of how many, the answer included. A tie counts as behind.
@@ -285,10 +286,12 @@ type Store interface {
 	// MakeFreeChallenge makes the challenge of a finished game for its
 	// player, or gives the code of the one made before.
 	MakeFreeChallenge(ctx context.Context, game int64, w Who, code string, at time.Time) (string, error)
-	// FreeChallenge is a challenge with every attempt at it.
-	FreeChallenge(ctx context.Context, code string) (ChallengeRow, error)
+	// FreeChallenge is a challenge with every attempt at it, those of w's
+	// people marked as theirs.
+	FreeChallenge(ctx context.Context, code string, w Who) (ChallengeRow, error)
 	// TakeFreeChallenge makes the player's attempt at a challenge, or gives
-	// the one they made before.
+	// the one they made before. ErrChallengeTaken is an attempt made as
+	// another of their people.
 	TakeFreeChallenge(ctx context.Context, challenge int64, g NewGame) (int64, error)
 	// FreeChallenges is the challenges the player is in that were made since.
 	FreeChallenges(ctx context.Context, w Who, since time.Time) ([]ChallengeBrief, error)
@@ -317,6 +320,9 @@ type Attempt struct {
 	Line  Line
 	// Seen is how many of the places the player had had before.
 	Seen int
+	// Own is an attempt of the asker's people: their own, or one made as
+	// another of them, the account's site player before Telegram was linked.
+	Own bool
 }
 
 func (a Attempt) who() Who { return Who{UserID: a.UserID, Player: a.Player} }

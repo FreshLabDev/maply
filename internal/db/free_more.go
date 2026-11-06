@@ -34,27 +34,32 @@ func (s *Store) FreeRoundPlace(ctx context.Context, game int64, n int) (int64, e
 	return place, nil
 }
 
-// FreeArchive lists only days in day_closed: a day still in play anywhere is
-// not in the archive, whoever asks. A player who answered a day, as a
-// Telegram person or as the site's player, or had its place in a free game,
-// sees it so. A day whose picture is a flat photo is left out, as in
-// FreeCandidates.
-func (s *Store) FreeArchive(ctx context.Context, w free.Who) ([]free.ArchiveDay, error) {
+// FreeArchive lists only days in day_closed whose last reveal has passed by
+// closed: a day still in play anywhere is not in the archive, whoever asks,
+// even with a row in day_closed written too early. A player who answered a
+// day, as a Telegram person or as a site player of their account, or had its
+// place in a free game, sees it so. A day taken as another of their people,
+// before a link, is seen: its game is that player's, and its place was in it.
+// A day whose picture is a flat photo is left out, as in FreeCandidates.
+func (s *Store) FreeArchive(ctx context.Context, w free.Who, closed time.Time) ([]free.ArchiveDay, error) {
 	user, player := whoArgs(w)
 	rows, err := s.pool.Query(ctx, `
+		WITH `+whoOne+`, `+people+`
 		SELECT r.day_no, r.date,
 		       CASE WHEN a.game IS NOT NULL THEN 'played'
-		            WHEN EXISTS (SELECT 1 FROM guess g WHERE g.date = r.date AND g.user_id = $1)
-		              OR EXISTS (SELECT 1 FROM site_guess g WHERE g.date = r.date AND g.player = $2::uuid) THEN 'answered'
+		            WHEN EXISTS (SELECT 1 FROM guess g WHERE g.date = r.date AND g.user_id IN (SELECT user_id FROM me_u))
+		              OR EXISTS (SELECT 1 FROM site_guess g WHERE g.date = r.date AND g.player IN (SELECT player FROM me_p)) THEN 'answered'
 		            WHEN EXISTS (SELECT 1 FROM free_round fr JOIN free_member fm ON fm.game = fr.game
-		                          WHERE fr.place_id = r.place_id AND (fm.user_id = $1 OR fm.player = $2::uuid)) THEN 'seen'
+		                          WHERE fr.place_id = r.place_id
+		                            AND (fm.user_id IN (SELECT user_id FROM me_u) OR fm.player IN (SELECT player FROM me_p))) THEN 'seen'
 		            ELSE 'open' END,
 		       COALESCE(a.game, 0),
 		       (SELECT sum(q.pts_km + q.pts_bonus + q.pts_speed) FROM free_guess q WHERE q.game = a.game)
 		  FROM day_closed dc JOIN round r ON r.date = dc.date JOIN place p ON p.id = r.place_id AND p.kind = 'panorama'
 		  LEFT JOIN free_archive a ON a.date = dc.date AND (a.user_id = $1 OR a.player = $2::uuid)
+		 WHERE dc.date <= $3::date
 		 ORDER BY r.day_no DESC
-		 LIMIT 1000`, user, player)
+		 LIMIT 1000`, user, player, closed)
 	if err != nil {
 		return nil, fmt.Errorf("free archive: %w", err)
 	}
@@ -74,16 +79,16 @@ func (s *Store) FreeArchive(ctx context.Context, w free.Who) ([]free.ArchiveDay,
 	})
 }
 
-func (s *Store) CreateFreeArchive(ctx context.Context, dayNo int, g free.NewGame) (int64, error) {
-	id, err := s.createArchive(ctx, dayNo, g)
+func (s *Store) CreateFreeArchive(ctx context.Context, dayNo int, closed time.Time, g free.NewGame) (int64, error) {
+	id, err := s.createArchive(ctx, dayNo, closed, g)
 	// Taken at the same moment in another request: that game is the one.
 	if violates(err, "free_archive_user_idx") || violates(err, "free_archive_player_idx") {
-		return s.createArchive(ctx, dayNo, g)
+		return s.createArchive(ctx, dayNo, closed, g)
 	}
 	return id, err
 }
 
-func (s *Store) createArchive(ctx context.Context, dayNo int, g free.NewGame) (int64, error) {
+func (s *Store) createArchive(ctx context.Context, dayNo int, closed time.Time, g free.NewGame) (int64, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return 0, err
@@ -94,7 +99,7 @@ func (s *Store) createArchive(ctx context.Context, dayNo int, g free.NewGame) (i
 	err = tx.QueryRow(ctx, `
 		SELECT r.date, r.place_id FROM round r JOIN day_closed dc ON dc.date = r.date
 		  JOIN place p ON p.id = r.place_id AND p.kind = 'panorama'
-		 WHERE r.day_no = $1`, dayNo).Scan(&date, &place)
+		 WHERE r.day_no = $1 AND dc.date <= $2::date`, dayNo, closed).Scan(&date, &place)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, free.ErrNoRow
 	}
@@ -111,13 +116,18 @@ func (s *Store) createArchive(ctx context.Context, dayNo int, g free.NewGame) (i
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return 0, fmt.Errorf("archive day %d: %w", dayNo, err)
 	}
+	// As any of the person's people: a day answered as a guest before signing
+	// in, or taken as the account's site player before Telegram was linked,
+	// is known all the same.
 	var answered, seen bool
 	err = tx.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM guess WHERE date = $1 AND user_id = $2)
-		    OR EXISTS (SELECT 1 FROM site_guess WHERE date = $1 AND player = $3::uuid),
+		WITH `+whoOne+`, `+people+`
+		SELECT EXISTS (SELECT 1 FROM guess WHERE date = $3 AND user_id IN (SELECT user_id FROM me_u))
+		    OR EXISTS (SELECT 1 FROM site_guess WHERE date = $3 AND player IN (SELECT player FROM me_p)),
 		       EXISTS (SELECT 1 FROM free_round fr JOIN free_member fm ON fm.game = fr.game
-		                WHERE fr.place_id = $4 AND (fm.user_id = $2 OR fm.player = $3::uuid))`,
-		date, user, player, place).Scan(&answered, &seen)
+		                WHERE fr.place_id = $4
+		                  AND (fm.user_id IN (SELECT user_id FROM me_u) OR fm.player IN (SELECT player FROM me_p)))`,
+		user, player, date, place).Scan(&answered, &seen)
 	if err != nil {
 		return 0, fmt.Errorf("archive day %d: %w", dayNo, err)
 	}
@@ -199,8 +209,9 @@ func (s *Store) makeChallenge(ctx context.Context, game int64, w free.Who, code 
 }
 
 // FreeChallenge sums each attempt over the places answered so far, a place
-// without a pin as the farthest a pin can be, as free.Lines does.
-func (s *Store) FreeChallenge(ctx context.Context, code string) (free.ChallengeRow, error) {
+// without a pin as the farthest a pin can be, as free.Lines does. An attempt
+// of any of w's people is theirs.
+func (s *Store) FreeChallenge(ctx context.Context, code string, w free.Who) (free.ChallengeRow, error) {
 	var c free.ChallengeRow
 	err := s.pool.QueryRow(ctx, `
 		SELECT c.id, c.code, c.game, g.mode, COALESCE(g.seconds, 0), COALESCE(g.rounds, 0), c.created_at
@@ -212,8 +223,11 @@ func (s *Store) FreeChallenge(ctx context.Context, code string) (free.ChallengeR
 	if err != nil {
 		return free.ChallengeRow{}, fmt.Errorf("challenge %s: %w", code, err)
 	}
+	user, player := whoArgs(w)
 	rows, err := s.pool.Query(ctx, `
+		WITH `+whoAt("$4", "$5")+`, `+people+`
 		SELECT COALESCE(a.user_id, 0), COALESCE(a.player::text, ''), m.name, g.id, g.status, g.id = $2,
+		       COALESCE(a.user_id IN (SELECT user_id FROM me_u) OR a.player IN (SELECT player FROM me_p), false),
 		       count(q.n), count(q.n) FILTER (WHERE q.lat IS NOT NULL),
 		       COALESCE(sum(q.pts_km + q.pts_bonus + q.pts_speed), 0), COALESCE(sum(q.pts_km + q.pts_bonus), 0),
 		       COALESCE(sum(COALESCE(q.km, $3)), 0), COALESCE(sum(q.time_ms), 0),
@@ -225,14 +239,14 @@ func (s *Store) FreeChallenge(ctx context.Context, code string) (free.ChallengeR
 		  LEFT JOIN free_guess q ON q.game = g.id AND q.m = 1
 		 WHERE a.challenge = $1
 		 GROUP BY a.user_id, a.player, m.name, g.id
-		 ORDER BY g.id = $2 DESC, g.created_at, g.id`, c.ID, c.Game, free.MaxKm)
+		 ORDER BY g.id = $2 DESC, g.created_at, g.id`, c.ID, c.Game, free.MaxKm, user, player)
 	if err != nil {
 		return free.ChallengeRow{}, fmt.Errorf("challenge %s attempts: %w", code, err)
 	}
 	c.Attempts, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (free.Attempt, error) {
 		var a free.Attempt
 		l := &a.Line
-		err := row.Scan(&a.UserID, &a.Player, &a.Name, &a.Game, &a.Status, &a.Maker, &l.Played, &l.Answered,
+		err := row.Scan(&a.UserID, &a.Player, &a.Name, &a.Game, &a.Status, &a.Maker, &a.Own, &l.Played, &l.Answered,
 			&l.Points, &l.Base, &l.Km, &l.TimeMs, &l.Countries, &a.Seen)
 		l.FromRound = 1
 		return a, err
@@ -258,15 +272,30 @@ func (s *Store) takeChallenge(ctx context.Context, challenge int64, g free.NewGa
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	// The challenge's row holds the takes of it one at a time: the unique
+	// keys hold one kind of player each, and a person is two kinds once an
+	// account links Telegram.
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM free_challenge WHERE id = $1 FOR UPDATE`, challenge); err != nil {
+		return 0, fmt.Errorf("attempt at %d: %w", challenge, err)
+	}
 	user, player := whoArgs(g.Host.Who)
 	var game int64
+	var same bool
 	err = tx.QueryRow(ctx, `
-		SELECT game FROM free_attempt WHERE challenge = $1 AND (user_id = $2 OR player = $3::uuid)`,
-		challenge, user, player).Scan(&game)
-	if err == nil {
+		WITH `+whoAt("$2", "$3")+`, `+people+`
+		SELECT game, user_id IS NOT DISTINCT FROM $2::bigint AND player IS NOT DISTINCT FROM $3::uuid
+		  FROM free_attempt
+		 WHERE challenge = $1 AND (user_id IN (SELECT user_id FROM me_u) OR player IN (SELECT player FROM me_p))
+		 ORDER BY 2 DESC, game LIMIT 1`,
+		challenge, user, player).Scan(&game, &same)
+	switch {
+	case err == nil && same:
 		return game, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	case err == nil:
+		// Taken as another of the person's people, before a link: a
+		// challenge is played once.
+		return 0, free.ErrChallengeTaken
+	case !errors.Is(err, pgx.ErrNoRows):
 		return 0, fmt.Errorf("attempt at %d: %w", challenge, err)
 	}
 	id, err := insertGame(ctx, tx, g)
