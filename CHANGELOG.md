@@ -11,6 +11,12 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Added
+
+- The site has an icon in the browser's tab and on a phone's home screen:
+  the bot's globe drawn flat, with the pin large enough to read at 16 px.
+  The privacy page has it too, and /favicon.ico answers.
+
 ### Changed
 
 - A Telegram player's photo is shown wherever their name is: the day's

@@ -14,7 +14,7 @@ import (
 // players see, and how to delete the account. Google asks for it on the
 // sign-in screen. It has no script and asks the database for nothing.
 
-const privacyCSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+const privacyCSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 // The owner's Telegram, for erasing answers: "{contact}" in a line becomes
 // this link. The rest of the line stays text.
@@ -27,6 +27,8 @@ var privacyPage = template.Must(template.New("privacy").Parse(`<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#245A3C">
 <title>{{.Title}} · maply</title>
+<link rel="icon" href="/icon/maply.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon/maply-180.png">
 <style>
 :root { --field: #245A3C; --deep: #1A412B; --ink: #FFFFFF; --soft: #D8E1DC; --muted: #B5C7BD; }
 * { box-sizing: border-box; }

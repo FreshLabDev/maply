@@ -60,6 +60,7 @@ var contentTypes = map[string]string{
 	".css":   "text/css; charset=utf-8",
 	".js":    "text/javascript; charset=utf-8",
 	".svg":   "image/svg+xml",
+	".png":   "image/png",
 	".woff2": "font/woff2",
 	".txt":   "text/plain; charset=utf-8",
 	".json":  "application/json; charset=utf-8",
@@ -170,12 +171,18 @@ func HandlerWithMeta(meta MetaFunc) (http.Handler, error) {
 		})
 		h.add("/index.html", data, false)
 	}
+	// A browser asks for /favicon.ico on a page that names no icon, the
+	// privacy page's too.
+	if f, ok := h.files["/icon/maply-32.png"]; ok {
+		h.files["/favicon.ico"] = f
+	}
 	return h, nil
 }
 
-// localRef is a script or stylesheet index.html loads from the service. The
-// page is served on every address in Pages, so it names them from the root.
-var localRef = regexp.MustCompile(`(src|href)="([^":?#]+\.(?:js|css))"`)
+// localRef is a script, stylesheet or icon index.html loads from the
+// service. The page is served on every address in Pages, so it names them
+// from the root.
+var localRef = regexp.MustCompile(`(src|href)="([^":?#]+\.(?:js|css|svg|png))"`)
 
 // host is a Host header fit to name the preview's address with.
 var host = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$`)
