@@ -388,11 +388,29 @@ func (s *Store) Silent(ctx context.Context, chatID int64, d round.Date) ([]Membe
 }
 
 // Streaks counts, for each person, the dates in a row they answered, ending
-// at d, or at the date before when d has no answer yet.
+// at d, or at the date before when d has no answer yet. A skipped date, which
+// nobody answered, is not a day anyone missed: it does not break a streak and
+// does not count in it.
 func (s *Store) Streaks(ctx context.Context, userIDs []int64, d round.Date) (map[int64]int, error) {
 	out := map[int64]int{}
 	if len(userIDs) == 0 {
 		return out, nil
+	}
+	skipped := map[string]bool{}
+	gone, err := s.SkippedDates(ctx, d)
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range gone {
+		skipped[g.String()] = true
+	}
+	// before is the date a run goes back to from date, over the skipped ones.
+	before := func(date round.Date) round.Date {
+		date = date.AddDays(-1)
+		for skipped[date.String()] {
+			date = date.AddDays(-1)
+		}
+		return date
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT user_id, date FROM guess
@@ -412,11 +430,11 @@ func (s *Store) Streaks(ctx context.Context, userIDs []int64, d round.Date) (map
 		date := round.DateIn(t, time.UTC)
 		want, seen := next[id]
 		switch {
-		case !seen && (date.String() == d.String() || date.String() == d.AddDays(-1).String()):
-			out[id], next[id] = 1, date.AddDays(-1)
+		case !seen && (date.String() == d.String() || date.String() == before(d).String()):
+			out[id], next[id] = 1, before(date)
 		case seen && date.String() == want.String() && out[id] > 0:
 			out[id]++
-			next[id] = date.AddDays(-1)
+			next[id] = before(date)
 		default:
 			// A gap: this person's streak is already counted.
 			next[id] = round.Date{}

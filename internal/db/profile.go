@@ -76,7 +76,7 @@ func (s *Store) ProfileOf(ctx context.Context, userID int64, today round.Date, n
 	if err != nil {
 		return Profile{}, fmt.Errorf("answers of %d: %w", userID, err)
 	}
-	rows, err = s.pool.Query(ctx, `SELECT date, day_no FROM round WHERE date <= $1 ORDER BY date DESC LIMIT $2`, today.Time(), n)
+	rows, err = s.pool.Query(ctx, `SELECT date, day_no FROM round WHERE date <= $1 AND skipped_at IS NULL ORDER BY date DESC LIMIT $2`, today.Time(), n)
 	if err != nil {
 		return Profile{}, fmt.Errorf("rounds to %s: %w", today, err)
 	}

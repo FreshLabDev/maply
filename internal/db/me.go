@@ -197,7 +197,7 @@ func (s *Store) Standings(ctx context.Context, who Who, dates []round.Date, clos
 
 // LastRounds are the last n rounds up to upTo, newest first.
 func (s *Store) LastRounds(ctx context.Context, upTo round.Date, n int) ([]RoundDay, error) {
-	rows, err := s.pool.Query(ctx, `SELECT date, day_no FROM round WHERE date <= $1 ORDER BY date DESC LIMIT $2`, upTo.Time(), n)
+	rows, err := s.pool.Query(ctx, `SELECT date, day_no FROM round WHERE date <= $1 AND skipped_at IS NULL ORDER BY date DESC LIMIT $2`, upTo.Time(), n)
 	if err != nil {
 		return nil, fmt.Errorf("rounds to %s: %w", upTo, err)
 	}
