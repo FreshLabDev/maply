@@ -829,7 +829,10 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if err := s.cfg.Store.DeleteAccount(r.Context(), accID); err != nil && !errors.Is(err, db.ErrNoAccount) {
+	// The account's seats in free games read "Guest" from now on, in the
+	// language it was deleted in, as a nameless account's would.
+	guest := i18n.T(privacyLangOf(r), "app.guest")
+	if err := s.cfg.Store.DeleteAccount(r.Context(), accID, guest); err != nil && !errors.Is(err, db.ErrNoAccount) {
 		s.log.Error("delete account", "error", errClass(err))
 		writeError(w, http.StatusInternalServerError, "internal")
 		return

@@ -149,7 +149,8 @@ For the operator:
   account of its own is linked from the site instead, so a ticket never
   merges.
 - `/privacy` says what maply keeps, what other players see and how to delete
-  the account, in the sixteen languages.
+  the account, in the sixteen languages. To have the answers erased as well,
+  it links the developer's Telegram.
 - The site's menu picks the interface language. Signed in with Telegram it is
   the language core keeps for every bot of the family, with "Follow
   Telegram"; otherwise the browser keeps it.

@@ -65,12 +65,21 @@ func (s *Server) siteViewer(r *http.Request) account.Viewer {
 func (s *Server) resolveSite(r *http.Request, v account.Viewer) (play, error) {
 	// The session is a cookie: another site's page must not answer for it.
 	// A GET writes too, the DM's zone on the first visit or from the
-	// browser's clock, and a link from another site, even another ws04.cc
-	// one, would carry the Lax cookie: only maply's own page may ask.
+	// browser's clock, and a link carries the Lax cookie, from another site,
+	// even another ws04.cc one, or opened from an app ("none"): only maply's
+	// own script may ask. A browser that does not say where a request comes
+	// from still says what it wants: a link asks for HTML, the script for
+	// anything.
 	if r.Method != http.MethodGet && !ownJSON(r) {
 		return play{}, errBadRequest
 	}
-	if site := r.Header.Get("Sec-Fetch-Site"); site == "cross-site" || site == "same-site" {
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "same-origin":
+	case "":
+		if strings.Contains(r.Header.Get("Accept"), "text/html") {
+			return play{}, errBadRequest
+		}
+	default:
 		return play{}, errBadRequest
 	}
 	if !s.userLimit.allow(v.TelegramUserID) {

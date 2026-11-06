@@ -201,12 +201,18 @@ func TestAnAccountKeepsRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := h.store.DeleteAccount(ctx, acc); err != nil {
+	if err := h.store.DeleteAccount(ctx, acc, "Guest"); err != nil {
 		t.Fatal(err)
 	}
 	h.playSolo(ivy, i.ID, 3, true)
 	if got := h.resultsOf(i.ID); len(got) != 0 {
 		t.Fatalf("a deleted account's line: %+v", got)
+	}
+	// Its seat keeps no name either: a challenge's table or a party reads
+	// the name a member joined with.
+	var name string
+	if err := h.pool.QueryRow(ctx, `SELECT name FROM maply.free_member WHERE game = $1 AND m = 1`, i.ID).Scan(&name); err != nil || name != "Guest" {
+		t.Fatalf("a deleted account's seat is called %q, %v", name, err)
 	}
 }
 
