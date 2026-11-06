@@ -88,17 +88,21 @@ type topBody struct {
 		Score int    `json:"score"`
 		Who   string `json:"who"`
 		Me    bool   `json:"me"`
+		Anon  bool   `json:"anon"`
 	} `json:"rows"`
 }
 
-// line is a board as "rank name score" lines, "*" after a handle and "<"
-// on the viewer's own.
+// line is a board as "rank name score" lines, "*" after a handle, "?" on an
+// anonymous row and "<" on the viewer's own.
 func (b topBody) line() string {
 	var out []string
 	for _, r := range b.Rows {
 		s := fmt.Sprintf("%d %s %d", r.Rank, r.Name, r.Score)
 		if r.Who != "" {
 			s += "*"
+		}
+		if r.Anon {
+			s += "?"
 		}
 		if r.Me {
 			s += "<"
@@ -110,7 +114,7 @@ func (b topBody) line() string {
 
 // The free play's boards: one row a player with their best, equal bests by
 // who reached theirs first, only games on a timer, each setting its own
-// table, the last week or all time. A hidden player is a Telegram player to
+// table, the last week or all time. A hidden player is "Anonymous" to
 // anyone outside their groups, and the profile has its places.
 func TestFreeLeaderboards(t *testing.T) {
 	hs := setup(t)
@@ -157,15 +161,15 @@ func TestFreeLeaderboards(t *testing.T) {
 		t.Fatalf("the streak's settings = %+v", streak)
 	}
 	check(get(oksana, "board=streak&period=week"), 3, "1 Ivan 5*, 2 Dmitry 4*, 3 Oksana 3*<")
-	// Lena hid herself: outside her groups she is a Telegram player with no
+	// Lena hid herself: outside her groups she is "Anonymous" with no
 	// handle; Dmitry shares one with her; she sees herself.
-	check(get(oksana, "board=streak&seconds=60"), 1, "1 Telegram player 9")
+	check(get(oksana, "board=streak&seconds=60"), 1, "1 Anonymous 9?")
 	check(get(dmitry, "board=streak&seconds=60"), 1, "1 Lena 9*")
 	check(get(lena, "board=streak&seconds=60"), 1, "1 Lena 9*<")
 	// A blitz is a classic at 30 s a place, each length its own table; a
 	// party counts as a solo game does.
 	blitz := get(oksana, "board=blitz")
-	check(blitz, 3, "1 Telegram player 13000, 2 Ivan 12000*, 3 Oksana 11000*<")
+	check(blitz, 3, "1 Anonymous 13000?, 2 Ivan 12000*, 3 Oksana 11000*<")
 	if blitz.Seconds != 30 || blitz.Rounds != 5 || fmt.Sprint(blitz.RoundsOf) != "[5 3 10]" {
 		t.Fatalf("the blitz's settings = %+v", blitz)
 	}
@@ -174,11 +178,11 @@ func TestFreeLeaderboards(t *testing.T) {
 	check(get(oksana, "board=classic"), 0, "")
 	check(get(oksana, "board=timed"), 2, "1 Ivan 14*, 2 Oksana 12*<")
 
-	// A guest on the site sees the names, and Lena as a Telegram player.
+	// A guest on the site sees the names, and Lena as "Anonymous".
 	req := httptest.NewRequest("GET", "/api/top?board=blitz&lang=en", nil)
 	rr := httptest.NewRecorder()
 	hs.h.ServeHTTP(rr, req)
-	if g := decode[topBody](t, rr.Body.String()); rr.Code != http.StatusOK || !g.Guest || g.line() != "1 Telegram player 13000, 2 Ivan 12000*, 3 Oksana 11000*" {
+	if g := decode[topBody](t, rr.Body.String()); rr.Code != http.StatusOK || !g.Guest || g.line() != "1 Anonymous 13000?, 2 Ivan 12000*, 3 Oksana 11000*" {
 		t.Fatalf("a guest sees %d %s", rr.Code, rr.Body.String())
 	}
 

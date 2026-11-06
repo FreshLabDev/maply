@@ -409,7 +409,7 @@ function boardRow(r, i, cls, count) {
   const v = (n) => count ? "0" : fmt(n), b0 = r.pts - bonusOf(r.lvl) - r.sp;
   // Your own face shows your initial: the name beside it already says "you".
   const n = r.rank || i + 1, grp = r.grp ? '<b class="gi" title="' + esc(T("in_group")) + '">' + GROUP + '</b>' : "";
-  const face = '<i class="fc">' + (r.anon ? '<i class="av anon">?</i>' : av(r.me ? r.name || "" : r.who, r.me, r.photo)) + grp + '</i>';
+  const face = '<i class="fc">' + (r.anon ? '<i class="av anon">?</i>' : r.nobody ? anonAv() : av(r.me ? r.name || "" : r.who, r.me, r.photo)) + grp + '</i>';
   // A hidden name in this group opens at the chat's reveal; anyone else's once the day is over in every zone.
   const wait = T(r.grp && PHASE === "live" ? "anon_row" : "anon_world");
   const label = r.anon ? ' aria-label="' + esc([wait, r.grp ? T("in_group") : "", kmT(r.d), fmt(r.pts)].filter(Boolean).join(", ")) + '"' : "";
@@ -666,7 +666,7 @@ const rowsOf = (res) => res.table.map((r) => {
 function boardOf(res) {
   const rows = (res.board || []).map((r) => ({ who: r.me ? T("you") : r.name || (r.site ? T("guest") : ""), name: r.name || "",
     d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0, me: !!r.me, grp: !!r.group, photo: r.photo,
-    anon: !!r.hidden, key: r.key, rank: r.rank, handle: r.who || "" }));
+    anon: !!r.hidden, nobody: !!r.anon, key: r.key, rank: r.rank, handle: r.who || "" }));
   // An answer the site kept only in the browser is scored on the spot and has no place in the world: it shows as your
   // row without a rank, rather than "you didn't answer".
   const own = !rows.some((r) => r.me) && (res.table || []).find((r) => r.me && r.points != null);

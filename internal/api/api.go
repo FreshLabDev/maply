@@ -725,6 +725,9 @@ type boardLine struct {
 	Photo  string  `json:"photo,omitempty"`
 	// Who is the player's handle for the mini profile, next to a name only.
 	Who string `json:"who,omitempty"`
+	// Anon is a player who hid themselves: "Anonymous" with a plain
+	// avatar, and no photo or handle.
+	Anon bool `json:"anon,omitempty"`
 }
 
 // boardShown is how many of the world's best rows go to the app. Your own row
@@ -987,7 +990,7 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		}
 	}
 	isMe := func(e db.Entry) bool { return e.UserID != 0 && e.UserID == p.user.ID }
-	names := nameRule{who: func(id int64) string { return handles.Of(id, scope) }, as: tgPlayer(p.lang)}
+	names := nameRule{who: func(id int64) string { return handles.Of(id, scope) }, as: anonName(p.lang)}
 	if worldOpen {
 		// Named for everyone now: a player who hid themselves is not, outside
 		// their own group, whose rows are named above.
@@ -1076,7 +1079,7 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 			Me: me, Group: inGroup && !me, Site: e.Site()}
 		switch {
 		case !me && !(groupOpen && inGroup) && worldOpen && names.hidden[e.UserID]:
-			l.Name = names.as
+			l.Name, l.Anon = names.as, true
 		case me || worldOpen || groupOpen && inGroup:
 			l.Name = e.Name
 			if e.UserID != 0 && names.who != nil {
@@ -1085,7 +1088,7 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 		default:
 			l.Hidden = true
 		}
-		if b := photos[e.UserID]; b != nil && e.UserID != 0 {
+		if b := photos[e.UserID]; b != nil && e.UserID != 0 && !l.Anon {
 			l.Photo = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
 		}
 		out = append(out, l)

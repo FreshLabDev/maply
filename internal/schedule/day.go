@@ -370,6 +370,9 @@ func (s *Scheduler) groupCaption(ctx context.Context, c db.Chat, rd db.Round, cr
 	if len(guesses) > 0 {
 		lines = append(lines, "", i18n.T(lang, "result.answered_of", "n", strconv.Itoa(len(guesses)), "total", strconv.Itoa(len(guesses)+len(silent))))
 		w, err := s.Store.World(ctx, rd.Date)
+		if err == nil {
+			w, err = s.anonFirst(ctx, lang, c, w)
+		}
 		if err != nil {
 			return groupDay{}, err
 		}

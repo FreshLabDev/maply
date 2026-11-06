@@ -406,6 +406,9 @@ func (s *Scheduler) finalCaption(ctx context.Context, c db.Chat, rd db.Round, cr
 		return "", err
 	}
 	w, err := s.Store.World(ctx, rd.Date)
+	if err == nil {
+		w, err = s.anonFirst(ctx, lang, c, w)
+	}
 	if err != nil {
 		return "", err
 	}

@@ -8,6 +8,10 @@ try { PROF_TAB = localStorage.getItem("maply.prof.tab") === "free" ? "free" : "r
 
 // The letter in the header: the Telegram name, the name typed on the site, or a figure for a guest without one.
 const FIGURE = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="5.2" r="3" fill="currentColor"/><path d="M2 15c0-3.4 2.7-5.6 6-5.6s6 2.2 6 5.6z" fill="currentColor"/></svg>';
+// A player who hid themselves ("Hide me") is "Anonymous" in shared tables, with this plain avatar instead of a photo or
+// a letter, and with it instead of the Telegram mark on the days page.
+const anonAv = () => '<i class="av nobody">' + FIGURE + '</i>';
+const SRC_ANON = '<svg class="src" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#59826B"/><circle cx="12" cy="9.3" r="3.6" fill="#D8E1DC"/><path d="M5.6 19.4c.6-3.4 3.2-5.6 6.4-5.6s5.8 2.2 6.4 5.6" fill="#D8E1DC"/></svg>';
 function meLetter(name) {
   const n = String(name || (inTg && tg.initDataUnsafe.user && tg.initDataUnsafe.user.first_name) || (SITE ? siteName() : "")).trim();
   $("meBtn").innerHTML = n ? esc(initial(n)) : FIGURE;

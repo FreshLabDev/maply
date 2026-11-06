@@ -15,6 +15,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
 	"image/jpeg"
 	"log/slog"
 	"os"
@@ -72,10 +74,20 @@ type Avatars interface {
 // facesWait bounds asking Telegram for the podium's photos.
 const facesWait = 20 * time.Second
 
-// faces is the photos of the first three Telegram players of w.
-func (s *Service) faces(ctx context.Context, w db.World) map[int64]*anim.Face {
-	if s.Avatars == nil {
-		return nil
+// hider is the store's "Hide me": which of ids asked to be hidden.
+type hider interface {
+	Hidden(ctx context.Context, ids []int64) (map[int64]bool, error)
+}
+
+var _ hider = (*db.Store)(nil)
+
+// hiddenTop is which of the first three Telegram players of w hid
+// themselves. The picture goes to every DM in its language, so no group a
+// viewer shares with them makes an exception, as it does in the app.
+func (s *Service) hiddenTop(ctx context.Context, w db.World) (map[int64]bool, error) {
+	h, ok := s.Store.(hider)
+	if !ok {
+		return nil, nil
 	}
 	var ids []int64
 	for i, e := range w.Entries {
@@ -86,9 +98,74 @@ func (s *Service) faces(ctx context.Context, w db.World) map[int64]*anim.Face {
 			ids = append(ids, e.UserID)
 		}
 	}
+	return h.Hidden(ctx, ids)
+}
+
+// nobody is the plain face of a player who hid themselves: a figure in the
+// light ink on the tint, as the app draws one.
+var nobody = func() *anim.Face {
+	const n = 96
+	img := image.NewRGBA(image.Rect(0, 0, n, n))
+	tint, ink := color.RGBA{0x59, 0x82, 0x6B, 255}, color.RGBA{0xD8, 0xE1, 0xDC, 255}
+	for y := range n {
+		for x := range n {
+			fx, fy := (float64(x)+.5)/n, (float64(y)+.5)/n
+			head := (fx-.5)*(fx-.5)+(fy-.4)*(fy-.4) < .16*.16
+			body := fy > .62 && (fx-.5)*(fx-.5)/(.29*.29)+(fy-.9)*(fy-.9)/(.28*.28) < 1
+			if head || body {
+				img.Set(x, y, ink)
+			} else {
+				img.Set(x, y, tint)
+			}
+		}
+	}
+	return anim.NewFace(img)
+}()
+
+// anonymous is w with the hidden players named as shared tables name them.
+// The entries are copied: w is the ranking the card keeps.
+func anonymous(lang string, w db.World, hidden map[int64]bool) db.World {
+	if len(hidden) == 0 {
+		return w
+	}
+	// In a language the faces don't write (zh, ja, ar) the word would be
+	// filtered down to "?": English instead.
+	name := i18n.T(lang, "app.prof.anon")
+	if !anim.Covers(name) {
+		name = i18n.T(i18n.DefaultLang, "app.prof.anon")
+	}
+	out := w
+	out.Entries = slices.Clone(w.Entries)
+	for i, e := range out.Entries {
+		if e.UserID != 0 && !e.Site() && hidden[e.UserID] {
+			out.Entries[i].Name = name
+		}
+	}
+	return out
+}
+
+// faces is the photos of the first three Telegram players of w, the plain
+// one for those hidden.
+func (s *Service) faces(ctx context.Context, w db.World, hidden map[int64]bool) map[int64]*anim.Face {
+	out := map[int64]*anim.Face{}
+	var ids []int64
+	for i, e := range w.Entries {
+		if i == 3 {
+			break
+		}
+		switch {
+		case e.Site():
+		case hidden[e.UserID]:
+			out[e.UserID] = nobody
+		default:
+			ids = append(ids, e.UserID)
+		}
+	}
+	if s.Avatars == nil || len(ids) == 0 {
+		return out
+	}
 	ctx, cancel := context.WithTimeout(ctx, facesWait)
 	defer cancel()
-	out := map[int64]*anim.Face{}
 	for id, b := range s.Avatars.Fetch(ctx, ids) {
 		if img, err := jpeg.Decode(bytes.NewReader(b)); err == nil {
 			if f := anim.NewFace(img); f != nil {
@@ -135,20 +212,25 @@ func (c Card) Animation() telegram.Animation {
 }
 
 // state is d's ranking now and the version of the picture that shows it.
-func (s *Service) state(ctx context.Context, d round.Date) (db.World, []db.WorldPin, string, bool, error) {
-	final := s.Final(d)
-	w, err := s.Store.World(ctx, d)
-	if err != nil {
-		return db.World{}, nil, "", false, err
+// Once the day is final the podium is named, and hidden is who on it asked
+// to be hidden: the version changes with it.
+func (s *Service) state(ctx context.Context, d round.Date) (w db.World, pins []db.WorldPin, version string, final bool, hidden map[int64]bool, err error) {
+	final = s.Final(d)
+	if w, err = s.Store.World(ctx, d); err != nil {
+		return db.World{}, nil, "", false, nil, err
 	}
 	if w.Players() == 0 {
-		return db.World{}, nil, "", false, ErrEmpty
+		return db.World{}, nil, "", false, nil, ErrEmpty
 	}
-	pins, err := s.Store.WorldPins(ctx, d)
-	if err != nil {
-		return db.World{}, nil, "", false, err
+	if pins, err = s.Store.WorldPins(ctx, d); err != nil {
+		return db.World{}, nil, "", false, nil, err
 	}
-	return w, pins, fingerprint(w, pins, final), final, nil
+	if final {
+		if hidden, err = s.hiddenTop(ctx, w); err != nil {
+			return db.World{}, nil, "", false, nil, err
+		}
+	}
+	return w, pins, fingerprint(w, pins, final, hidden), final, hidden, nil
 }
 
 // soon reports whether prev is recent enough to stand for an open day's
@@ -164,7 +246,7 @@ func (s *Service) Fresh(ctx context.Context, d round.Date, lang, shown string, n
 	if shown == "" {
 		return false, nil
 	}
-	_, _, version, final, err := s.state(ctx, d)
+	_, _, version, final, _, err := s.state(ctx, d)
 	if err != nil || version == shown {
 		return err == nil, err
 	}
@@ -180,7 +262,7 @@ func (s *Service) Fresh(ctx context.Context, d round.Date, lang, shown string, n
 func (s *Service) Card(ctx context.Context, d round.Date, lang string, need int64) (Card, error) {
 	s.draw.Lock()
 	defer s.draw.Unlock()
-	w, pins, version, final, err := s.state(ctx, d)
+	w, pins, version, final, hidden, err := s.state(ctx, d)
 	if err != nil {
 		return Card{}, err
 	}
@@ -212,9 +294,9 @@ func (s *Service) Card(ctx context.Context, d round.Date, lang string, need int6
 	start := time.Now()
 	var faces map[int64]*anim.Face
 	if final {
-		faces = s.faces(ctx, w)
+		faces = s.faces(ctx, w, hidden)
 	}
-	mp4, err := s.render(ctx, Scene(lang, rd.DayNo, answer, w, pins, faces, final))
+	mp4, err := s.render(ctx, Scene(lang, rd.DayNo, answer, anonymous(lang, w, hidden), pins, faces, final))
 	if err != nil {
 		return Card{}, err
 	}
@@ -273,8 +355,9 @@ func (s *Service) render(ctx context.Context, sc anim.Scene) ([]byte, error) {
 }
 
 // fingerprint changes whenever the picture would: a new answer, a new top
-// three, the day closing, the drawing itself.
-func fingerprint(w db.World, pins []db.WorldPin, final bool) string {
+// three, one of them hiding or showing again, the day closing, the drawing
+// itself.
+func fingerprint(w db.World, pins []db.WorldPin, final bool, hidden map[int64]bool) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s|%t|%d\n", renderer, final, len(pins))
 	for _, p := range pins {
@@ -284,7 +367,7 @@ func fingerprint(w db.World, pins []db.WorldPin, final bool) string {
 		if i == 3 {
 			break
 		}
-		fmt.Fprintf(h, "%s|%.3f|%d\n", e.Name, e.Km, e.Points)
+		fmt.Fprintf(h, "%s|%.3f|%d|%t\n", e.Name, e.Km, e.Points, hidden[e.UserID] && !e.Site())
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }

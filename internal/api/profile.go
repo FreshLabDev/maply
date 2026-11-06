@@ -480,8 +480,8 @@ func (s *Server) touchProfile(ctx context.Context, ps ProfileStore, v profileVie
 	return ps.TouchPerson(ctx, v.person)
 }
 
-// tgPlayer is what the site's tables call a player who hid themselves.
-func tgPlayer(lang string) string { return i18n.T(lang, "app.prof.tg_player") }
+// anonName is what shared tables call a player who hid themselves.
+func anonName(lang string) string { return i18n.T(lang, "app.prof.anon") }
 
 // maskHidden is which of the Telegram players among ids asked to be hidden
 // from a viewer: their own groups still see them, whether the viewer looks
