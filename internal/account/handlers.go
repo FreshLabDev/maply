@@ -298,7 +298,7 @@ func (s *Service) finishLogin(w http.ResponseWriter, r *http.Request, f flow, id
 	ctx := r.Context()
 	// The guest of this browser goes into a new account. An account that
 	// was there already takes nobody in by itself: the page asks.
-	guest := guestID(r)
+	guest := GuestID(r)
 	acc, created, err := s.cfg.Store.SignIn(ctx, id, guest, s.rules())
 	if err != nil {
 		s.result(w, r, f, codeFailed, err)
@@ -310,7 +310,7 @@ func (s *Service) finishLogin(w http.ResponseWriter, r *http.Request, f flow, id
 	}
 	if guest != "" {
 		if n, ok, err := s.cfg.Store.GuestOf(ctx, guest); err != nil || created || !ok || n == 0 {
-			clearCookie(w, GuestCookie)
+			ClearGuest(w)
 		}
 	}
 	s.result(w, r, f, codeOK, nil)
@@ -680,7 +680,7 @@ func (s *Service) me(w http.ResponseWriter, r *http.Request) {
 	}
 	if !fromApp {
 		a.Via = s.viewerOf(r).Via
-		if guest := guestID(r); guest != "" {
+		if guest := GuestID(r); guest != "" {
 			if n, ok, err := s.cfg.Store.GuestOf(ctx, guest); err == nil && ok && n > 0 {
 				resp.Guest = &struct {
 					Answers int `json:"answers"`
@@ -708,7 +708,7 @@ func (s *Service) adopt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n := 0
-	if guest := guestID(r); body.Take && guest != "" {
+	if guest := GuestID(r); body.Take && guest != "" {
 		var err error
 		if n, err = s.cfg.Store.AdoptGuest(r.Context(), v.AccountID, guest, s.rules()); err != nil {
 			s.log.Error("adopt guest", "error", errClass(err))
@@ -717,7 +717,7 @@ func (s *Service) adopt(w http.ResponseWriter, r *http.Request) {
 		}
 		s.forgetAccount(v.AccountID)
 	}
-	clearCookie(w, GuestCookie)
+	ClearGuest(w)
 	writeJSON(w, http.StatusOK, map[string]int{"answers": n})
 }
 
@@ -840,7 +840,7 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	s.forgetAll()
 	if !fromApp {
 		clearCookie(w, SessionCookie)
-		clearCookie(w, GuestCookie)
+		ClearGuest(w)
 	}
 	s.log.Info("delete account", "result", codeOK)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

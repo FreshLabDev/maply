@@ -384,3 +384,53 @@ func TestTheSiteKeepsToTheZonesMaplyOffers(t *testing.T) {
 		t.Fatalf("the answer closes at %v, before the first reveal at %v", deadline, first)
 	}
 }
+
+// A browser from before the prefix keeps its guest: the old cookie is read
+// and moved to the new name. Once moved, an old cookie planted beside it is
+// not read.
+func TestAnOldGuestCookieMoves(t *testing.T) {
+	hs := setup(t)
+	hs.now = time.Date(2026, time.December, 10, 11, 0, 0, 0, time.UTC)
+	hs.signIn(9, "Somebody") // the site's sign-in, and its middleware
+	send := func(method, path, body string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		for _, c := range cookies {
+			req.AddCookie(c)
+		}
+		rr := httptest.NewRecorder()
+		hs.h.ServeHTTP(rr, req)
+		return rr
+	}
+	cookies := func(rr *httptest.ResponseRecorder) map[string]*http.Cookie {
+		out := map[string]*http.Cookie{}
+		for _, c := range rr.Result().Cookies() {
+			out[c.Name] = c
+		}
+		return out
+	}
+	rr := send("POST", "/api/site/guess?tz=Europe/Kyiv", `{"lat":49.9,"lon":24.1}`)
+	c := cookies(rr)[account.GuestCookie]
+	if rr.Code != http.StatusOK || c == nil || !c.Secure || !c.HttpOnly || c.Path != "/" || c.Domain != "" || !strings.HasPrefix(c.Name, "__Host-") {
+		t.Fatalf("guest answer = %d, cookie %+v", rr.Code, c)
+	}
+	guest := c.Value
+
+	answered := func(rr *httptest.ResponseRecorder) bool {
+		var today todayResponse
+		return json.Unmarshal(rr.Body.Bytes(), &today) == nil && today.Answer != nil
+	}
+	rr = send("GET", "/api/site/today?tz=Europe/Kyiv", "", &http.Cookie{Name: account.OldGuestCookie, Value: guest})
+	got := cookies(rr)
+	if !answered(rr) || got[account.GuestCookie] == nil || got[account.GuestCookie].Value != guest ||
+		got[account.OldGuestCookie] == nil || got[account.OldGuestCookie].MaxAge >= 0 {
+		t.Fatalf("the old cookie: answered %v, cookies %v", answered(rr), rr.Result().Cookies())
+	}
+	planted := "44444444-4444-4444-8444-444444444444"
+	rr = send("GET", "/api/site/today?tz=Europe/Kyiv", "",
+		&http.Cookie{Name: account.OldGuestCookie, Value: planted}, &http.Cookie{Name: account.GuestCookie, Value: guest})
+	if !answered(rr) || len(rr.Result().Cookies()) != 0 {
+		t.Fatalf("beside the new cookie the old one counted: answered %v, cookies %v", answered(rr), rr.Result().Cookies())
+	}
+}

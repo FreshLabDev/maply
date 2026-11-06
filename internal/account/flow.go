@@ -157,13 +157,33 @@ func (s *Service) setSession(w http.ResponseWriter, token string, expires time.T
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
-// guestID is the browser's guest player from its cookie, empty without one.
-func guestID(r *http.Request) string {
-	c, err := r.Cookie(GuestCookie)
-	if err != nil || !uuidPattern.MatchString(c.Value) {
-		return ""
+// GuestID is the browser's guest player from its cookie, empty without one.
+// The old cookie counts only when the new one is missing.
+func GuestID(r *http.Request) string {
+	for _, name := range []string{GuestCookie, OldGuestCookie} {
+		if c, err := r.Cookie(name); err == nil && uuidPattern.MatchString(c.Value) {
+			return c.Value
+		}
 	}
-	return c.Value
+	return ""
+}
+
+// SetGuest keeps id as the browser's guest for GuestLife, and ends the old
+// cookie when the request has one.
+func SetGuest(w http.ResponseWriter, r *http.Request, id string) {
+	http.SetCookie(w, &http.Cookie{
+		Name: GuestCookie, Value: id, Path: "/", MaxAge: int(GuestLife.Seconds()),
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+	})
+	if _, err := r.Cookie(OldGuestCookie); err == nil {
+		clearCookie(w, OldGuestCookie)
+	}
+}
+
+// ClearGuest ends the browser's guest under both names.
+func ClearGuest(w http.ResponseWriter) {
+	clearCookie(w, GuestCookie)
+	clearCookie(w, OldGuestCookie)
 }
 
 // safeReturnTo keeps a return address on this site: a path, with its query,

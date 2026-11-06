@@ -257,6 +257,10 @@ For the operator:
   as UTC+14, closed and scored a guest's answer before any chat's reveal. A
   zone outside the span of the zones a chat may pick now plays in the nearer
   of them: Honolulu in Los Angeles, Auckland in Sydney.
+- The guest's cookie is `__Host-maply_player`, which another site under the
+  same parent domain cannot set. A browser that has the old `maply_player`
+  keeps its guest and gets the new cookie on its next visit; after that an
+  old one is ignored.
 
 ## v0.0.1-alpha.15 - 2026-11-05
 

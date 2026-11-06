@@ -7,31 +7,20 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"sort"
 	"time"
 
+	"github.com/FreshLabDev/maply/internal/account"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/i18n"
 )
 
 // playerCookie holds a site player's random id for a year.
-const (
-	playerCookie = "maply_player"
-	playerAge    = 365 * 24 * time.Hour
-)
-
-var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+const playerCookie = account.GuestCookie
 
 // playerID is the site player's id from the cookie, empty without a valid one.
-func playerID(r *http.Request) string {
-	c, err := r.Cookie(playerCookie)
-	if err != nil || !uuidPattern.MatchString(c.Value) {
-		return ""
-	}
-	return c.Value
-}
+func playerID(r *http.Request) string { return account.GuestID(r) }
 
 func newPlayerID() string {
 	var b [16]byte
@@ -41,12 +30,7 @@ func newPlayerID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-func setPlayer(w http.ResponseWriter, id string) {
-	http.SetCookie(w, &http.Cookie{
-		Name: playerCookie, Value: id, Path: "/", MaxAge: int(playerAge.Seconds()),
-		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
-	})
-}
+func setPlayer(w http.ResponseWriter, r *http.Request, id string) { account.SetGuest(w, r, id) }
 
 type siteGuessBody struct {
 	Lat float64 `json:"lat"`
@@ -116,7 +100,7 @@ func (s *Server) siteGuess(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
-		setPlayer(w, player)
+		setPlayer(w, r, player)
 	}
 	g := db.NewSiteGuess{
 		Date: d, Player: player, Pin: pt, AnsweredAt: now, Deadline: deadline,
@@ -176,7 +160,7 @@ func (s *Server) siteName(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
-		setPlayer(w, v.Player)
+		setPlayer(w, r, v.Player)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"name": db.CleanName(body.Name)})
 }
