@@ -525,6 +525,14 @@ func TestPlacesComeFromThePoolAndUnplayedDays(t *testing.T) {
 	if _, err := h.store.EnsureRound(ctx, d.AddDays(1)); !errors.Is(err, db.ErrNoPlace) {
 		t.Fatalf("with the daily queue empty the free pool does not fill in: %v", err)
 	}
+	// A day's place stays the day's once a round names it, even with its
+	// status set back by hand.
+	if _, err := h.pool.Exec(ctx, `UPDATE maply.place SET status = 'approved' WHERE id = $1`, rd.PlaceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(ctx, `UPDATE maply.place SET pool = 'free' WHERE id = $1`, rd.PlaceID); err == nil || !strings.Contains(err.Error(), "cannot change") {
+		t.Fatalf("a day's place went to the free pool: %v", err)
+	}
 	// A free place cannot be moved to the days, nor become a round.
 	for id := range h.places {
 		if h.places[id].iso == "FR" {

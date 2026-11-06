@@ -36,6 +36,9 @@ For the operator:
   to a site player as well as to a Telegram person (`free_result.player`,
   `free_attempt.player`), and adds the index the free game's leaderboards
   read. Nothing to do before or after.
+- Migration 026 only replaces the function of the trigger that keeps a
+  place's pool, so a place any round names stays the day's; it reads and
+  writes no row.
 
 ### Added
 
