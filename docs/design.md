@@ -259,7 +259,7 @@ A participant sends the bot their own photo in a DM and puts a point on the map.
 One frontend for two modes:
 
 - **Mini App.** The user comes from `initData`, and the backend verifies the signature.
-- **Website in a browser.** Without signing in, the browser keeps a random player id in a cookie; the day's one answer is stored and goes into the world ranking under the name the player gave, or "Guest". There are no streaks or personal stats on the site, and no speed bonus: the browser names its own zone, and the bonus is counted from the zone's deadline. Signed in with Telegram, the browser plays as the bot's player instead (below).
+- **Website in a browser.** Without signing in, the browser keeps a random player id in a cookie; the day's one answer is stored and goes into the world ranking under the name the player gave, or "Guest". There are no streaks or personal stats on the site, and no speed bonus: the browser names its own zone, and the bonus is counted from the zone's deadline. A zone west or east of every zone a chat may pick plays in the nearer of those two, so a site answer never closes before the first chat's reveal. Signed in with Telegram, the browser plays as the bot's player instead (below).
 
 Site sections:
 

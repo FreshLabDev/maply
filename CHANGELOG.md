@@ -251,6 +251,13 @@ For the operator:
   left the globe small in the panel's corner. Once the camera stops, the
   globe comes back to the middle at its size, closer if the player zoomed in.
 
+### Security
+
+- The site took any zone the browser named. One east of every chat's, such
+  as UTC+14, closed and scored a guest's answer before any chat's reveal. A
+  zone outside the span of the zones a chat may pick now plays in the nearer
+  of them: Honolulu in Los Angeles, Auckland in Sydney.
+
 ## v0.0.1-alpha.15 - 2026-11-05
 
 Fixes from a review of the whole project on 5 November: security, the

@@ -348,3 +348,39 @@ func TestAGuestAnswerTakenInIsTheDaysAnswer(t *testing.T) {
 		t.Fatalf("%d Telegram answers beside the site's, %v", n, err)
 	}
 }
+
+// The site plays in a zone between the westmost and the eastmost maply
+// offers. UTC+14 would close a guest's answers, and score them, before any
+// chat's reveal.
+func TestTheSiteKeepsToTheZonesMaplyOffers(t *testing.T) {
+	hs := setup(t)
+	hs.now = time.Date(2026, time.December, 10, 8, 0, 0, 0, time.UTC)
+	send := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		rr := httptest.NewRecorder()
+		hs.h.ServeHTTP(rr, req)
+		return rr
+	}
+	for tz, want := range map[string]string{
+		"Etc/GMT-14":         "Australia/Sydney",
+		"Pacific/Honolulu":   "America/Los_Angeles",
+		"Asia/Yekaterinburg": "Asia/Yekaterinburg",
+	} {
+		var today todayResponse
+		if err := json.Unmarshal(send("GET", "/api/site/today?tz="+tz, "").Body.Bytes(), &today); err != nil || today.Zone != want {
+			t.Errorf("site today in %s: zone %q, want %q (%v)", tz, today.Zone, want, err)
+		}
+	}
+	if rr := send("POST", "/api/site/guess?tz=Etc/GMT-14", `{"lat":10,"lon":10}`); rr.Code != http.StatusOK {
+		t.Fatalf("an answer from UTC+14 = %d %s", rr.Code, rr.Body)
+	}
+	var deadline time.Time
+	if err := hs.pool.QueryRow(context.Background(), `SELECT deadline_at FROM maply.site_guess`).Scan(&deadline); err != nil {
+		t.Fatal(err)
+	}
+	if first := hs.srv.Zones.FirstReveal(hs.date); deadline.Before(first) {
+		t.Fatalf("the answer closes at %v, before the first reveal at %v", deadline, first)
+	}
+}
