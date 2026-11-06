@@ -77,7 +77,7 @@ Whoever answered before the intrigue and without hints gets a "clean" mark and +
 1. **One answer per person per day.** The answer is shared across the DM, all groups and the site (when signed in through Telegram). A person's pin appears on the maps of all their groups.
 2. **The answer window closes at the earliest reveal.** For each person, accepting answers ends at the earliest reveal among their contexts: the DM and all groups where the bot has seen them (presence in `core`). Example: a person in a Ukrainian group who is also in a Russian one must answer before 20:00 Moscow time in winter, not Kyiv time. A group that removed maply still counts that day if it did so after its reveal: its members saw the place there. Opening a group's result, answered or not, adds the person to that group's presence, so someone who looked at the place in a group cannot then answer from a DM in a later zone.
 3. **Your answer opens the place, the reveal opens the names.** In Telegram an answer is scored the moment it comes in. The person sees the place, their distance and their score right away, and the world's table without names, updating live: every answer scored so far today, ranked as the world ranks them, with distance, points and the bonuses in them (speed included, so the order matches the world place), and a small group mark by the face of the chat's own players. The map shows the chat's answers as points. The server strips names, photos, IDs and answer times; the client never gets them. This is light hiding to keep the evening's intrigue, not a privacy promise. Folded, the table keeps only your row; the choice is remembered. Names appear at the chat's reveal (20:00 in its zone). In a DM that is the latest reveal among the person's contexts. In the world's table only the chat's own players are named then; everyone else stays unnamed until the day has closed in every zone, so a group in Tokyo does not learn who is who in a Kyiv group still guessing. Until then the world place reads "so far". Before the reveal, sharing sends the line "maply #142 · 312 km · 4,057" with no picture. A row's key depends on the chat it is shown in, so the key does not link one person's rows between a group, a DM and the site; the rank and the distance are the same in every view and still match them for anyone who looks at two at once.
-4. **Nobody sees the place without answering.** Before the reveal, `/api/result` and `/api/share` answer someone who has not answered with 403 `not_answered` and nothing else.
+4. **Nobody sees the place without answering.** Before the reveal, `/api/result` and `/api/share` answer someone who has not answered with 403 `not_answered` and nothing else. A day nobody has answered anywhere is never shown, to anyone: from the reveal on the same calls, the site's result and the card page answer 403 `held` until an answer exists (see "A day nobody answered").
 5. **The site does not spoil.** On the site's own game, played by a guest or by an account with Google alone, today's place is revealed only after the latest reveal across all languages, and the site shows no one else's answers before then: a guest could answer at random, look where the dots cluster, then answer precisely in Telegram. The reverse is closed too: a Telegram player sees the place on answering, from the morning post on, so every site answer ranks after every Telegram one in the world. A name typed on the site is not checked, so bot posts call such a player "Guest". A browser signed in with Telegram is not the site's game: it is the person's Telegram player, under rules 1 to 4 with the DM's zone, and it writes nothing to `core`, so it neither ties the person to a chat nor puts them on the morning post. Without an answer it waits for the latest reveal anywhere, as a guest does.
 6. **The source does not leak.** The photo is re-uploaded under a random name and without EXIF. Neither Mapillary IDs nor Panoramax links go out: given a Mapillary ID, the API immediately returns coordinates, and Panoramax HD frames contain GPS in EXIF (checked). Panoramas are shown by our own viewer (Photo Sphere Viewer), not MapillaryJS.
 7. **No defense against image search.** Google Lens finds streets poorly, and the rest relies on honor, as in Wordle. A leak through friends from another chat cannot be closed either.
@@ -105,6 +105,19 @@ A day is final only after the last zone's reveal, 20:00 in Los Angeles, which is
 Ties go to the closer pin, then the earlier answer, in the world and in a group's table alike.
 
 A line for forwarding: `maply #142`, then the distance and the points on lines of their own, each with its label.
+
+### A day nobody answered
+
+If nobody has answered a day anywhere by a chat's 20:00 (no row in `guess` or `site_guess`, a late site answer included), the chat gets no result: a picture of a place nobody tried is no game, and the place would be shown for nothing. The result is held, and the place stays hidden everywhere: the Mini App, the card, the site and the days page say nothing of it, to someone who answered as well as to someone who did not.
+
+The final world job, two minutes after the last zone's reveal, then decides:
+
+- an answer has come from a later zone: the day is kept like any other and the held results go out, late, as the group's result with the final line in it. A group still gets three messages a day;
+- nobody answered: the day is skipped. The morning post, if there was one, is edited to "maply #N. Nobody answered. This place will come back on another day.", the Play button goes and the pin is removed; the quote it carried (the rules, the pin request, the month's champion) stays, since it is said once. No message is sent.
+
+A skipped day keeps its number, so the days list has a gap there, and is no day to anything else: it is not in the days list, the profile, the archive or the free game's repeats, and a streak runs over it, since nobody missed it. Its place goes back into the queue, but not for 30 days, so the same picture does not come back right after a day nobody saw. Migration 028 skipped, the same way, the days 6 to 9 (28 to 31 October 2026), which the final job had kept with no answers.
+
+If the final job missed a day, or failed for good, the scheduler closes it at the next start and at the top of every hour, an hour after the day's last reveal. A failed keeping is the job's error, so the queue tries again.
 
 ### Animated posts
 
@@ -437,7 +450,7 @@ Main tables of the `maply` schema:
 
 | Table | What it stores |
 |:--|:--|
-| `place` | source, ID in the source, coordinates, author and license, image key, difficulty, intrigue and result materials, curation status |
+| `place` | source, ID in the source, coordinates, author and license, image key, difficulty, intrigue and result materials, curation status, `back_after` (a place back from a skipped day is not drawn before it) |
 | `round` | date, day number, place |
 | `guess` | date, `user_id`, point, distance, score, hints, time, where the answer came from |
 | `chat_settings` | post time, intrigue, mentions, rival |
