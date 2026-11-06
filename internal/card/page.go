@@ -87,6 +87,9 @@ func (s *Service) view(ctx context.Context, chatID int64, d round.Date) (pageDat
 	if err != nil || !ok {
 		return pageData{}, orMissing(err, "round")
 	}
+	if err := s.answered(ctx, d); err != nil {
+		return pageData{}, err
+	}
 	answer, err := s.Store.Answer(ctx, rd.PlaceID)
 	if err != nil {
 		return pageData{}, err
@@ -223,7 +226,7 @@ func (s *Service) servePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pd, err := s.view(r.Context(), chatID, date)
-	if errors.Is(err, errClosed) {
+	if errors.Is(err, errClosed) || errors.Is(err, ErrHeld) {
 		pageError(w, http.StatusForbidden)
 		return
 	}

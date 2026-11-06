@@ -51,7 +51,7 @@ func (s *Server) siteDay(r *http.Request) (round.Date, db.Round, time.Time, *tim
 		d = first
 	}
 	rd, err := s.Store.EnsureRound(r.Context(), d)
-	if errors.Is(err, db.ErrNoPlace) {
+	if errors.Is(err, db.ErrNoPlace) || errors.Is(err, db.ErrDaySkipped) {
 		return d, rd, time.Time{}, loc, errNoRound
 	}
 	if err != nil {
@@ -125,6 +125,15 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ok {
 		s.fail(w, r, errNoRound)
+		return
+	}
+	// Nobody answered it anywhere: the place stays back, and the final job
+	// skips the day.
+	if n, err := s.Store.DayAnswers(ctx, d); err != nil {
+		s.fail(w, r, err)
+		return
+	} else if n == 0 {
+		s.fail(w, r, errHeld)
 		return
 	}
 	answer, err := s.Store.Answer(ctx, rd.PlaceID)

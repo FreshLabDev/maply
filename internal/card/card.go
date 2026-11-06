@@ -39,6 +39,9 @@ import (
 // Store is what the page and the share caption read.
 type Store interface {
 	RoundOn(ctx context.Context, d round.Date) (db.Round, bool, error)
+	// DayAnswers counts every answer of the day anywhere: a day with none
+	// has no card, since a card shows the place.
+	DayAnswers(ctx context.Context, d round.Date) (int, error)
 	Answer(ctx context.Context, placeID int64) (db.Answer, error)
 	ChatGuesses(ctx context.Context, d round.Date, chatID int64) ([]db.Guess, error)
 	GuessOf(ctx context.Context, d round.Date, userID int64) (db.Guess, bool, error)
@@ -60,6 +63,10 @@ type Saver interface {
 
 // ErrDisabled means there is no renderer; callers use the photo.
 var ErrDisabled = errors.New("card renderer is not configured")
+
+// ErrHeld means nobody has answered the day anywhere, so its place is not
+// shown on a card.
+var ErrHeld = errors.New("nobody has answered the day")
 
 type Service struct {
 	Store  Store
@@ -143,6 +150,9 @@ func (s *Service) Prepare(ctx context.Context, sh Share) (string, error) {
 	if err != nil || !ok {
 		return "", orMissing(err, "round")
 	}
+	if err := s.answered(ctx, sh.Date); err != nil {
+		return "", err
+	}
 	answer, err := s.Store.Answer(ctx, rd.PlaceID)
 	if err != nil {
 		return "", err
@@ -224,6 +234,15 @@ func (s *Service) PrepareScore(ctx context.Context, sh Share) (string, error) {
 		return "", err
 	}
 	return msg.ID, nil
+}
+
+// answered is ErrHeld for a day nobody has answered.
+func (s *Service) answered(ctx context.Context, d round.Date) error {
+	n, err := s.Store.DayAnswers(ctx, d)
+	if err == nil && n == 0 {
+		return ErrHeld
+	}
+	return err
 }
 
 func orMissing(err error, what string) error {

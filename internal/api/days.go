@@ -370,6 +370,11 @@ func (s *Server) closedPage(ctx context.Context, d round.Date) (closedDay, error
 	if err != nil {
 		return closedDay{}, err
 	}
+	// A day nobody answered shows no place, however long before the final
+	// job skips it. It is not cached: an answer would make it a day.
+	if world.Players() == 0 {
+		return closedDay{}, errNoRound
+	}
 	// The arrow to the next day stops at the newest one over everywhere.
 	more, err := s.Store.ClosedDay(ctx, d, s.finalDate(s.Now(), s.firstDate()))
 	if err != nil {

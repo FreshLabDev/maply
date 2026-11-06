@@ -41,6 +41,8 @@ type shareStore struct {
 	scored int
 	// guess is the person's answer, when they have one.
 	guess *db.Guess
+	// nobody is a day with no answer anywhere.
+	nobody bool
 }
 
 func (s *shareStore) GuessOf(context.Context, round.Date, int64) (db.Guess, bool, error) {
@@ -59,6 +61,12 @@ func (s *shareStore) FixZone(context.Context, int64, string) error      { return
 func (s *shareStore) ChatActive(context.Context, int64) (bool, error)   { return true, nil }
 func (s *shareStore) Contexts(context.Context, int64) ([]db.Context, error) {
 	return nil, nil
+}
+func (s *shareStore) DayAnswers(context.Context, round.Date) (int, error) {
+	if s.nobody {
+		return 0, nil
+	}
+	return 1, nil
 }
 func (s *shareStore) ResultCounts(context.Context, round.Date, int64) (int, int, error) {
 	return 0, 0, nil
@@ -180,6 +188,20 @@ func TestShareFromADMPreparesThePersonsOwnCard(t *testing.T) {
 	}
 	if store.scored != 1 {
 		t.Fatalf("the day was scored %d times", store.scored)
+	}
+}
+
+// A card shows the place, which a day nobody answered keeps back.
+func TestShareOfADayNobodyAnsweredIsHeld(t *testing.T) {
+	sharer := &fakeSharer{can: true}
+	h, store := shareServer(t, afterKyivReveal, sharer)
+	store.nobody = true
+	rec := postShare(h, signedLaunch(777, ""))
+	if rec.Code != http.StatusForbidden || answerOf(t, rec)["error"] != "held" {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if len(sharer.calls) != 0 || store.scored != 0 {
+		t.Fatalf("Prepare got %+v, scored %d times", sharer.calls, store.scored)
 	}
 }
 

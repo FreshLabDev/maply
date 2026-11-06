@@ -42,6 +42,11 @@ type fakeStore struct {
 	lang     string
 	contexts []db.Context
 	anim     string // the result's animation file_id
+	world    int    // answers of the day in every chat, at least those of guesses
+}
+
+func (f *fakeStore) DayAnswers(context.Context, round.Date) (int, error) {
+	return max(f.world, len(f.guesses)), nil
 }
 
 func (f *fakeStore) RoundOn(context.Context, round.Date) (db.Round, bool, error) {
@@ -255,10 +260,29 @@ func TestPageForALoneDMHoldsOnlyThatPerson(t *testing.T) {
 }
 
 func TestPageWithNoAnswersSaysSo(t *testing.T) {
-	s := service(t, &fakeStore{lang: "en"}, &fakeShot{}, afterReveal)
+	// Someone elsewhere answered, so the place may show, with this chat empty.
+	s := service(t, &fakeStore{lang: "en", world: 3}, &fakeShot{}, afterReveal)
 	rec := get(s.Handler(), pageURL(t, s, group, day))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Nobody answered today.") {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+}
+
+func TestNothingShowsThePlaceOfADayNobodyAnswered(t *testing.T) {
+	shot := &fakeShot{image: []byte("png")}
+	s := service(t, &fakeStore{lang: "en"}, shot, afterReveal)
+	rec := get(s.Handler(), pageURL(t, s, group, day))
+	if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), "Lisbon") {
+		t.Fatalf("page: status %d: %s", rec.Code, rec.Body)
+	}
+	// Sharing stops before the renderer is asked.
+	saver := &fakeSaver{}
+	s.TG = saver
+	if _, err := s.Prepare(context.Background(), Share{UserID: person, ChatID: group, Date: day}); !errors.Is(err, ErrHeld) {
+		t.Fatalf("Prepare err = %v", err)
+	}
+	if len(shot.urls) != 0 || saver.got.ID != "" {
+		t.Fatalf("the renderer was asked for %v, saved %q", shot.urls, saver.got.ID)
 	}
 }
 
@@ -429,7 +453,7 @@ func TestPrepareNeedsARendererAPublicAddressAndTelegram(t *testing.T) {
 func TestPrepareStopsWhenTheRendererFails(t *testing.T) {
 	boom := errors.New("timeout")
 	saver := &fakeSaver{}
-	s := service(t, &fakeStore{lang: "en"}, &fakeShot{err: boom}, afterReveal)
+	s := service(t, &fakeStore{lang: "en", world: 1}, &fakeShot{err: boom}, afterReveal)
 	s.TG = saver
 	if _, err := s.Prepare(context.Background(), Share{UserID: person, ChatID: group, Date: day}); !errors.Is(err, boom) {
 		t.Fatalf("err = %v", err)

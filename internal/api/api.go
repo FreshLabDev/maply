@@ -52,6 +52,7 @@ type Store interface {
 	Answer(context.Context, int64) (db.Answer, error)
 	Contexts(context.Context, int64) ([]db.Context, error)
 	ResultCounts(context.Context, round.Date, int64) (int, int, error)
+	DayAnswers(context.Context, round.Date) (int, error)
 	Deadline(context.Context, round.Zones, int64, round.Date, *time.Location) (time.Time, error)
 	InsertGuess(context.Context, db.NewGuess) error
 	GuessOf(context.Context, round.Date, int64) (db.Guess, bool, error)
@@ -285,7 +286,10 @@ var (
 	errAnswered     = apiError{http.StatusConflict, "already_answered"}
 	errNotRevealed  = apiError{http.StatusForbidden, "not_revealed"}
 	errNotAnswered  = apiError{http.StatusForbidden, "not_answered"}
-	errUnavailable  = apiError{http.StatusServiceUnavailable, "unavailable"}
+	// errHeld is the place of a day nobody has answered anywhere yet, asked
+	// for by someone who did not answer it: there is no place to show.
+	errHeld        = apiError{http.StatusForbidden, "held"}
+	errUnavailable = apiError{http.StatusServiceUnavailable, "unavailable"}
 	// errTelegram is a site answer from an account with Telegram, which
 	// plays as its Telegram player.
 	errTelegram = apiError{http.StatusConflict, "telegram"}
@@ -543,7 +547,7 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rd, err := s.Store.EnsureRound(ctx, p.date)
-	if errors.Is(err, db.ErrNoPlace) {
+	if errors.Is(err, db.ErrNoPlace) || errors.Is(err, db.ErrDaySkipped) {
 		s.fail(w, r, errNoRound)
 		return
 	}
@@ -882,6 +886,16 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 	if !ok {
 		return resultResponse{}, errNoRound
 	}
+	// A day nobody has answered anywhere keeps its place back, whoever asks:
+	// it is skipped once every zone is over, or shown once someone answers.
+	// Whoever answered has made the count more than none.
+	if !live && !answered {
+		if n, err := s.Store.DayAnswers(ctx, p.date); err != nil {
+			return resultResponse{}, err
+		} else if n == 0 {
+			return resultResponse{}, errHeld
+		}
+	}
 	answer, err := s.Store.Answer(ctx, rd.PlaceID)
 	if err != nil {
 		return resultResponse{}, err
@@ -1148,6 +1162,16 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		s.fail(w, r, errNoRound)
 		return
+	}
+	// The card shows the place, which a day nobody has answered keeps back.
+	if !now.Before(opens) {
+		if n, err := s.Store.DayAnswers(ctx, p.date); err != nil {
+			s.fail(w, r, err)
+			return
+		} else if n == 0 {
+			s.fail(w, r, errHeld)
+			return
+		}
 	}
 	answer, err := s.Store.Answer(ctx, rd.PlaceID)
 	if err != nil {

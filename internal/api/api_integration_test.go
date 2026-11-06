@@ -504,6 +504,23 @@ func TestSiteWaitsForTheLatestReveal(t *testing.T) {
 	}
 	hs.expect("GET", "/api/site/result?date=yesterday", "", "", http.StatusBadRequest)
 
+	// Nobody has answered anywhere, so even at the latest reveal the place
+	// stays back.
+	hs.now = latest
+	body = hs.expect("GET", "/api/site/result?date=2026-12-10&lang=uk&lat=50.45&lon=30.52", "", "", http.StatusForbidden)
+	if leaks(body) || !strings.Contains(body, "held") {
+		t.Fatalf("site result of a day nobody answered: %s", body)
+	}
+	// Someone answers on the site, and the place may show.
+	hs.now = time.Date(2026, time.December, 10, 11, 0, 0, 0, time.UTC)
+	req := httptest.NewRequest("POST", "/api/site/guess?tz=Europe/Kyiv", strings.NewReader(`{"lat":49.9,"lon":24.1}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	hs.h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("the first site answer = %d %s", rr.Code, rr.Body)
+	}
+
 	hs.now = latest
 	body = hs.expect("GET", "/api/site/result?date=2026-12-10&lang=uk&lat=50.45&lon=30.52", "", "", http.StatusOK)
 	var res resultResponse
@@ -693,6 +710,9 @@ func TestLeavingAfterTheRevealKeepsTheDayClosed(t *testing.T) {
 	oksanaMoscow := initData(1, "Oksana", "uk", hs.payload(moscowGroup))
 	hs.expect("GET", "/api/today", oksanaKyiv, "", http.StatusOK)
 	hs.expect("GET", "/api/today", oksanaMoscow, "", http.StatusOK)
+	// Ivan answers, so the day has an answer and the place may show at all.
+	ivan := initData(2, "Ivan", "ru", hs.payload(moscowGroup))
+	hs.expect("POST", "/api/guess", ivan, `{"lat":50,"lon":30}`, http.StatusOK)
 	hs.now = time.Date(2026, time.December, 10, 17, 5, 0, 0, time.UTC)
 	if res := hs.expect("GET", "/api/result", oksanaMoscow, "", http.StatusOK); !leaks(res) {
 		t.Fatalf("Moscow's result at 17:05 = %s", res)
