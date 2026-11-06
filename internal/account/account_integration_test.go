@@ -114,7 +114,7 @@ func setup(t *testing.T) *stand {
 		t.Fatal(err)
 	}
 	for _, stmt := range []string{
-		`TRUNCATE maply.session, maply.link_ticket, maply.account, maply.job, maply.chat_round, maply.guess, maply.site_guess, maply.site_player, maply.chat_settings, maply.round, maply.place, maply.day_closed CASCADE`,
+		`TRUNCATE maply.session, maply.link_ticket, maply.account, maply.job, maply.chat_round, maply.guess, maply.site_guess, maply.site_player, maply.chat_settings, maply.round, maply.place, maply.day_closed, maply.free_game CASCADE`,
 		`TRUNCATE core.person, core.chat CASCADE`,
 		`TRUNCATE core.language_observation`,
 	} {
