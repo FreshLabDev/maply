@@ -173,6 +173,9 @@ type Server struct {
 	tiedMu sync.Mutex
 	tied   map[string]bool
 
+	// rating keeps each period's days of the rating for a minute.
+	rating ratingCache
+
 	// closed keeps what a day that is over everywhere shows, which no longer
 	// changes: the days page and a day's ranking do not ask the database
 	// again for every visitor.
@@ -241,6 +244,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/profile/photo", s.profilePhoto)
 	mux.HandleFunc("GET /api/username", s.usernameCheck)
 	mux.HandleFunc("GET /api/top", s.top)
+	mux.HandleFunc("GET /api/rating", s.ratingPage)
 	mux.HandleFunc("GET /api/u/{username}", s.userPage)
 	mux.HandleFunc("GET /api/u/{username}/card.png", s.userCard)
 	mux.HandleFunc("GET /api/p/{slug}", s.publicPage)
