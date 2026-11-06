@@ -34,8 +34,8 @@ import (
 
 // ProfileStore is what the profile reads and writes. The store has it.
 type ProfileStore interface {
-	PlayedDays(ctx context.Context, who db.Who, upTo round.Date) ([]db.PlayedDay, error)
-	Standings(ctx context.Context, who db.Who, dates []round.Date) ([]db.Standing, error)
+	PlayedDays(ctx context.Context, who db.Who, upTo, closed round.Date) ([]db.PlayedDay, error)
+	Standings(ctx context.Context, who db.Who, dates []round.Date, closed round.Date) ([]db.Standing, error)
 	LastRounds(ctx context.Context, upTo round.Date, n int) ([]db.RoundDay, error)
 	NameOf(ctx context.Context, userID int64) (string, error)
 	ProfileSettingOf(ctx context.Context, userID int64) (db.ProfileSetting, error)
@@ -208,7 +208,11 @@ type rankedAsk struct {
 func (s *Server) ranked(ctx context.Context, ps ProfileStore, ask rankedAsk, lang string) (profile.Ranked, error) {
 	now := s.Now()
 	closed := s.closedAt(now)
-	days, err := ps.PlayedDays(ctx, ask.who, ask.upTo)
+	// Site rows only of days over everywhere, whoever looks: a Telegram
+	// person's own profile goes up to the newest date, and a guest's answer
+	// their account took in would show the place of a day they can still
+	// answer in a chat.
+	days, err := ps.PlayedDays(ctx, ask.who, ask.upTo, profile.LatestClosed(s.Zones, now))
 	if err != nil {
 		return profile.Ranked{}, err
 	}
@@ -220,7 +224,7 @@ func (s *Server) ranked(ctx context.Context, ps ProfileStore, ask rankedAsk, lan
 				over = append(over, d.Date)
 			}
 		}
-		if standings, err = ps.Standings(ctx, ask.who, over); err != nil {
+		if standings, err = ps.Standings(ctx, ask.who, over, profile.LatestClosed(s.Zones, now)); err != nil {
 			return profile.Ranked{}, err
 		}
 	}
