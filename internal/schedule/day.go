@@ -304,10 +304,29 @@ func (s *Scheduler) result(ctx context.Context, j db.Job) error {
 	return s.dmResult(ctx, c, rd, cr, answer, lang, markup)
 }
 
+// hold keeps a chat's result back while the day has no answer anywhere: a
+// result shows the place, and a place nobody answered is not shown. The job
+// ends without a message; the final world job sends the result once another
+// zone has answered, or skips the day.
+func (s *Scheduler) hold(ctx context.Context, c db.Chat, d round.Date) (bool, error) {
+	n, err := s.Store.DayAnswers(ctx, d)
+	if err != nil || n > 0 {
+		return false, err
+	}
+	if err := s.Store.SetHeld(ctx, c.ID, d); err != nil {
+		return false, err
+	}
+	s.Log.Info("result held, nobody has answered yet", "chat", c.ID, "date", d)
+	return true, nil
+}
+
 func (s *Scheduler) groupResult(ctx context.Context, c db.Chat, rd db.Round, cr db.ChatRound, answer db.Answer, lang string, markup telegram.Markup) error {
 	// A group that joined after the reveal never saw the place.
 	if cr.PostMsgID == 0 {
 		return errSkip
+	}
+	if held, err := s.hold(ctx, c, rd.Date); held || err != nil {
+		return err
 	}
 	if cr.Pinned {
 		if err := s.TG.Unpin(ctx, c.ID, cr.PostMsgID); err != nil {
@@ -403,6 +422,9 @@ func (s *Scheduler) dmResult(ctx context.Context, c db.Chat, rd db.Round, cr db.
 	}
 	if cr.PostMsgID == 0 && !answered {
 		return errSkip
+	}
+	if held, err := s.hold(ctx, c, rd.Date); held || err != nil {
+		return err
 	}
 	if s.World != nil {
 		if sent, err := s.dmWorld(ctx, c, rd, cr, answer, lang); sent || err != nil {
@@ -523,6 +545,18 @@ func postCaption(lang string, dayNo int, at, yesterday, block string, group bool
 	if group {
 		text += "\n\n" + block
 	}
+	return withLookBack(lang, text, yesterday)
+}
+
+// skippedCaption is the morning post of a day nobody answered, edited: it
+// says so, and keeps the quote it carried, which is said once and nowhere
+// else (the rules, the pin request, the month's champion).
+func skippedCaption(lang string, dayNo int, yesterday string) string {
+	return withLookBack(lang, fmt.Sprintf("<b>maply #%d</b>\n%s", dayNo, i18n.T(lang, "post.skipped")), yesterday)
+}
+
+// withLookBack puts the quote under a post's text when it fits.
+func withLookBack(lang, text, yesterday string) string {
 	// Yesterday is the first to go when the caption would not fit; a request
 	// for the right to pin goes last, since it is said once. A month's season
 	// outlasts the day's lines: it is said once a month, and nowhere else.
