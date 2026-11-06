@@ -11,6 +11,8 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+## v0.0.1-alpha.19 - 2026-11-06
+
 For the operator: three migrations. 028 sets aside the days nobody
 answered: on production it puts back days #6 to #9 (28 to 31 October), their
 places return to the pool. 029 creates the profiles' usernames; at start
