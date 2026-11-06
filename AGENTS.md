@@ -175,53 +175,63 @@ the diff looks like.
 - A profile shows its owner every scored day, today's too, signed in on
   the site with Telegram as well; anyone else, and a site guest or an
   account without Telegram looking at their own, gets only days over in
-  every zone (`profile.LatestClosed`), with no pins, history or answer
-  times. A world place and the percentile count only days over everywhere.
+  every zone (`profile.LatestClosed`): someone else's profile has their
+  pins and history of those days, never answer times or the percentile. A
+  world place and the percentile count only days over everywhere.
   A guest's site answer that a Telegram account took in counts on that
   person's profiles, their own too, only on a day over everywhere and only
   when given before the day's first reveal (`site_guess.late`): before
   that its place would tell them where to pin in a chat whose reveal is
   ahead. `TestATakenGuestAnswerWaitsForTheDayToClose` covers it.
-  A mini profile
-  opens by an opaque handle (`profile.Handles`) that the server puts only
-  next to a name it already shows, never on an anonymous row, so a handle
-  cannot name a row before its reveal. A Telegram photo goes wherever its
-  name goes, as it does on Telegram itself: the day's tables, the world's,
-  the site's, the leaderboards, the mini profile, the rooms of free play,
-  the person's own face; never on an anonymous or hidden row, nor on the
-  public page. Pages read only kept photos and
+  Every profile has one address, `/u/<username>` (`persona`, migration
+  029); the app's `/me` moves to the player's own. The server puts a
+  username only next to a name it already shows, never on an anonymous
+  row, so a username cannot name a row before its reveal. A photo goes
+  wherever its name goes, as it does on Telegram itself: the day's tables,
+  the world's, the site's, the leaderboards, the profiles, the rooms of
+  free play, the person's own face; never on an anonymous or hidden row,
+  never to a site visitor who is not signed in, and never in a link
+  preview. Pages read only kept photos and
   `avatar.Service.Refresh` asks Telegram for the missing and day-old ones in
   the background. The head to head counts only the days whose result the
   group both are in has seen.
 - Players come from one place. Every row, list and profile the API sends
   embeds `people.Person` and goes through `api.Server.dress`, which applies
-  "Hide me", the handle and the photo; a handler only says who the row is
+  "Hide me", the username, the person's own name and the photo; a handler
+  only says who the row is
   (`people.Telegram`, `SitePlayer`, `Unnamed`). A photo is sent as its
   address, `/face/<key>.jpg` (`avatar.face`, a new key for a new photo),
   never inline. The app draws every face with `faceOf` and every name with
   `nameOf` in `web/app/app.js`. A new screen with players uses these two
   and nothing else.
 - "Hide me" (`profile_setting.hide_me`) shows the player as "Anonymous"
-  with a plain avatar, without photo or handle, in the world's tables, the
+  with a plain avatar, without photo or username, in the world's tables, the
   site's result, the days page, the free play's leaderboards and the bot's
   world lines (the look back's first, a group result's world first, the
   month's world champion) for everyone outside the person's own groups,
-  from a DM too, and the mini profile answers `404 hidden`. A group's own
-  table and card, which a player may forward, and the bot's posts about
-  the group's own people keep the name. The world's podium picture is one
-  for every DM of a language, so it names nobody who hid. A handle is scoped to its table
-  (`profile.Handles.Of`), so one player's rows in two tables cannot be
-  matched by it.
-- A public page `/p/<slug>` exists only while its owner keeps it on. The
-  slug is random (`profile.NewSlug`), a new one ends the old, and it never
-  reaches a log line. The page and its preview (`/api/p/<slug>/card.png`)
-  hold a stranger's view: the name and the numbers of days over in every
-  zone, with no id, username, photo, handle, pins, history or answer
-  times, and both ask search engines to stay away. "Hide me" closes it
-  until the player shows again; the preview may stay at the edge for the
-  five minutes it is cached. The preview has one address: a query is
-  redirected to it, so new keys cannot make the edge fetch it again, and
-  only a drawing counts against the limit from everyone.
+  from a DM too. Their profile opens to them alone: `/api/u/<username>`
+  answers `404 not_found` to anyone else, and no row carries their
+  username, their groups' included. A group's own table and card, which a
+  player may forward, and the bot's posts about the group's own people keep
+  the name. The world's podium picture is one for every DM of a language,
+  so it names nobody who hid.
+- A username (`persona.username`) is `[a-z][a-z0-9_]{2,31}`, unique without
+  regard to case, never a reserved word (`db.CleanUsername`). It is
+  Telegram's while that is free and the person has not typed one
+  (`username_by` telegram), made up from the name until then (maply), and
+  never changed by maply once typed (own). An old username leads to the
+  new one (`persona_was`) until someone takes it. A name or photo of one's
+  own shows over Telegram's everywhere, the bot's posts and pictures
+  included (`person_shown`, `avatar.FacesOf`), until removed. A photo is
+  cut square in the app and the server keeps only its own 256-pixel JPEG
+  (`avatar.Own`). The old public pages `/p/<slug>` and their previews
+  redirect to the owner's profile while it is open.
+- The profile's link preview (`/api/u/<username>/card.png`) is a stranger's
+  view without photo or pins, Telegram players only, and both the page and
+  the preview ask search engines to stay away. It has one address: a query
+  is redirected to it, so new keys cannot make the edge fetch it again, and
+  only a drawing counts against the limit from everyone; "Hide me" closes
+  it, though the edge may keep it for the five minutes it is cached.
 - `/api/log` strips query strings, which can carry `initData`, and is rate
   limited per address and in total.
 - A free place never becomes a day's place: the day's queue reads

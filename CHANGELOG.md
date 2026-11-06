@@ -11,8 +11,30 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+For the operator: migration 029 creates the profiles' usernames; at start
+maply gives one to every player it already knows.
+
+### Added
+
+- Every player has one profile address, `/u/<username>`, and a Share
+  button. The username is Telegram's when it is free, or one maply makes up
+  from the name; a player can type their own, and the old address leads to
+  the new one until someone takes the name.
+- Edit profile: a name and a photo of one's own show over Telegram's
+  everywhere in maply, the bot's posts and pictures too, until removed.
+  The photo is dragged and zoomed into a square in the app.
+- An account that signs in with Google alone is asked once for a name, a
+  username and a photo.
+
 ### Changed
 
+- A tap on a name opens the player's full profile: numbers, charts, pins
+  and history of the days over everywhere, without answer times. "Hide me"
+  closes it to everyone else, the player's groups included.
+- A site visitor who is not signed in sees no photos, and no link preview
+  carries one.
+- The public link `/p/…` is gone: old links lead to the owner's profile.
+  The privacy page says what the profile shows, in all 16 languages.
 - The game picker shows the first three of all time on the chosen settings,
   not of the last seven days. The leaderboards page keeps both periods.
 
