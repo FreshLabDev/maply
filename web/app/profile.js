@@ -127,8 +127,22 @@ function setTab(tab, first) {
 }
 
 /* ---------- Numbers ---------- */
-const tile = (label, value, sub, cls) => '<div class="pt' + (cls ? " " + cls : "") + '"><span class="up">' + esc(label) + '</span><b>' + value + '</b>' +
-  (sub ? '<small>' + sub + '</small>' : "") + '</div>';
+const tile = (label, value, sub, cls) => ({ cls, html: '<span class="up">' + esc(label) + '</span><b>' + value + '</b>' + (sub ? '<small>' + sub + '</small>' : "") });
+// Tiles in rows as even as they come, so no row ends with a lone tile: two to a row on a phone, an odd one first and
+// across; up to four from 560 px; up to eight on a computer's own profile. Each tile carries how many share its row
+// at each width (--a, --b, --c), and profile.css makes it that share of the row. Missing tiles are false and left out.
+function tilesHTML(list, cls) {
+  list = list.filter(Boolean);
+  const n = list.length, row = (max) => {
+    // The rows with fewer tiles come first: a lone one opens the group, across the width.
+    const rows = Math.ceil(n / max), less = Math.floor(n / rows), more = n % rows, k = [];
+    for (let r = 0; r < rows; r++) { const m = less + (r >= rows - more ? 1 : 0); for (let i = 0; i < m; i++) k.push(m); }
+    return k;
+  };
+  const a = row(2), b = row(4), c = row(8);
+  return '<div class="ptiles' + (cls ? " " + cls : "") + '">' + list.map((t, i) => '<div class="pt' + (t.cls ? " " + t.cls : "") +
+    '" style="--a:' + a[i] + ';--b:' + b[i] + ';--c:' + c[i] + '">' + t.html + '</div>').join("") + '</div>';
+}
 const none = "–";
 // The same percent the translations write, "47%", "47 %" or "%47", and not Intl's, which differs from them in ru, uk, es.
 const profPct = (n) => T("prof.pct", { pct: fmt(n) });
@@ -145,32 +159,31 @@ function rankedHTML(d) {
   if (!r.days) return '<p class="sh-wait">' + esc(T(d.guest || d.site || d.pub ? "prof.no_days_guest" : "prof.no_days")) + '</p>' + settingsHTML(d);
   let h = '';
   if (r.percentile != null) h += '<div class="pbig"><b>' + esc(T("prof.better", { pct: fmt(r.percentile) })) + '</b><span>' + esc(T("prof.better_note")) + '</span></div>';
-  h += '<div class="ptiles">' +
-    tile(T("prof.points"), fmt(r.points)) +
-    tile(T("prof.avg30"), r.avg30 != null ? fmt(r.avg30) : none) +
-    tile(T("prof.days"), fmt(r.days)) +
-    tile(T("prof.streak"), fmt(r.streak), esc(T("prof.best_streak", { n: fmt(r.best_streak) }))) +
-    tile(T("prof.median"), r.median_km != null ? esc(kmT(r.median_km)) : none) +
-    tile(T("prof.found"), esc(profPct(r.country_pct)), esc(T("prof.found_city", { pct: fmt(r.city_pct) }))) +
-    tile(T("prof.best_day"), r.best_day ? fmt(r.best_day.points) : none, r.best_day ? dayLink(r.best_day.day, r.best_day.date) : "", "gold") +
-    tile(T("prof.best_place"), r.best_place ? placeOf(r.best_place) : none, r.best_place ? dayLink(r.best_place.day, r.best_place.date) : "", r.best_place && r.best_place.rank === 1 ? "gold" : "") +
-    '</div>' + seasonHTML(d.season);
+  // The month's season so far stands with the numbers, its note under them all.
+  const season = (d.season || []).map((p) => tile(T(p.kind === "group" ? "prof.season_group" : "prof.season_world"), placeOf(p),
+    esc(T("prof.season_points", { points: fmt(p.points) })), p.rank === 1 ? "gold" : ""));
+  h += tilesHTML([
+    tile(T("prof.points"), fmt(r.points)),
+    tile(T("prof.avg30"), r.avg30 != null ? fmt(r.avg30) : none),
+    tile(T("prof.days"), fmt(r.days)),
+    tile(T("prof.streak"), fmt(r.streak), esc(T("prof.best_streak", { n: fmt(r.best_streak) }))),
+    tile(T("prof.median"), r.median_km != null ? esc(kmT(r.median_km)) : none),
+    tile(T("prof.found"), esc(profPct(r.country_pct)), esc(T("prof.found_city", { pct: fmt(r.city_pct) }))),
+    tile(T("prof.best_day"), r.best_day ? fmt(r.best_day.points) : none, r.best_day ? dayLink(r.best_day.day, r.best_day.date) : "", "gold"),
+    tile(T("prof.best_place"), r.best_place ? placeOf(r.best_place) : none, r.best_place ? dayLink(r.best_place.day, r.best_place.date) : "", r.best_place && r.best_place.rank === 1 ? "gold" : ""),
+    ...season,
+  ], season.length ? "pseason" : "");
+  if (season.length) h += '<p class="pnote-s pseason-n">' + esc(T("prof.season_hint")) + '</p>';
   h += '<div class="pcharts">';
   h += section(T("prof.chart_points"), seriesSVG(r.series, r.median30));
   h += section(T("prof.chart_misses"), missesSVG(r.misses));
   h += section(T("prof.chart_continents"), continentsHTML(r));
-  // The pins and the history are the owner's: a public page has neither.
-  if (r.history) h += section(T("prof.chart_map"), mapSVG(r.history) + '<p class="pnote-s">' + esc(T("prof.map_hint")) + '</p>');
-  h += section(T("prof.passport"), passportHTML(r.passport), "wide");
+  // One map of the world: the found countries in gold and, for the owner, their pins over them. A public page has
+  // no pins and no history.
+  h += section(T("prof.passport"), passportHTML(r.passport, r.history), "wide");
   h += '</div>';
   // The settings come before the history, which grows by a row a day.
   return h + settingsHTML(d) + (r.history ? section(T("prof.history"), historyHTML(r.history)) : "");
-}
-// The month's season so far, the sum of its 20 best days: in the world, and in the group the profile was opened from.
-function seasonHTML(list) {
-  if (!list || !list.length) return "";
-  return '<div class="ptiles pseason">' + list.map((p) => tile(T(p.kind === "group" ? "prof.season_group" : "prof.season_world"), placeOf(p),
-    esc(T("prof.season_points", { points: fmt(p.points) })), p.rank === 1 ? "gold" : "")).join("") + '</div><p class="pnote-s pseason-n">' + esc(T("prof.season_hint")) + '</p>';
 }
 const section = (title, body, cls) => '<section class="psec' + (cls ? " " + cls : "") + '"><h3 class="up">' + esc(title) + '</h3>' + body + '</section>';
 
@@ -180,6 +193,7 @@ function bindRanked(box) {
     e.addEventListener("click", go);
     if (e.tagName !== "BUTTON") e.addEventListener("keydown", (k) => { if (k.key === "Enter" || k.key === " ") { k.preventDefault(); go(); } });
   });
+  box.querySelectorAll(".pmap.world").forEach((svg) => { fitPins(svg); if (PIN_FIT) PIN_FIT.observe(svg); });
   bindSettings();
 }
 function bindSettings() {
@@ -296,41 +310,11 @@ function landDots() {
 const PIN_BINS = [[100, "p1"], [500, "p2"], [1500, "p3"], [Infinity, "p4"]];
 const pinClass = (km) => PIN_BINS.find(([top]) => km <= top)[1];
 
-// The map of the player's pins on the land dots, framed on where they are; a tap on a pin of a closed day opens it.
-function mapSVG(history) {
-  if (!history.length) return "";
-  const W = 330;
-  let x0 = 180, x1 = 180, y0 = 90, y1 = 90;
-  const pts = history.map((h) => ({ h, x: h.lon + 180, y: 90 - h.lat }));
-  pts.forEach((p, i) => { if (!i) { x0 = x1 = p.x; y0 = y1 = p.y; } x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); });
-  // At least a region the size of Europe, two to one, inside the world without the poles.
-  let w = Math.max(56, (x1 - x0) * 1.25 + 12), hgt = w / 2;
-  if (hgt < (y1 - y0) * 1.25 + 8) { hgt = (y1 - y0) * 1.25 + 8; w = hgt * 2; }
-  w = Math.min(w, 360); hgt = Math.min(hgt, 150);
-  let vx = Math.min(Math.max((x0 + x1) / 2 - w / 2, 0), 360 - w), vy = Math.min(Math.max((y0 + y1) / 2 - hgt / 2, 4), 154 - hgt);
-  // The land's dots stay thinner than a pin however close the frame is.
-  const unit = w / W, dot = Math.min(PROFILE_LAND_STEP() * .62, 2.5 * unit).toFixed(2);
-  let d = "";
-  for (const [x, y] of landDots()) if (x >= vx - 2 && x <= vx + w + 2 && y >= vy - 2 && y <= vy + hgt + 2) d += "M" + x.toFixed(1) + " " + y.toFixed(1) + "h0";
-  let g = '<path class="land" stroke-width="' + dot + '" d="' + d + '"/>';
-  // Closer pins on top, so a good day is not buried under a far one.
-  // A pin near a pole stays inside the frame. A pin that opens its day has a wider ring around it for the finger.
-  pts.sort((a, b) => b.h.km - a.h.km).forEach(({ h, x, y }) => {
-    const label = '#' + h.day + ' · ' + kmT(h.km) + ' · ' + fmt(h.points), cx = x.toFixed(2), cy = Math.min(Math.max(y, vy + 5 * unit), vy + hgt - 5 * unit).toFixed(2);
-    const pin = '<circle class="pp ' + pinClass(h.km) + '" cx="' + cx + '" cy="' + cy + '" r="' + (4.5 * unit).toFixed(2) + '" stroke-width="' + (1.2 * unit).toFixed(2) + '"/>';
-    g += h.final
-      ? '<g class="go" data-date="' + esc(h.date) + '" tabindex="0" role="button" aria-label="' + esc(label) + '"><title>' + esc(label) + '</title>' +
-        '<circle class="hit" cx="' + cx + '" cy="' + cy + '" r="' + (11 * unit).toFixed(2) + '"/><circle class="ring" cx="' + cx + '" cy="' + cy + '" r="' + (7 * unit).toFixed(2) + '" stroke-width="' + (2 * unit).toFixed(2) + '"/>' + pin + '</g>'
-      : '<g><title>' + esc(label) + '</title>' + pin + '</g>';
-  });
-  const legend = PIN_BINS.map(([top, c], i) => '<span><i class="' + c + '"></i>' + esc(i < PIN_BINS.length - 1 ? T("prof.upto", { km: kmT(top) }) : T("prof.further")) + '</span>').join("");
-  return '<svg class="pmap" viewBox="' + vx.toFixed(1) + ' ' + vy.toFixed(1) + ' ' + w.toFixed(1) + ' ' + hgt.toFixed(1) + '" role="group" aria-label="' + esc(T("prof.chart_map")) + '">' + g + '</svg>' +
-    '<p class="plegend">' + legend + '</p>';
-}
 const PROFILE_LAND_STEP = () => typeof PROFILE_LAND === "undefined" ? 2 : PROFILE_LAND.step;
 
-// The passport: the world's land dots, a found country's in gold, then its flags and the two stamps.
-function passportHTML(p) {
+// The passport: the world's land dots, a found country's in gold, the owner's pins over them, then the flags and the
+// two stamps. A public page and a stranger have no pins.
+function passportHTML(p, history) {
   // A found country's dots are drawn larger: a small country has only a few.
   const found = new Set(p.countries), dot = (PROFILE_LAND_STEP() * .62).toFixed(2), big = (PROFILE_LAND_STEP() * 1.05).toFixed(2);
   let a = "", b = "";
@@ -339,12 +323,43 @@ function passportHTML(p) {
     const s = "M" + x.toFixed(1) + " " + y.toFixed(1) + "h0";
     if (found.has(c)) b += s; else a += s;
   }
-  let h = '<p class="pbig-s">' + esc(T("prof.passport_n", { n: fmt(p.countries.length) })) + '</p>';
-  h += '<svg class="pmap world" viewBox="0 4 360 150" role="img" aria-label="' + esc(T("prof.passport_n", { n: fmt(p.countries.length) })) + '"><path class="land" stroke-width="' + dot + '" d="' + a + '"/><path class="land gold" stroke-width="' + big + '" d="' + b + '"/></svg>';
+  const pins = history && history.length ? history : null, n = T("prof.passport_n", { n: fmt(p.countries.length) });
+  let h = '<p class="pbig-s">' + esc(n) + '</p>';
+  h += '<svg class="pmap world" viewBox="0 4 360 150" role="' + (pins ? "group" : "img") + '" aria-label="' + esc(pins ? T("prof.chart_map") + " · " + n : n) + '">' +
+    '<path class="land" stroke-width="' + dot + '" d="' + a + '"/><path class="land gold" stroke-width="' + big + '" d="' + b + '"/>' + (pins ? pinsSVG(pins) : "") + '</svg>';
+  if (pins) {
+    const legend = PIN_BINS.map(([top, c], i) => '<span><i class="' + c + '"></i>' + esc(i < PIN_BINS.length - 1 ? T("prof.upto", { km: kmT(top) }) : T("prof.further")) + '</span>').join("");
+    h += '<p class="plegend">' + legend + '</p><p class="pnote-s">' + esc(T("prof.map_hint")) + '</p>';
+  }
   if (p.countries.length) h += '<p class="pflags">' + p.countries.map((c) => '<span title="' + esc(regionName(c)) + '">' + profFlag(c) + '<small>' + esc(regionName(c)) + '</small></span>').join("") + '</p>';
   else h += '<p class="pnote-s">' + esc(T("prof.passport_hint")) + '</p>';
   const stamp = (on, key) => '<span class="pstamp' + (on ? " on" : "") + '">' + esc(T(key)) + '</span>';
   return h + '<p class="pstamps">' + stamp(p.streak30, "prof.stamp_streak30") + stamp(p.city1km, "prof.stamp_city1km") + '</p>';
+}
+// The pins on the passport's world, closer ones on top so a good day is not buried under a far one. A pin of a closed
+// day opens it. A pin near a pole stays inside the frame, ring and all, on a phone 320 px wide too.
+function pinsSVG(history) {
+  return history.slice().sort((p, q) => q.km - p.km).map((d) => {
+    const label = '#' + d.day + ' · ' + kmT(d.km) + ' · ' + fmt(d.points);
+    const at = 'cx="' + (d.lon + 180).toFixed(2) + '" cy="' + Math.min(Math.max(90 - d.lat, 12), 146).toFixed(2) + '"';
+    const part = (k, cls) => '<circle class="pin ' + k + (cls ? " " + cls : "") + '" ' + at + ' r="' + (PIN_R[k] / PIN_PHONE).toFixed(2) + '"/>';
+    const pin = part("edge", pinClass(d.km)) + part("pp", pinClass(d.km));
+    return d.final
+      ? '<g class="go" data-date="' + esc(d.date) + '" tabindex="0" role="button" aria-label="' + esc(label) + '"><title>' + esc(label) + '</title>' +
+        part("hit") + part("ring") + part("gap") + pin + '</g>'
+      : '<g><title>' + esc(label) + '</title>' + pin + '</g>';
+  }).join("");
+}
+// A pin keeps its size in pixels however wide the map is drawn, on a phone and across a computer's page: the radii of
+// its parts are in pixels, the target for the finger, the ring of the keyboard's focus and its gap, the edge that
+// parts it from the land and its colour, and follow the map's scale whenever its width changes. Drawn, they are a
+// phone's: a map 343 px wide.
+const PIN_R = { hit: 12, ring: 8.5, gap: 6.5, edge: 5.5, pp: 4 }, PIN_PHONE = 343 / 360;
+const PIN_FIT = typeof ResizeObserver === "function" ? new ResizeObserver((all) => all.forEach((e) => fitPins(e.target))) : null;
+function fitPins(svg) {
+  const m = svg.getScreenCTM(), a = m && m.a;
+  if (!a) return;
+  svg.querySelectorAll("circle.pin").forEach((c) => c.setAttribute("r", (PIN_R[c.classList[1]] / a).toFixed(2)));
 }
 
 // Every played day, newest first. A day over everywhere opens its page; today's waits for its world place.
@@ -364,14 +379,14 @@ function historyHTML(history) {
 const timerName = (s) => s ? T("prof.timer_s", { n: fmt(s) }) : T("prof.no_timer");
 function freeHTML(f, top) {
   if (!f || !f.games) return '<p class="sh-wait">' + esc(T("prof.free_none")) + '</p>';
-  let h = '<div class="ptiles">' +
-    tile(T("prof.free_games"), fmt(f.games)) +
-    tile(T("prof.free_places"), fmt(f.places)) +
-    tile(T("prof.free_avg"), f.avg != null ? fmt(f.avg) : none, esc(T("prof.free_avg_note"))) +
-    tile(T("prof.median"), f.median_km != null ? esc(kmT(f.median_km)) : none) +
-    (f.duels ? tile(T("prof.duels"), fmt(f.duels.won) + ' : ' + fmt(f.duels.lost), esc(T("prof.duels_note"))) : "") +
-    (f.beaten != null ? tile(T("prof.beaten"), esc(profPct(f.beaten))) : "") +
-    '</div>' + topHTML(top);
+  let h = tilesHTML([
+    tile(T("prof.free_games"), fmt(f.games)),
+    tile(T("prof.free_places"), fmt(f.places)),
+    tile(T("prof.free_avg"), f.avg != null ? fmt(f.avg) : none, esc(T("prof.free_avg_note"))),
+    tile(T("prof.median"), f.median_km != null ? esc(kmT(f.median_km)) : none),
+    f.duels && tile(T("prof.duels"), fmt(f.duels.won) + ' : ' + fmt(f.duels.lost), esc(T("prof.duels_note"))),
+    f.beaten != null && tile(T("prof.beaten"), esc(profPct(f.beaten))),
+  ]) + topHTML(top);
   if (f.records.length) h += section(T("prof.free_records"), '<ul class="precs">' + f.records.map((r) =>
     '<li><span>' + esc(timerName(r.seconds)) + ' · ' + esc(T("prof.rounds", { n: fmt(r.rounds) })) + '</span><b>' + fmt(r.points) + '</b></li>').join("") + '</ul>');
   if (f.streaks.length) h += section(T("prof.free_streaks"), '<ul class="precs">' + f.streaks.map((s) =>
@@ -499,16 +514,16 @@ async function openMini(handle) {
   if (d.me) { SHEET++; return openProfile(saved); }
   let h = '<div class="prof mini"><div class="pcard">' + av(d.name || "?", false, d.photo) + '<div><b lang="' + nameLang() + '" dir="auto">' + esc(d.name) + '</b><span class="up">' + esc(T("from_tg")) + '</span></div></div>';
   if (d.duel) h += '<div class="pbig"><b>' + esc(T("prof.duel", { closer: fmt(d.duel.closer), of: fmt(d.duel.of) })) + '</b></div>';
-  h += '<div class="ptiles">' +
-    tile(T("prof.days"), fmt(d.days)) +
-    tile(T("prof.streak"), fmt(d.streak)) +
-    tile(T("prof.avg30"), d.avg30 != null ? fmt(d.avg30) : none) +
-    tile(T("prof.best_place"), d.best_place ? placeOf(d.best_place) : none, d.best_place ? dayLink(d.best_place.day, d.best_place.date) : "") +
-    tile(T("prof.countries"), fmt(d.countries)) +
-    '</div>';
+  h += tilesHTML([
+    tile(T("prof.days"), fmt(d.days)),
+    tile(T("prof.streak"), fmt(d.streak)),
+    tile(T("prof.avg30"), d.avg30 != null ? fmt(d.avg30) : none),
+    tile(T("prof.best_place"), d.best_place ? placeOf(d.best_place) : none, d.best_place ? dayLink(d.best_place.day, d.best_place.date) : ""),
+    tile(T("prof.countries"), fmt(d.countries)),
+  ]);
   if (d.free) {
-    h += section(T("prof.tab_free"), '<div class="ptiles">' + tile(T("prof.free_avg"), d.free.avg != null ? fmt(d.free.avg) : none, esc(T("prof.free_avg_note"))) +
-      (d.free.duels ? tile(T("prof.duels"), fmt(d.free.duels.won) + ' : ' + fmt(d.free.duels.lost), esc(T("prof.duels_note"))) : "") + '</div>');
+    h += section(T("prof.tab_free"), tilesHTML([tile(T("prof.free_avg"), d.free.avg != null ? fmt(d.free.avg) : none, esc(T("prof.free_avg_note"))),
+      d.free.duels && tile(T("prof.duels"), fmt(d.free.duels.won) + ' : ' + fmt(d.free.duels.lost), esc(T("prof.duels_note")))]));
   }
   sheet(esc(T("prof.title")), h + '</div>', back);
   $("sheet").dataset.kind = "mini";

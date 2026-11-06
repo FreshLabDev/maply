@@ -12,6 +12,11 @@
 .lead-rule { order: 5; }
 .lead-play { order: 6; }
 
+/* The page's Back on a phone and a tablet (leaders.js): before the title, as the sheet's is. A computer's header
+   leads everywhere instead. */
+.lead-top { display: flex; align-items: center; gap: 8px; }
+.lead-back { flex: none; margin-inline-start: -6px; }
+.desk .lead-back { display: none; }
 .lead-h { margin: 0; font: 700 34px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; }
 .lead-sub { margin: 6px 0 0; color: var(--ink-soft); font-size: 15px; }
 /* In the sheet its title already names the page. */

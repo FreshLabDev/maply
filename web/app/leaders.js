@@ -46,15 +46,20 @@ window.Leaders = (() => {
 
   function show(el) {
     box = el;
+    const page = !el.closest("#sheet");
+    // The page's own Back, to the menu, at the start of the title: on a phone or a tablet in a browser only. Telegram
+    // has its Back button, a computer its header (leaders.css hides this one under html.desk), the sheet its own.
+    const back = page && !inTg ? '<button class="sh-b lead-back" aria-label="' + esc(T("free.back")) + '">' + (fwd() === "→" ? "←" : "→") + '</button>' : "";
     // On a page of its own the computer lays it out in columns; in the sheet it keeps the phone's one.
-    box.innerHTML = '<div class="lead' + (el.closest("#sheet") ? "" : " lead-wide") + '">' +
-      '<header class="lead-head"><h2 class="lead-h">' + esc(T("lead.title")) + '</h2><p class="lead-sub">' + esc(T("lead.sub")) + '</p></header>' +
+    box.innerHTML = '<div class="lead' + (page ? " lead-wide" : "") + '">' +
+      '<header class="lead-head"><div class="lead-top">' + back + '<h2 class="lead-h">' + esc(T("lead.title")) + '</h2></div><p class="lead-sub">' + esc(T("lead.sub")) + '</p></header>' +
       '<div class="lead-boards" role="tablist" aria-label="' + esc(T("lead.title")) + '">' + BOARDS.map((b) =>
         '<button role="tab" id="lead-t-' + b.id + '" data-board="' + b.id + '" aria-controls="leadPanel"><b>' + esc(T(b.name)) + '</b><small>' + esc(T(b.what)) + '</small></button>').join("") + '</div>' +
       '<div class="lead-main" id="leadPanel" role="tabpanel"><div class="lead-opts" id="leadOpts"></div><div class="lead-list" id="leadList"></div></div>' +
       '<aside class="lead-side"><div class="lead-you" id="leadYou" aria-live="polite"></div><p class="lead-rule">' + esc(T("lead.rule")) + '</p>' +
       '<a class="lead-play" href="/play" data-route>' + esc(T("lead.play")) + ' ' + fwd() + '</a></aside>' +
       '</div>';
+    if (back) box.querySelector(".lead-back").onclick = up;
     const tabs = box.querySelector(".lead-boards");
     tabs.onclick = (e) => { const b = e.target.closest("[data-board]"); if (b) choose({ board: b.dataset.board }); };
     tabs.onkeydown = tabKey;
@@ -66,6 +71,15 @@ window.Leaders = (() => {
       else choose({ [c.dataset.k]: Number(v) });
     };
     load();
+  }
+
+  // Up to the menu: back through the history when the menu is the page before, so this Back and the browser's
+  // agree; from another page the menu comes as the next one, and on the first page of a visit it takes its place.
+  let before = "";
+  Router.on((name, from) => { if (name === "top") before = from; });
+  function up() {
+    haptic("light");
+    if (before === "menu") Router.back("/"); else Router.go("/", { replace: !before });
   }
 
   // A change of board, period or setting: the tabs and the options show it at once, the rows when they come.
