@@ -104,6 +104,11 @@ player, and production-minded.
   attempt at a challenge, one row a person or an account with their best:
   an account's site players count for the account, or for its Telegram
   person once it has one.
+- The rating (`/api/rating`, `internal/rating`) reads only days in
+  `day_closed` of rounds not set aside, never an open day and never free
+  play. A Telegram person's site rows count there as on their profile: only
+  on a day without a Telegram answer and only when not `late`. A site guest
+  is in no rating.
 
 ## Anti-Cheat Invariants
 

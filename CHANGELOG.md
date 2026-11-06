@@ -11,8 +11,11 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
-For the operator: migration 029 creates the profiles' usernames; at start
-maply gives one to every player it already knows.
+For the operator: three migrations. 028 sets aside the days nobody
+answered: on production it puts back days #6 to #9 (28 to 31 October), their
+places return to the pool. 029 creates the profiles' usernames; at start
+maply gives one to every player it already knows. 030 lets a party play a
+streak, a game against the clock or a day from the archive.
 
 ### Added
 
@@ -25,6 +28,24 @@ maply gives one to every player it already knows.
   The photo is dragged and zoomed into a square in the app.
 - An account that signs in with Google alone is asked once for a name, a
   username and a photo.
+- Rating, the first tab of the leaderboards: the daily game over the days
+  that are over everywhere. Over 30 days it counts a player's best 20, so a
+  missed day costs nothing; over 7 days and all time every day counts. Four
+  cards name the most active, the most accurate, the best day and the
+  longest streak. Leagues go by the average day from five days played:
+  Newcomer, Tourist, Traveler, Navigator, Cartographer. The table filters by
+  period, by circle (the world, your groups, the people you played with), by
+  league, and sorts by points, average, days or accuracy.
+- A day nobody answered is set aside: the site and the days list do not
+  show it, its answer is never revealed, and its place comes back after 30
+  days at the earliest. The group's morning post is edited to say nobody
+  answered, and no result is posted.
+- Streaks, games against the clock and days from the archive can be played
+  with friends. A streak with friends goes on until one player is left; the
+  clock's game shows how far each player is. The host can change the mode in
+  the lobby.
+- After every place a party shows everyone's pin, distance, points and
+  whether they got the country, and a final table at the end.
 
 ### Changed
 
@@ -37,9 +58,17 @@ maply gives one to every player it already knows.
   The privacy page says what the profile shows, in all 16 languages.
 - The game picker shows the first three of all time on the chosen settings,
   not of the last seven days. The leaderboards page keeps both periods.
+- The free play's boards move to the second tab of the leaderboards; free
+  play does not count towards the rating.
+- "With friends" keeps the mode and settings picked for the solo game.
+- Leaving a game under way asks first: a timed game, a party and a
+  challenge. In Telegram closing the app mid-game asks too.
+- A day set aside does not break a streak.
 
 ### Fixed
 
+- The final job of a day is tried again when keeping the day fails, and at
+  start and every hour maply keeps the days over everywhere that were missed.
 - An account that holds two answers of one day, a Telegram one and a guest's
   it took in after the day was over, is "you" on one row only: the earlier
   answer, the one the days page shows. The day's page and the site's result
