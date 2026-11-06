@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Task
 description: Something to build or change in maply
-projects: ["FreshLabDev/2"]
+projects: ["FreshLabDev/4"]
 body:
   - type: textarea
     id: what

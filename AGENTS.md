@@ -336,13 +336,14 @@ the diff looks like.
 
 ## Planning
 
-- Tasks and their status live in GitHub issues on the
-  [maply project board](https://github.com/orgs/FreshLabDev/projects/2), not in
-  files. `docs/mvp-plan.md` describes the stages and the decisions; each stage
-  maps to issues through the board's Stage field, and Area says which
-  part of the service a task touches. Repository labels stay the GitHub
-  defaults, as in every family repository. When the plan changes,
-  change the issues in the same step.
+- Tasks and their status live in GitHub issues on the family's
+  [Asterfield board](https://github.com/orgs/FreshLabDev/projects/4) (its
+  maply tab), not in files. A stage is a milestone of this repository (MVP,
+  After MVP); the board's Status, Area and Size fields say where a task
+  stands, which part of the service it touches and how big it is.
+  `docs/mvp-plan.md` describes the stages and the decisions. Repository
+  labels stay the GitHub defaults, as in every family repository. When the
+  plan changes, change the issues in the same step.
 - A new issue says what to do in its title, and its body ends with
   "Done when …": the check that closes it.
 - Everything public is written in English: issues, the board, docs, code

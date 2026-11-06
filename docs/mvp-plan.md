@@ -33,7 +33,7 @@ Each stage has a "Done when" check after which the stage counts as closed. Stage
 
 ### 0. Repository and registration
 
-- The repository [`FreshLabDev/maply`](https://github.com/FreshLabDev/maply) was created on 22 Oct, license Apache-2.0, tasks are on the [project board](https://github.com/orgs/FreshLabDev/projects/2). The layout matches voicy and branchy and is described in [architecture.md](architecture.md): `cmd/maply`, `internal/…`, `migrations`, `deploy/ws04`, CI that publishes the image to GHCR.
+- The repository [`FreshLabDev/maply`](https://github.com/FreshLabDev/maply) was created on 22 Oct, license Apache-2.0, tasks are on the [project board](https://github.com/orgs/FreshLabDev/projects/4). The layout matches voicy and branchy and is described in [architecture.md](architecture.md): `cmd/maply`, `internal/…`, `migrations`, `deploy/ws04`, CI that publishes the image to GHCR.
 - `.gitignore` already has `.env` and `curation/`. Add the harvest dumps and the image cache.
 - BotFather:
   - create the bot `@maplyin_bot` (name approved on 22 Oct);
