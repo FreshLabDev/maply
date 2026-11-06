@@ -37,6 +37,29 @@ func whoArgs(w free.Who) (any, any) {
 	return user, player
 }
 
+// whoAt is the relation who of one player, with user and player the
+// placeholders of the two values whoArgs gives; whoOne has them as $1 and $2.
+func whoAt(user, player string) string {
+	return `who AS (SELECT ` + user + `::bigint AS user_id, ` + player + `::uuid AS player)`
+}
+
+var whoOne = whoAt("$1", "$2")
+
+// people widens the players of the relation who (user_id, player) to
+// everyone they are for maply: me_u, their Telegram people, and me_p, their
+// site players. A Telegram person brings every site player their account
+// has taken in, and an account's site player brings the account's others and
+// its Telegram person. A guest the browser played before signing in answered
+// the day as the person, so the archive and the places a game may get look
+// at all of them, or a day answered as a guest could be played again.
+const people = `
+  acc AS (SELECT a.id FROM account a JOIN who ON a.telegram_user_id = who.user_id
+          UNION SELECT sp.account_id FROM site_player sp JOIN who ON sp.id = who.player WHERE sp.account_id IS NOT NULL),
+  me_u AS (SELECT user_id FROM who WHERE user_id IS NOT NULL
+           UNION SELECT a.telegram_user_id FROM account a JOIN acc ON acc.id = a.id WHERE a.telegram_user_id IS NOT NULL),
+  me_p AS (SELECT player FROM who WHERE player IS NOT NULL
+           UNION SELECT sp.id FROM site_player sp JOIN acc ON acc.id = sp.account_id)`
+
 // codeTaken is whether err is another game holding the party code.
 func codeTaken(err error) bool {
 	var pg *pgconn.PgError
@@ -182,17 +205,19 @@ func (s *Store) FreeSnapshot(ctx context.Context, id int64) (free.Snapshot, erro
 
 // FreeKnown is whether a player has had the place: answered the day it was
 // the place of, in Telegram or on the site, or had it in any free game they
-// were in.
+// were in, as any of their people.
 func (s *Store) FreeKnown(ctx context.Context, w free.Who, placeID int64) (bool, error) {
 	user, player := whoArgs(w)
 	var known bool
 	err := s.pool.QueryRow(ctx, `
+		WITH `+whoOne+`, `+people+`
 		SELECT EXISTS (SELECT 1 FROM free_round fr JOIN free_member fm ON fm.game = fr.game
-		                WHERE fr.place_id = $3 AND (fm.user_id = $1 OR fm.player = $2::uuid))
+		                WHERE fr.place_id = $3
+		                  AND (fm.user_id IN (SELECT user_id FROM me_u) OR fm.player IN (SELECT player FROM me_p)))
 		    OR EXISTS (SELECT 1 FROM round r JOIN guess g ON g.date = r.date
-		                WHERE r.place_id = $3 AND g.user_id = $1)
+		                WHERE r.place_id = $3 AND g.user_id IN (SELECT user_id FROM me_u))
 		    OR EXISTS (SELECT 1 FROM round r JOIN site_guess g ON g.date = r.date
-		                WHERE r.place_id = $3 AND g.player = $2::uuid)`, user, player, placeID).Scan(&known)
+		                WHERE r.place_id = $3 AND g.player IN (SELECT player FROM me_p))`, user, player, placeID).Scan(&known)
 	if err != nil {
 		return false, fmt.Errorf("free known of place %d: %w", placeID, err)
 	}
@@ -200,15 +225,18 @@ func (s *Store) FreeKnown(ctx context.Context, w free.Who, placeID int64) (bool,
 }
 
 // FreeCandidates lists the places a game may get next: the free pool, and the
-// days closed in every zone that none of the game's players answered, minus
-// the game's own places. Panoramas only: early days had flat photos, and
-// maply shows none of them any more. Each comes with when one of the players last had it
-// in any free game, nil when none has.
-func (s *Store) FreeCandidates(ctx context.Context, id int64) ([]free.Candidate, map[string]bool, error) {
+// days closed in every zone by closed that none of the game's players
+// answered or took from the archive, as any of their people, minus the
+// game's own places. A day taken from the archive waits for its answer
+// however long it takes, so its place never comes back as a repeat with the
+// answer. Panoramas only: early days had flat photos, and maply shows none
+// of them any more. Each comes with when one of the players last had it in
+// any free game, nil when none has.
+func (s *Store) FreeCandidates(ctx context.Context, id int64, closed time.Time) ([]free.Candidate, map[string]bool, error) {
 	rows, err := s.pool.Query(ctx, `
-		WITH m AS (SELECT user_id, player FROM free_member WHERE game = $1),
+		WITH who AS (SELECT user_id, player FROM free_member WHERE game = $1), `+people+`,
 		     games AS (SELECT DISTINCT fm.game FROM free_member fm
-		                 JOIN m ON fm.user_id = m.user_id OR fm.player = m.player),
+		                WHERE fm.user_id IN (SELECT user_id FROM me_u) OR fm.player IN (SELECT player FROM me_p)),
 		     seen AS (SELECT fr.place_id, max(fr.starts_at) AS at FROM free_round fr
 		               WHERE fr.game IN (SELECT game FROM games) GROUP BY fr.place_id),
 		     cand AS (
@@ -217,12 +245,14 @@ func (s *Store) FreeCandidates(ctx context.Context, id int64) ([]free.Candidate,
 		       UNION ALL
 		       SELECT p.id, p.country_iso, true
 		         FROM day_closed dc JOIN round r ON r.date = dc.date JOIN place p ON p.id = r.place_id
-		        WHERE p.kind = 'panorama'
-		          AND NOT EXISTS (SELECT 1 FROM guess g JOIN m ON g.user_id = m.user_id WHERE g.date = dc.date)
-		          AND NOT EXISTS (SELECT 1 FROM site_guess g JOIN m ON g.player = m.player WHERE g.date = dc.date))
+		        WHERE p.kind = 'panorama' AND dc.date <= $2::date
+		          AND NOT EXISTS (SELECT 1 FROM guess g WHERE g.date = dc.date AND g.user_id IN (SELECT user_id FROM me_u))
+		          AND NOT EXISTS (SELECT 1 FROM site_guess g WHERE g.date = dc.date AND g.player IN (SELECT player FROM me_p))
+		          AND NOT EXISTS (SELECT 1 FROM free_archive a WHERE a.date = dc.date
+		                            AND (a.user_id IN (SELECT user_id FROM me_u) OR a.player IN (SELECT player FROM me_p))))
 		SELECT c.id, c.country_iso, s.at, c.day
 		  FROM cand c LEFT JOIN seen s ON s.place_id = c.id
-		 WHERE NOT EXISTS (SELECT 1 FROM free_round fr WHERE fr.game = $1 AND fr.place_id = c.id)`, id)
+		 WHERE NOT EXISTS (SELECT 1 FROM free_round fr WHERE fr.game = $1 AND fr.place_id = c.id)`, id, closed)
 	if err != nil {
 		return nil, nil, fmt.Errorf("free candidates of %d: %w", id, err)
 	}

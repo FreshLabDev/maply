@@ -204,7 +204,8 @@ the diff looks like.
   limited per address and in total.
 - A free place never becomes a day's place: the day's queue reads
   `pool = 'daily'` only, and free play takes the free pool and days in
-  `day_closed` that none of the game's players answered.
+  `day_closed`, over by the clock too, that none of the game's players
+  answered or took from the archive.
 - A free place's picture is served only under its round's address
   (`/api/free/img/<token>`: the game, the place's number and an HMAC) and only
   once the place has started, never under the place's image key, which the
@@ -220,16 +221,18 @@ the diff looks like.
 - Free play takes the free pool before closed days: a closed day's picture
   is public on the days page. A late joiner in a party skips a place drawn
   before they came that they have had (`FreeKnown`).
-- The free game's archive lists and serves only days in `day_closed`, so it
-  never holds a place still in play, whatever number is asked. A player
-  takes a day once (`free_archive`), and never a day they answered (`guess`,
-  or `site_guess` for the browser's player) or whose place they had in free
-  play; taking it starts the place. Its result is `free_result` with mode
+- The free game's archive lists and serves only days in `day_closed` whose
+  last reveal has passed by the clock, so it never holds a place still in
+  play, whatever number is asked and whatever row was written early. A
+  player takes a day once (`free_archive`), and never a day they answered
+  (`guess`, or `site_guess` of any site player their account holds) or
+  whose place they had in free play; taking it starts the place. Its result is `free_result` with mode
   `archive`: no record, and never a row of the day's table.
 - A challenge (`free_challenge`) shows names and sums only, never a place:
   an attempt gets each place as a solo game does, when it starts it, on its
-  own clock. A player with an account takes it once (`free_attempt`); a
-  place they have had is played and counted as seen in the table. The day's
+  own clock. A person takes it once (`free_attempt`), whichever of their
+  account's players took it; a place they have had is played and counted as
+  seen in the table. The day's
   game opened from `startapp=c<code>` is the DM's, as from a party's
   invitation.
 - Against the clock gives no speed bonus, and every place ends when the

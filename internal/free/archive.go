@@ -47,7 +47,7 @@ var (
 // yet, a new browser, may take every day.
 func (s *Service) ArchiveOf(ctx context.Context, w Who) ([]ArchiveDay, error) {
 	s.init()
-	return s.Store.FreeArchive(ctx, w)
+	return s.Store.FreeArchive(ctx, w, s.closed(s.Now()))
 }
 
 // NewArchive takes closed day n: a game of its one place, begun at once and
@@ -61,7 +61,7 @@ func (s *Service) NewArchive(ctx context.Context, w Who, name string, n int, lan
 		name = "?"
 	}
 	now := s.Now()
-	id, err := s.Store.CreateFreeArchive(ctx, n, NewGame{Kind: Solo, Settings: ArchiveSettings, Status: StatusPlaying, At: now,
+	id, err := s.Store.CreateFreeArchive(ctx, n, s.closed(now), NewGame{Kind: Solo, Settings: ArchiveSettings, Status: StatusPlaying, At: now,
 		Host: Member{M: 1, Who: w, Name: name, JoinedAt: now, FromRound: 1, LastSeen: now}})
 	if errors.Is(err, ErrNoRow) {
 		return SoloView{}, ErrNotFound

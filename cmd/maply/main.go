@@ -172,7 +172,7 @@ func run(log *slog.Logger) error {
 	b := bot.New(store, tgc, log, opts)
 
 	// The free game: alone or with friends, apart from the day's ranking.
-	freeGame := &free.Service{Store: store, Countries: countries, ImageKey: signer.Key("maply-free-img-v1"), Log: log}
+	freeGame := &free.Service{Store: store, Countries: countries, ImageKey: signer.Key("maply-free-img-v1"), Zones: zones, Log: log}
 	go freeGame.Run(ctx, time.Minute)
 
 	gameAPI := &api.Server{

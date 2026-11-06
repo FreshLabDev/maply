@@ -54,7 +54,7 @@ type standFree struct {
 func (f *standFree) mount(e *Env, mux *http.ServeMux) {
 	f.e = e
 	e.API.Free = &free.Service{Store: e.Store, Countries: e.Countries, ImageKey: e.Signer.Key("maply-free-img-v1"),
-		Log: e.Log.With("part", "free"), Now: e.Clock.Now}
+		Zones: e.Zones, Log: e.Log.With("part", "free"), Now: e.Clock.Now}
 	e.API.People = e.Store
 	// The invitation is prepared on the stand's fake Bot API, which the
 	// chats page shares with shareMessage; the client only calls it when a
@@ -145,18 +145,18 @@ var freeCapitals = []struct {
 	city, iso, continent string
 	lat, lon             float64
 }{
-	{"Reykjavík", "IS", "EU", 64.1466, -21.9426}, {"Lisbon", "PT", "EU", 38.7223, -9.1393},
-	{"Oslo", "NO", "EU", 59.9139, 10.7522}, {"Athens", "GR", "EU", 37.9838, 23.7275},
-	{"Cairo", "EG", "AF", 30.0444, 31.2357}, {"Nairobi", "KE", "AF", -1.2921, 36.8219},
-	{"Dakar", "SN", "AF", 14.7167, -17.4677}, {"Cape Town", "ZA", "AF", -33.9249, 18.4241},
-	{"Tokyo", "JP", "AS", 35.6762, 139.6503}, {"Hanoi", "VN", "AS", 21.0278, 105.8342},
-	{"Kathmandu", "NP", "AS", 27.7172, 85.3240}, {"Tbilisi", "GE", "AS", 41.7151, 44.8271},
-	{"Ulaanbaatar", "MN", "AS", 47.8864, 106.9057}, {"Manila", "PH", "AS", 14.5995, 120.9842},
-	{"Lima", "PE", "SA", -12.0464, -77.0428}, {"Buenos Aires", "AR", "SA", -34.6037, -58.3816},
-	{"Bogotá", "CO", "SA", 4.7110, -74.0721}, {"Santiago", "CL", "SA", -33.4489, -70.6693},
-	{"Mexico City", "MX", "NA", 19.4326, -99.1332}, {"Ottawa", "CA", "NA", 45.4215, -75.6972},
-	{"Havana", "CU", "NA", 23.1136, -82.3666}, {"Anchorage", "US", "NA", 61.2181, -149.9003},
-	{"Wellington", "NZ", "OC", -41.2865, 174.7762}, {"Hobart", "AU", "OC", -42.8821, 147.3272},
+	{"Reykjavík", "IS", "europe", 64.1466, -21.9426}, {"Lisbon", "PT", "europe", 38.7223, -9.1393},
+	{"Oslo", "NO", "europe", 59.9139, 10.7522}, {"Athens", "GR", "europe", 37.9838, 23.7275},
+	{"Cairo", "EG", "africa", 30.0444, 31.2357}, {"Nairobi", "KE", "africa", -1.2921, 36.8219},
+	{"Dakar", "SN", "africa", 14.7167, -17.4677}, {"Cape Town", "ZA", "africa", -33.9249, 18.4241},
+	{"Tokyo", "JP", "asia", 35.6762, 139.6503}, {"Hanoi", "VN", "asia", 21.0278, 105.8342},
+	{"Kathmandu", "NP", "asia", 27.7172, 85.3240}, {"Tbilisi", "GE", "asia", 41.7151, 44.8271},
+	{"Ulaanbaatar", "MN", "asia", 47.8864, 106.9057}, {"Manila", "PH", "asia", 14.5995, 120.9842},
+	{"Lima", "PE", "south_america", -12.0464, -77.0428}, {"Buenos Aires", "AR", "south_america", -34.6037, -58.3816},
+	{"Bogotá", "CO", "south_america", 4.7110, -74.0721}, {"Santiago", "CL", "south_america", -33.4489, -70.6693},
+	{"Mexico City", "MX", "north_america", 19.4326, -99.1332}, {"Ottawa", "CA", "north_america", 45.4215, -75.6972},
+	{"Havana", "CU", "north_america", 23.1136, -82.3666}, {"Anchorage", "US", "north_america", 61.2181, -149.9003},
+	{"Wellington", "NZ", "oceania", -41.2865, 174.7762}, {"Hobart", "AU", "oceania", -42.8821, 147.3272},
 }
 
 // addBots starts up to n bot players in the party, none of them the stand's
