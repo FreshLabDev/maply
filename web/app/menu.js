@@ -19,6 +19,200 @@
   const leaders = () => !!(window.Leaders && typeof Leaders.show === "function");
   let page = null, kind = "", clock = 0, drawn = "", keyed = false;
 
+  /* The cards' pictures */
+  // Every card but the day's has one picture: its sign as a halftone, 18 dots by 18 like the logo's globe, in the
+  // field's light green and lit from the upper left as the loading screen's globe is. Classic's sign is that globe.
+  // They stand still. Now and then one light runs over all of them at once, and the card under the pointer or the
+  // focus lights its own up. Without motion only that remains.
+  const GRID = 18, SUB = 6;
+  // The signs, drawn white on a 100 × 100 square; what they cover becomes the dots.
+  const PIN = new Path2D("M320 501L214 395A150 150 0 1 1 426 395ZM320 229A60 60 0 1 0 320 349A60 60 0 1 0 320 229Z");
+  const pinAt = (c, x, y, s, gap) => {
+    c.save(); c.translate(x, y); c.scale(s, s); c.translate(-320, -501);
+    if (gap) { c.globalCompositeOperation = "destination-out"; c.lineWidth = gap / s; c.lineJoin = "round"; c.stroke(PIN); c.globalCompositeOperation = "source-over"; }
+    c.fill(PIN, "evenodd"); c.restore();
+  };
+  const cut = (c, f) => { c.globalCompositeOperation = "destination-out"; f(); c.globalCompositeOperation = "source-over"; };
+  const SIGN = {
+    blitz(c) {
+      c.beginPath(); c.moveTo(62, 2); c.lineTo(16, 58); c.lineTo(45, 58); c.lineTo(36, 98); c.lineTo(84, 38); c.lineTo(56, 38); c.closePath(); c.fill();
+    },
+    streak(c) {
+      c.fill(new Path2D("M52 4C58 26 84 38 84 64A34 34 0 0 1 16 64C16 47 27 36 35 28C36 41 41 47 47 50C43 34 45 18 52 4Z" +
+        "M50 58C57 66 63 73 63 81A13 13 0 0 1 37 81C37 73 43 66 50 58Z"), "evenodd");
+    },
+    timed(c) {
+      c.fillRect(18, 4, 64, 9); c.fillRect(18, 87, 64, 9);
+      c.lineWidth = 7; c.beginPath();
+      c.moveTo(28, 13); c.bezierCurveTo(28, 36, 46, 42, 46, 50); c.bezierCurveTo(46, 58, 28, 64, 28, 87);
+      c.moveTo(72, 13); c.bezierCurveTo(72, 36, 54, 42, 54, 50); c.bezierCurveTo(54, 58, 72, 64, 72, 87); c.stroke();
+      c.beginPath(); c.moveTo(37, 30); c.lineTo(63, 30); c.bezierCurveTo(59, 38, 53, 43, 50, 47); c.bezierCurveTo(47, 43, 41, 38, 37, 30); c.fill();
+      c.beginPath(); c.moveTo(33, 86); c.bezierCurveTo(37, 73, 44, 67, 50, 67); c.bezierCurveTo(56, 67, 63, 73, 67, 86); c.closePath(); c.fill();
+    },
+    archive(c) {
+      c.fillRect(6, 12, 88, 20); c.fillRect(13, 38, 74, 52);
+      cut(c, () => c.fillRect(36, 49, 28, 9));
+    },
+    friends(c) { pinAt(c, 73, 76, .17, 0); pinAt(c, 28, 92, .17, 10); },
+    days(c) {
+      c.fillRect(10, 20, 80, 74);
+      cut(c, () => {
+        for (let i = 0; i < 12; i++) if (i !== 6) c.fillRect(17 + (i % 4) * 18, 44 + Math.floor(i / 4) * 17, 12, 11);
+        c.fillRect(24, 10, 14, 18); c.fillRect(62, 10, 14, 18);
+      });
+      c.fillRect(28, 6, 6, 20); c.fillRect(66, 6, 6, 20);
+    },
+    top(c) {
+      c.fill(new Path2D("M24 8H76V30C76 48 64 58 50 58C36 58 24 48 24 30Z"));
+      c.lineWidth = 7; c.beginPath();
+      c.moveTo(24, 16); c.lineTo(12, 16); c.lineTo(12, 26); c.bezierCurveTo(12, 36, 18, 42, 26, 42);
+      c.moveTo(76, 16); c.lineTo(88, 16); c.lineTo(88, 26); c.bezierCurveTo(88, 36, 82, 42, 74, 42); c.stroke();
+      c.fillRect(44, 56, 12, 18); c.fillRect(30, 74, 40, 9); c.fillRect(22, 86, 56, 10);
+      cut(c, () => {
+        c.beginPath();
+        for (let k = 0; k < 10; k++) {
+          const a = (-90 + k * 36) * Math.PI / 180, r = k % 2 ? 5 : 12;
+          c.lineTo(50 + r * Math.cos(a), 31 + r * Math.sin(a));
+        }
+        c.closePath(); c.fill();
+      });
+    },
+    me(c) {
+      c.fill(new Path2D("M12 98C12 74 28 62 50 62C72 62 88 74 88 98Z"));
+      cut(c, () => { c.beginPath(); c.arc(50, 33, 25, 0, 2 * Math.PI); c.fill(); });
+      c.beginPath(); c.arc(50, 33, 19, 0, 2 * Math.PI); c.fill();
+    },
+  };
+  // The light falls from the upper left: a dot there is whole, one at the lower right about two thirds.
+  const lit = (u, v) => 1 - .34 * (u + v) / 2;
+  // How large each of the GRID × GRID dots is, from 0 to 1: a dot where the sign covers most of its square, sized by
+  // the light. No dots for the edges' slivers, so every sign has a clean outline.
+  function tones(k) {
+    const t = new Float32Array(GRID * GRID);
+    if (k === "classic") return globeTones(t);
+    const n = GRID * SUB, cv = document.createElement("canvas");
+    cv.width = cv.height = n;
+    const c = cv.getContext("2d");
+    c.scale(n / 100, n / 100); c.fillStyle = c.strokeStyle = "#fff";
+    SIGN[k](c);
+    const a = c.getImageData(0, 0, n, n).data;
+    for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) {
+      let sum = 0;
+      for (let y = 0; y < SUB; y++) for (let x = 0; x < SUB; x++) sum += a[((j * SUB + y) * n + i * SUB + x) * 4 + 3];
+      if (sum / (SUB * SUB * 255) >= .5) t[j * GRID + i] = lit((i + .5) / GRID, (j + .5) / GRID);
+    }
+    return t;
+  }
+  // Classic: the globe of land.js turned to Europe and Africa, the north a little towards the viewer. Land is a dot
+  // sized by the light the sphere gets there, sea a small one.
+  function globeTones(t) {
+    if (typeof LAND === "undefined") return t;
+    const raw = atob(LAND.bits), start = [];
+    LAND.rows.reduce((n, c) => (start.push(n), n + c), 0);
+    const land = (lat, lon) => {
+      const i = Math.max(0, Math.min(LAND.rows.length - 1, Math.floor((lat + 90) / LAND.step))), c = LAND.rows[i];
+      const j = ((Math.floor((lon + 180) / 360 * c - (i % 2) * .5) % c) + c) % c, n = start[i] + j;
+      return (raw.charCodeAt(n >> 3) >> (n & 7)) & 1;
+    };
+    const L = [-.55, -.6, .58], ln = Math.hypot(...L), tilt = 22 * Math.PI / 180, ct = Math.cos(tilt), st = Math.sin(tilt);
+    const S = 3;
+    for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) {
+      // The square's middle on the disc, x right and y up, z towards the viewer; the land it sees by nine points.
+      const px = (i + .5) / GRID * 2 - 1, py = 1 - (j + .5) / GRID * 2, r2 = px * px + py * py;
+      if (r2 > .9) continue;
+      let ground = 0;
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const qx = ((i + (x + .5) / S) / GRID) * 2 - 1, qy = 1 - ((j + (y + .5) / S) / GRID) * 2, q2 = qx * qx + qy * qy;
+        if (q2 >= 1) continue;
+        const qz = Math.sqrt(1 - q2), Y = qy * ct + qz * st, Z = -qy * st + qz * ct;
+        ground += land(Math.asin(Y) * 180 / Math.PI, 15 + Math.atan2(qx, Z) * 180 / Math.PI);
+      }
+      const light = Math.max(0, (px * L[0] - py * L[1] + Math.sqrt(1 - r2) * L[2]) / ln);
+      t[j * GRID + i] = ground >= 4 ? .45 + .55 * light : .1 + .08 * light;
+    }
+    return t;
+  }
+  const TONES = {};
+
+  // The pictures of the page on show: drawn once, and again only while the light runs or a card lights up.
+  const Art = (() => {
+    let list = [], raf = 0, timer = 0, sweep = -1, span = 0, ro = null;
+    const still = matchMedia("(prefers-reduced-motion: reduce)");
+    const color = (name) => {
+      const h = getComputedStyle(document.documentElement).getPropertyValue(name).trim().replace("#", "");
+      return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+    };
+    let base = [89, 130, 107], hot = [181, 199, 189];
+    const mix = (t) => "rgb(" + base.map((b, i) => Math.round(b + (hot[i] - b) * t)).join(",") + ")";
+    function layout(root) {
+      const o = root.getBoundingClientRect();
+      span = o.width + o.height;
+      for (const g of list) {
+        const r = g.cv.getBoundingClientRect(), dpr = Math.min(3, devicePixelRatio || 1);
+        g.size = r.width; g.x = r.left - o.left; g.y = r.top - o.top;
+        g.cv.width = g.cv.height = Math.round(r.width * dpr);
+        g.dpr = dpr;
+      }
+    }
+    function draw(now) {
+      const w = sweep < 0 ? -1e9 : -260 + (now - sweep) / 2600 * (span + 520);
+      for (const g of list) {
+        if (!g.size) continue;
+        const c = g.cv.getContext("2d"), p = g.size / GRID, R = p * .47;
+        c.setTransform(g.dpr, 0, 0, g.dpr, 0, 0);
+        c.clearRect(0, 0, g.size, g.size);
+        const t = TONES[g.k] || (TONES[g.k] = tones(g.k));
+        // The dots in a few shades, so each is one path.
+        const paths = [new Path2D(), new Path2D(), new Path2D(), new Path2D(), new Path2D()];
+        for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) {
+          const v = t[j * GRID + i];
+          if (v < .03) continue;
+          const x = (i + .5) * p, y = (j + .5) * p, d = g.x + x + g.y + y;
+          const light = Math.exp(-(((d - w) / 80) ** 2));
+          const r = R * Math.sqrt(v) * (1 + .22 * light), q = Math.min(4, Math.round(Math.max(g.hot, light * .6) * 4));
+          paths[q].moveTo(x + r, y); paths[q].arc(x, y, r, 0, 2 * Math.PI);
+        }
+        paths.forEach((path, q) => { c.fillStyle = mix(q / 4); c.fill(path); });
+      }
+    }
+    function tick(now) {
+      raf = 0;
+      if (!list.length || !list[0].cv.isConnected) { stop(); return; }
+      let busy = false;
+      for (const g of list) {
+        const to = g.on ? 1 : 0;
+        if (g.hot !== to) { g.hot = still.matches ? to : to ? Math.min(1, g.hot + .12) : Math.max(0, g.hot - .08); busy = true; }
+      }
+      if (sweep >= 0 && now - sweep > 2600) sweep = -1;
+      draw(now);
+      if (busy || sweep >= 0) raf = requestAnimationFrame(tick);
+    }
+    const wake = () => { if (!raf) raf = requestAnimationFrame(tick); };
+    function light() {
+      if (!list.length || !list[0].cv.isConnected) { stop(); return; }
+      timer = setTimeout(light, 14000);
+      if (still.matches || document.hidden) return;
+      sweep = performance.now(); wake();
+    }
+    function stop() { cancelAnimationFrame(raf); raf = 0; clearTimeout(timer); timer = 0; if (ro) ro.disconnect(); ro = null; list = []; }
+    function mount(root) {
+      stop();
+      base = color("--field-tint"); hot = color("--ink-muted");
+      list = [...root.querySelectorAll("canvas.mn-art")].map((cv) => ({ cv, k: cv.dataset.k, hot: 0, on: false }));
+      for (const g of list) {
+        const card = g.cv.closest("a"), set = (on) => () => { g.on = on; wake(); };
+        card.addEventListener("pointerenter", set(true)); card.addEventListener("pointerleave", set(false));
+        card.addEventListener("focus", set(true)); card.addEventListener("blur", set(false));
+      }
+      layout(root); draw(-1e9);
+      ro = new ResizeObserver(() => { layout(root); draw(-1e9); });
+      ro.observe(root);
+      timer = setTimeout(light, 1800);
+    }
+    return { mount };
+  })();
+  const art = (k) => '<canvas class="mn-art" data-k="' + k + '" aria-hidden="true"></canvas>';
+
   function show(k, html, from, label) {
     if (!page) {
       page = document.createElement("section");
@@ -114,17 +308,18 @@
   function menuHTML() {
     const free = window.Free ? '<section class="mn-free" aria-labelledby="mnFree"><div class="mn-h"><b id="mnFree">' + esc(T("free.title")) + '</b>' +
       '<span class="up">' + esc(T("desk.unranked")) + '</span></div><div class="mn-modes">' +
-      MODES.map(([m, href]) => '<a class="mn-mode" href="' + href + '" data-route><b>' + esc(T("free." + m)) + '</b><em>' + fwd() + '</em></a>').join("") +
+      MODES.map(([m, href]) => '<a class="mn-mode" href="' + href + '" data-route><b>' + esc(T("free." + m)) + '</b>' + art(m) + '</a>').join("") +
       '</div></section>' : "";
-    const go = (href, title, hint) => '<a class="mn-more" href="' + href + '" data-route><b>' + esc(title) + '</b><span>' + esc(hint) + '</span><em>' + fwd() + '</em></a>';
+    const go = (href, k, title, hint) => '<a class="mn-more" href="' + href + '" data-route><b>' + esc(title) + '</b><span>' + esc(hint) + '</span>' + art(k) + '</a>';
     return '<div class="dk-wrap mn"><div class="mn-dayslot" id="mnDay">' + dayHTML() + '</div>' + free +
-      '<nav class="mn-pages" aria-label="' + esc(T("desk.nav")) + '">' + go("/days", T("days"), T("desk.days_hint")) +
-      (leaders() ? go("/top", T("desk.top"), T("desk.top_hint")) : "") + go("/me", T("prof.title"), T("desk.me_hint")) + '</nav></div>';
+      '<nav class="mn-pages" aria-label="' + esc(T("desk.nav")) + '">' + go("/days", "days", T("days"), T("desk.days_hint")) +
+      (leaders() ? go("/top", "top", T("desk.top"), T("desk.top_hint")) : "") + go("/me", "me", T("prof.title"), T("desk.me_hint")) + '</nav></div>';
   }
 
   Router.screen("menu", /^\/(?:index\.html)?$/, {
     open(m, from) {
       show("menu", menuHTML(), from, "maply");
+      Art.mount(page.querySelector(".mn"));
       drawn = sign();
       clearInterval(clock); clock = setInterval(tickMenu, 1000);
       // The menu needs no picture: the loading screen goes once the day's state is in. The day brings it back when

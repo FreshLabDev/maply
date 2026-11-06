@@ -139,6 +139,11 @@ For the operator:
   the leaderboards and the profile. The day itself is at `/today`. A post's
   button opens the day as before; the bot's menu button and `/start` open
   the menu, and so does the logo. A phone gets the menu in one column.
+  Each card but the day's carries its sign in the logo's halftone dots, in
+  the field's light green: Classic the globe itself, a bolt, a flame, an
+  hourglass, an archive box, two pins, a calendar, a cup and a person. Now
+  and then one light runs over all of them at once, and a card lights its
+  sign up under the pointer or the focus. The cards' arrows are gone.
 - Sign-in on the site with Telegram or Google, through our server by OpenID
   Connect with PKCE. Signed in with Telegram, the site is the bot's player:
   one answer a day across both, the DM's deadline with the speed bonus, the
