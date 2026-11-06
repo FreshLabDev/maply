@@ -84,7 +84,7 @@ func (s *Server) challengeView(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, c)
+	s.writeTogether(w, r, c)
 }
 
 func (s *Server) challengeTake(w http.ResponseWriter, r *http.Request) {

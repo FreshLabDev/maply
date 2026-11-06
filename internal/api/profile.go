@@ -11,6 +11,7 @@ import (
 
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/FreshLabDev/maply/internal/people"
 	"github.com/FreshLabDev/maply/internal/profile"
 	"github.com/FreshLabDev/maply/internal/round"
 )
@@ -124,14 +125,14 @@ func (s *Server) closedAt(now time.Time) func(round.Date) bool {
 	return func(d round.Date) bool { return !s.Zones.LastReveal(d).After(now) }
 }
 
+// ownProfile is the viewer's own. Site is a profile of the site's game, a
+// guest's or an account's without Telegram: days over everywhere, no speed
+// bonus, no settings.
 type ownProfile struct {
-	Name string `json:"name"`
+	people.Person
 	// Guest is a site player known only by the cookie: clearing it loses the
 	// history, so the page says to sign in.
-	Guest bool `json:"guest,omitempty"`
-	// Site is a profile of the site's game, a guest's or an account's
-	// without Telegram: days over everywhere, no speed bonus, no settings.
-	Site     bool            `json:"site,omitempty"`
+	Guest    bool            `json:"guest,omitempty"`
 	Ranked   profile.Ranked  `json:"ranked"`
 	Free     *profile.Free   `json:"free"`
 	Settings *profileSetting `json:"settings,omitempty"`
@@ -285,13 +286,15 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
-		if out.Name, err = ps.NameOf(ctx, v.user); err != nil {
+		name, err := ps.NameOf(ctx, v.user)
+		if err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		if out.Name == "" {
-			out.Name = v.name
+		if name == "" {
+			name = v.name
 		}
+		out.Person = people.Telegram(v.user, name, true)
 		set, err := ps.ProfileSettingOf(ctx, v.user)
 		if err != nil {
 			s.fail(w, r, err)
@@ -304,7 +307,7 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 	default:
 		// A site player sees what the site shows: days over everywhere. An
 		// account keeps its days across browsers; a guest has the cookie's.
-		out.Site, out.Guest = true, v.account == ""
+		out.Person, out.Guest = people.SitePlayer("", true), v.account == ""
 		upTo := profile.LatestClosed(s.Zones, now)
 		who := db.Who{Account: v.account, Player: v.player}
 		if v.account != "" {
@@ -332,6 +335,10 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if err := s.dress(ctx, dressAsk{viewer: v.user, lang: v.lang}, &out.Person); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -353,18 +360,23 @@ func (s *Server) face(w http.ResponseWriter, r *http.Request) {
 	if v.user != 0 && s.Avatars != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), faceWait)
 		defer cancel()
-		out.Photo = photoURL(s.Avatars.Fetch(ctx, []int64{v.user})[v.user])
+		s.Avatars.Fetch(ctx, []int64{v.user})
+		me := people.Telegram(v.user, v.name, true)
+		if err := s.dress(r.Context(), dressAsk{viewer: v.user, lang: v.lang}, &me); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		out.Photo = me.Photo
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, out)
 }
 
+// miniProfile is the player a handle names. Me says the handle is the
+// viewer's own: the app opens the whole profile.
 type miniProfile struct {
+	people.Person
 	profile.Mini
-	// Me says the handle is the viewer's own: the app opens the whole profile.
-	Me bool `json:"me,omitempty"`
-	// Photo is a data: URL of the Telegram photo.
-	Photo string `json:"photo,omitempty"`
 	// Duel is the head to head with the viewer over the group's open days.
 	Duel *headToHead `json:"duel,omitempty"`
 }
@@ -392,7 +404,7 @@ func (s *Server) mini(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if v.user != 0 && id == v.user {
-		writeJSON(w, http.StatusOK, miniProfile{Me: true})
+		writeJSON(w, http.StatusOK, miniProfile{Person: people.Person{Me: true}})
 		return
 	}
 	ctx := r.Context()
@@ -423,8 +435,11 @@ func (s *Server) mini(w http.ResponseWriter, r *http.Request) {
 	if free == nil {
 		free = &profile.Free{}
 	}
-	out := miniProfile{Mini: profile.MiniOf(name, ranked, *free)}
-	out.Photo = photoURL(s.faces(ctx, []int64{id})[id])
+	out := miniProfile{Person: people.Telegram(id, name, false), Mini: profile.MiniOf(ranked, *free)}
+	if err := s.dress(ctx, dressAsk{chatID: v.chatID, viewer: v.user, lang: v.lang}, &out.Person); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	if v.chatID != 0 && v.user != 0 {
 		in, err := ps.Present(ctx, v.chatID, []int64{id})
 		if err != nil {

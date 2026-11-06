@@ -59,6 +59,12 @@ type batch interface {
 	AvatarsOf(ctx context.Context, ids []int64) (map[int64][]byte, error)
 }
 
+// addressed is a Store that gives each kept photo an address of its own.
+type addressed interface {
+	FacesOf(ctx context.Context, ids []int64) (map[int64]string, error)
+	FaceJPEG(ctx context.Context, face string) ([]byte, bool, error)
+}
+
 type Service struct {
 	Store Store
 	// TG asks Telegram; nil keeps only what is kept.
@@ -114,6 +120,45 @@ func (s *Service) Kept(ctx context.Context, ids []int64) map[int64][]byte {
 	return out
 }
 
+// Faces is the addresses of the photos kept for ids, without asking
+// Telegram: /face/<face>.jpg names each. People without one are left out, and
+// so is everyone when the store gives photos no address.
+func (s *Service) Faces(ctx context.Context, ids []int64) map[int64]string {
+	out := map[int64]string{}
+	a, ok := s.addressed()
+	if !ok || len(ids) == 0 {
+		return out
+	}
+	m, err := a.FacesOf(ctx, ids)
+	if err != nil {
+		s.log().Warn("faces not read", "users", len(ids), "error", err)
+		return out
+	}
+	return m
+}
+
+// Face is the photo at the address face, or nothing.
+func (s *Service) Face(ctx context.Context, face string) ([]byte, bool) {
+	a, ok := s.addressed()
+	if !ok {
+		return nil, false
+	}
+	b, ok, err := a.FaceJPEG(ctx, face)
+	if err != nil {
+		s.log().Warn("face not read", "error", err)
+		return nil, false
+	}
+	return b, ok
+}
+
+func (s *Service) addressed() (addressed, bool) {
+	if s == nil {
+		return nil, false
+	}
+	a, ok := s.Store.(addressed)
+	return a, ok
+}
+
 // Fetch is the photos of ids, asking Telegram for the ones not asked today.
 // Whatever fails keeps the photo kept before, or none: a letter instead of a
 // face is never worth a missing result.
@@ -166,7 +211,7 @@ func (s *Service) one(ctx context.Context, id int64) []byte {
 	switch {
 	case !has:
 	case ok && photo.FileUniqueID == kept.UniqueID && kept.JPEG != nil:
-		next.UniqueID, next.JPEG = kept.UniqueID, kept.JPEG
+		next.UniqueID, next.JPEG, next.Face = kept.UniqueID, kept.JPEG, kept.Face
 	default:
 		raw, err := s.TG.FileBytes(ctx, photo.FileID, maxBytes)
 		if err != nil {

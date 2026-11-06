@@ -430,7 +430,7 @@ func (s *Server) partyNew(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	s.writeTogether(w, r, p)
 }
 
 // partyPoll is the poll: ?v= is the version the app has, and a party at
@@ -447,7 +447,7 @@ func (s *Server) partyPoll(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	s.writeTogether(w, r, p)
 }
 
 func (s *Server) partyJoin(w http.ResponseWriter, r *http.Request) {
@@ -469,7 +469,7 @@ func (s *Server) partyJoin(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	s.writeTogether(w, r, p)
 }
 
 func (s *Server) partySettings(w http.ResponseWriter, r *http.Request) {
@@ -488,7 +488,7 @@ func (s *Server) partySettings(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	s.writeTogether(w, r, p)
 }
 
 func (s *Server) partyStart(w http.ResponseWriter, r *http.Request) {
@@ -509,7 +509,7 @@ func (s *Server) partyStart(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	s.writeTogether(w, r, p)
 }
 
 func (s *Server) partyGuess(w http.ResponseWriter, r *http.Request) {
@@ -533,7 +533,7 @@ func (s *Server) partyGuess(w http.ResponseWriter, r *http.Request) {
 		s.freeFail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	s.writeTogether(w, r, p)
 }
 
 func (s *Server) partyLeave(w http.ResponseWriter, r *http.Request) {

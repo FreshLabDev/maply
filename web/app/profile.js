@@ -8,11 +8,6 @@ try { PROF_TAB = localStorage.getItem("maply.prof.tab") === "free" ? "free" : "r
 
 // The letter in the header: the Telegram photo once it has come, the Telegram name, the name typed on the site, or a
 // figure for a guest without one.
-const FIGURE = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="5.2" r="3" fill="currentColor"/><path d="M2 15c0-3.4 2.7-5.6 6-5.6s6 2.2 6 5.6z" fill="currentColor"/></svg>';
-// A player who hid themselves ("Hide me") is "Anonymous" in shared tables, with this plain avatar instead of a photo or
-// a letter, and with it instead of the Telegram mark on the days page.
-const anonAv = () => '<i class="av nobody">' + FIGURE + '</i>';
-const SRC_ANON = '<svg class="src" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#59826B"/><circle cx="12" cy="9.3" r="3.6" fill="#D8E1DC"/><path d="M5.6 19.4c.6-3.4 3.2-5.6 6.4-5.6s5.8 2.2 6.4 5.6" fill="#D8E1DC"/></svg>';
 function meLetter(name) {
   const n = String(name || (inTg && tg.initDataUnsafe.user && tg.initDataUnsafe.user.first_name) || (SITE ? siteName() : "")).trim();
   $("meBtn").innerHTML = MY_FACE ? '<img src="' + MY_FACE + '" alt="">' : n ? esc(initial(n)) : FIGURE;
@@ -84,7 +79,8 @@ function drawProfile(d, back, kind) {
 
 function cardHTML(d) {
   const name = d.name || (d.guest ? T("guest") : d.site ? T("acct.google_account") : "");
-  let h = '<div class="pcard">' + av(name || "?", true) + '<div><b lang="' + nameLang() + '" dir="auto">' + esc(name) + '</b>' +
+  // The own profile is yours and a public page its owner's: each with the face the server sent.
+  let h = '<div class="pcard">' + faceOf({ ...personOf(d), name: name || "?" }) + '<div><b lang="' + nameLang() + '" dir="auto">' + esc(name) + '</b>' +
     '<span class="up">' + esc(T(d.guest || d.site ? "from_site" : "from_tg")) + '</span></div></div>';
   if (d.guest) {
     // The sign-in comes from the accounts' dialog; a site without accounts has the note alone.
@@ -513,7 +509,7 @@ async function openMini(handle) {
   if (ticket !== SHEET) return;
   // Your own name opens your whole profile.
   if (d.me) { SHEET++; return openProfile(saved); }
-  let h = '<div class="prof mini"><div class="pcard">' + av(d.name || "?", false, d.photo) + '<div><b lang="' + nameLang() + '" dir="auto">' + esc(d.name) + '</b><span class="up">' + esc(T("from_tg")) + '</span></div></div>';
+  let h = '<div class="prof mini"><div class="pcard">' + faceOf(d) + '<div><b lang="' + nameLang() + '" dir="auto">' + esc(nameOf(d)) + '</b><span class="up">' + esc(T("from_tg")) + '</span></div></div>';
   if (d.duel) h += '<div class="pbig"><b>' + esc(T("prof.duel", { closer: fmt(d.duel.closer), of: fmt(d.duel.of) })) + '</b></div>';
   h += tilesHTML([
     tile(T("prof.days"), fmt(d.days)),

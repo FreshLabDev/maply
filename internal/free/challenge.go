@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/FreshLabDev/maply/internal/people"
 )
 
 // A challenge is a party for friends who are not online at once: one person
@@ -65,8 +67,7 @@ func (v ChallengeView) In() bool {
 // ChallengeLine is one attempt: its sums so far, ranked once finished.
 type ChallengeLine struct {
 	Line
-	Name   string `json:"name"`
-	Me     bool   `json:"me,omitempty"`
+	people.Person
 	Maker  bool   `json:"maker,omitempty"`
 	Status string `json:"status"`
 	Seen   int    `json:"seen,omitempty"`
@@ -185,7 +186,7 @@ func challengeView(c ChallengeRow, w Who, now time.Time) ChallengeView {
 	for _, l := range done {
 		a := c.Attempts[l.M-1]
 		l.M = 0
-		v.Lines = append(v.Lines, ChallengeLine{Line: l, Name: a.Name, Me: a.Own,
+		v.Lines = append(v.Lines, ChallengeLine{Line: l, Person: a.who().person(a.Name, a.Own),
 			Maker: a.Maker, Status: a.Status, Seen: a.Seen})
 	}
 	for _, a := range c.Attempts {
@@ -194,7 +195,7 @@ func challengeView(c ChallengeRow, w Who, now time.Time) ChallengeView {
 		}
 		l := a.Line
 		l.M, l.Rank, l.Beaten = 0, 0, 0
-		v.Lines = append(v.Lines, ChallengeLine{Line: l, Name: a.Name, Me: a.Own,
+		v.Lines = append(v.Lines, ChallengeLine{Line: l, Person: a.who().person(a.Name, a.Own),
 			Maker: a.Maker, Status: a.Status, Seen: a.Seen})
 	}
 	if a, ok := c.attempt(w); ok {

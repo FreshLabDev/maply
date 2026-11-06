@@ -52,7 +52,7 @@ function acctHeader() {
     return;
   }
   const who = a.telegram ? a.telegram.name : a.name || T("acct.google_account");
-  slot.innerHTML = '<button class="acct-me" id="acctMe" aria-haspopup="menu" aria-expanded="false" aria-label="' + esc(T("acct.menu")) + '">' + av(who, true) + '</button>';
+  slot.innerHTML = '<button class="acct-me" id="acctMe" aria-haspopup="menu" aria-expanded="false" aria-label="' + esc(T("acct.menu")) + '">' + faceOf({ name: who, me: true }) + '</button>';
   $("acctMe").onclick = acctMenu;
 }
 

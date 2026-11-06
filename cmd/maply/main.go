@@ -219,6 +219,7 @@ func run(log *slog.Logger) error {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", game)
 	mux.Handle("/img/", game)
+	mux.Handle("/face/", game)
 	mux.Handle("/auth/", accounts.Middleware(accounts.Handler()))
 	mux.Handle("GET /privacy", accounts.Privacy())
 	mux.Handle("/thumb/", game)

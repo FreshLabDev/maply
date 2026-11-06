@@ -94,9 +94,11 @@ html[dir="rtl"] .axis svg { direction: ltr; }
 .rkl .n { text-align: end; }
 .rkl b { text-align: end; }
 .rkl .w { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rkl .w .src { width: 14px; height: 14px; margin-inline-end: 6px; vertical-align: -2px; }
-/* A Telegram player's photo stands where the Telegram mark would. */
-.rkl .w .src.ph { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; vertical-align: -5px; }
+/* The face before the name, as in every table; a site player's carries the site's mark in the corner. */
+.rkl .w .rf { position: relative; display: inline-block; width: 20px; height: 20px; margin-block-start: -3px; margin-inline-end: 8px; vertical-align: middle; }
+.rkl .w .rf .av { width: 20px; height: 20px; font-size: 11px; outline: 0; }
+.rkl li.me .rf .av { background: var(--field); color: var(--ink); }
+.rkl .w .rf .src { position: absolute; inset-inline-end: -4px; bottom: -4px; width: 11px; height: 11px; }
 .rkl .k { font-size: 13px; color: var(--ink-muted); }
 .rkl li.me .k { color: var(--field-tint); }
 .dnav { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; }

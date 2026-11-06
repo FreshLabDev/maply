@@ -52,8 +52,9 @@
   }
 
   /* ---------- Who is who ---------- */
+  // A member is a person as every table has them (faceOf, nameOf in app.js), with their number in the party.
   const member = (m) => P.members.find((x) => x.m === m) || { m, name: "?" };
-  const nameOf = (m) => member(m).name;
+  const nameAt = (m) => nameOf(member(m));
   const meM = () => member(P.me);
   const present = () => P.members.filter((m) => !m.left);
   const isHost = () => P.host === P.me;
@@ -100,7 +101,7 @@
     lobby(ph, fresh) {
       K.top(T("party.title"), T("party.code", { code: P.code }));
       const people = present();
-      let html = '<div class="fr-r"><p class="fr-l up">' + esc(T("free.players", { n: fmt(people.length) })) + '</p><ul class="fr-mem">' + people.map((m) => '<li' + (m.m === P.me ? ' class="me"' : '') + '><i class="av">' + esc(initial(m.name)) + '</i><b lang="' + nameLang() + '">' + esc(m.name) + '</b>' +
+      let html = '<div class="fr-r"><p class="fr-l up">' + esc(T("free.players", { n: fmt(people.length) })) + '</p><ul class="fr-mem">' + people.map((m) => '<li' + (m.m === P.me ? ' class="me"' : '') + '>' + faceOf(m) + '<b lang="' + nameLang() + '">' + esc(nameOf(m)) + '</b>' +
         (m.m === P.host ? '<span class="up">' + esc(T("party.host")) + '</span>' : m.m === P.me ? '<span class="up">' + esc(T("you")) + '</span>' : '') + '</li>').join("") + '</ul></div>';
       html += '<div class="fr-a">' + K.settings(P.settings, true, !isHost());
       html += '<p class="fr-best">' + esc(T("party.length", { n: fmt(Math.max(1, Math.round(P.length / 60))) })) + '</p>';
@@ -108,7 +109,7 @@
       if (isHost()) {
         if (people.length < 2) html += '<p class="fr-hint">' + esc(T("party.need_two")) + '</p>';
         html += '<button class="fr-pri" data-act="pStart"' + (people.length < 2 ? " disabled" : "") + '>' + esc(T("party.start")) + '</button>';
-      } else html += '<p class="fr-hint">' + esc(T("party.wait_host", { name: nameOf(P.host) })) + '</p>';
+      } else html += '<p class="fr-hint">' + esc(T("party.wait_host", { name: nameAt(P.host) })) + '</p>';
       html += '<button class="fr-sec" data-act="pInvite">' + esc(T("party.invite")) + '</button>' +
         '<button class="fr-link" data-act="pLeave">' + esc(T("party.leave")) + '</button></div></div>';
       K.page(html, "fr-lobby", !fresh);
@@ -148,7 +149,7 @@
       // Nobody's answer leaves the list out.
       const guesses = r.guesses || [];
       const me = guesses.find((g) => g.m === P.me) || null;
-      const others = guesses.filter((g) => g.m !== P.me).map((g) => ({ key: "m" + g.m, lat: g.lat, lon: g.lon, km: g.km, name: nameOf(g.m) }));
+      const others = guesses.filter((g) => g.m !== P.me).map((g) => ({ key: "m" + g.m, lat: g.lat, lon: g.lon, km: g.km, who: member(g.m) }));
       const rows = rowsOf(r);
       K.answer({
         place: r.place, me, note: me ? "" : T("free.missed"), others, call: fmt(me && me.lat != null ? me.points : 0),
@@ -168,7 +169,7 @@
       html += standing(0);
       if (P.best) {
         const r = P.rounds.find((x) => x.n === P.best.n);
-        html += '<p class="fr-best">' + esc(T("party.best", { name: nameOf(P.best.m), km: kmT(P.best.km), where: r && r.place ? K.whereOf(r.place) : "" })) + '</p>';
+        html += '<p class="fr-best">' + esc(T("party.best", { name: nameAt(P.best.m), km: kmT(P.best.km), where: r && r.place ? K.whereOf(r.place) : "" })) + '</p>';
       }
       html += '<div class="fr-go"><button class="fr-pri" data-act="pRematch">' + esc(T(P.next ? "party.to_rematch" : "party.rematch")) + '</button>' +
         '<button class="fr-sec" data-act="pShare">' + esc(T("party.share")) + '</button>' +
@@ -194,7 +195,7 @@
   // The answers to a place, best first, as the day's table: place, name, distance, points.
   function rowsOf(r) {
     const rows = (r.guesses || []).slice().sort((a, b) => b.points - a.points || (a.km ?? 1e9) - (b.km ?? 1e9) || a.time_ms - b.time_ms);
-    return rows.map((g, i) => ({ rank: i + 1, name: nameOf(g.m), me: g.m === P.me, km: g.lat != null ? g.km : null, points: g.points }));
+    return rows.map((g, i) => ({ rank: i + 1, who: member(g.m), me: g.m === P.me, km: g.lat != null ? g.km : null, points: g.points }));
   }
   // The standing after the closed places: the first n lines, or all of them.
   function standing(n) {
@@ -202,14 +203,14 @@
     if (!lines.length) return "";
     return '<p class="fr-l up">' + esc(T("party.standing")) + '</p>' + K.table(lines.map((l) => {
       const m = member(l.m);
-      return { rank: l.rank, name: m.name, me: l.m === P.me, points: l.points, mark: m.left ? T("party.left") : m.away ? T("party.away") : "" };
+      return { rank: l.rank, who: m, me: l.m === P.me, points: l.points, mark: m.left ? T("party.left") : m.away ? T("party.away") : "" };
     }), true);
   }
   const answered = (r) => (r.answered || []).includes(P.me);
   // Who the party still waits for in this place, besides you.
   const waiting = (r) => present().filter((m) => m.m !== P.me && m.from <= r.n && !m.away && !(r.answered || []).includes(m.m)).length;
   function ribbonNow(r) {
-    K.ribbon(present().filter((m) => m.from <= r.n).map((m) => ({ name: m.name, me: m.m === P.me, done: (r.answered || []).includes(m.m), away: m.away })));
+    K.ribbon(present().filter((m) => m.from <= r.n).map((m) => ({ ...m, done: (r.answered || []).includes(m.m) })));
   }
   async function answer(r, auto) {
     if (sending || !mine || sentN === r.n) return;

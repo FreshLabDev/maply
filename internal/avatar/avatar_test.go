@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -18,8 +19,9 @@ import (
 )
 
 type memStore struct {
-	mu sync.Mutex
-	m  map[int64]db.Avatar
+	mu    sync.Mutex
+	m     map[int64]db.Avatar
+	faces int
 }
 
 func (s *memStore) AvatarOf(_ context.Context, id int64) (db.Avatar, bool, error) {
@@ -32,6 +34,13 @@ func (s *memStore) AvatarOf(_ context.Context, id int64) (db.Avatar, bool, error
 func (s *memStore) SetAvatar(_ context.Context, id int64, a db.Avatar) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// As the database does: a photo without an address gets a new one.
+	if a.JPEG == nil {
+		a.Face = ""
+	} else if a.Face == "" {
+		s.faces++
+		a.Face = fmt.Sprintf("face%d", s.faces)
+	}
 	s.m[id] = a
 	return nil
 }
@@ -90,18 +99,20 @@ func TestFetchAsksTelegramOnceADay(t *testing.T) {
 	if fake.asked != 2 {
 		t.Errorf("asked again the same day: %d", fake.asked)
 	}
-	// A day on, the same photo is not downloaded again.
+	// A day on, the same photo is not downloaded again and keeps its
+	// address.
+	first := store.m[1].Face
 	now = now.Add(25 * time.Hour)
 	s.Fetch(context.Background(), []int64{1})
-	if fake.asked != 3 || fake.downloads != 1 {
-		t.Errorf("a day on: asked %d, downloaded %d; want 3 and 1", fake.asked, fake.downloads)
+	if fake.asked != 3 || fake.downloads != 1 || store.m[1].Face != first {
+		t.Errorf("a day on: asked %d, downloaded %d, face %q then %q; want 3, 1 and the same face", fake.asked, fake.downloads, first, store.m[1].Face)
 	}
-	// A new photo is.
+	// A new photo is, under a new address.
 	now = now.Add(25 * time.Hour)
 	fake.photos[1] = tg.Photo{FileID: "f2", FileUniqueID: "u2"}
 	s.Fetch(context.Background(), []int64{1})
-	if fake.downloads != 2 {
-		t.Errorf("a new photo was not downloaded")
+	if fake.downloads != 2 || store.m[1].Face == first {
+		t.Errorf("a new photo: downloaded %d, face %q", fake.downloads, store.m[1].Face)
 	}
 	// Telegram failing keeps the photo there was.
 	now = now.Add(25 * time.Hour)

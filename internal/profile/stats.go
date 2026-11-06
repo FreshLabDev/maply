@@ -367,7 +367,6 @@ func localized(m map[string]string, lang string) string {
 // Mini is what anyone who sees a player's name may learn by tapping it:
 // numbers over the days that are over everywhere, no pins and no history.
 type Mini struct {
-	Name      string `json:"name"`
 	Days      int    `json:"days"`
 	Streak    int    `json:"streak"`
 	Avg30     *int   `json:"avg30"`
@@ -377,8 +376,8 @@ type Mini struct {
 }
 
 // MiniOf cuts the ranked numbers down to the mini profile's.
-func MiniOf(name string, r Ranked, free Free) Mini {
-	m := Mini{Name: name, Days: r.Days, Streak: r.Streak, Avg30: r.Avg30, BestPlace: r.BestPlace, Countries: len(r.Passport.Countries)}
+func MiniOf(r Ranked, free Free) Mini {
+	m := Mini{Days: r.Days, Streak: r.Streak, Avg30: r.Avg30, BestPlace: r.BestPlace, Countries: len(r.Passport.Countries)}
 	if free.Games > 0 {
 		m.Free = &Brief{Avg: free.Avg, Duels: free.Duels}
 	}

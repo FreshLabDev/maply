@@ -6,6 +6,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/FreshLabDev/maply/internal/people"
 )
 
 // A party is up to eight people on the same places at once. Every player asks
@@ -81,10 +83,11 @@ type PartyView struct {
 	Next string `json:"next,omitempty"`
 }
 
+// MemberView is a player of the party. The API fills in their face.
 type MemberView struct {
-	M    int    `json:"m"`
-	Name string `json:"name"`
-	From int    `json:"from"`
+	M int `json:"m"`
+	people.Person
+	From int `json:"from"`
 	// Away is a player who missed the last two places: the party does not
 	// wait for them.
 	Away bool `json:"away,omitempty"`
@@ -823,7 +826,7 @@ func (s *Service) partyView(ctx context.Context, p *party, me Member, now time.T
 		if g.Status == StatusLobby && m.LeftAt != nil {
 			continue
 		}
-		v.Members = append(v.Members, MemberView{M: m.M, Name: m.Name, From: m.FromRound,
+		v.Members = append(v.Members, MemberView{M: m.M, Person: m.Who.person(m.Name, m.M == me.M), From: m.FromRound,
 			Away: g.Status == StatusPlaying && away(m, p.snap.Rounds, p.answered), Left: m.LeftAt != nil})
 	}
 	var closed []Round

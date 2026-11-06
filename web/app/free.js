@@ -543,7 +543,7 @@
       if (globe.answered) globe.clear();
       globe.pin(g ? [g.lon, g.lat] : null, { draggable: false });
       globe.answer({ truth: [P.lon, P.lat], km: g ? g.km : null,
-        others: (a.others || []).filter((o) => o.lat != null).map((o) => ({ key: o.key, at: [o.lon, o.lat], d: o.km, label: o.name, face: av(o.name) })) });
+        others: (a.others || []).filter((o) => o.lat != null).map((o) => ({ key: o.key, at: [o.lon, o.lat], d: o.km, label: nameOf(o.who || o), face: faceOf(o.who || o) })) });
       view = "map"; root.classList.add("fr-m"); seePano();
       $("frMap").inert = false; lookLabel();
       globe.frame(1200);
@@ -552,7 +552,7 @@
   // A list of answers or of a standing, as the days' rankings: place, face, name, distance, points; yours is white.
   function table(rows, faces) {
     return '<ol class="rk fr-rk' + (faces ? "" : " min") + '">' + rows.map((r) => '<li' + (r.me ? ' class="me"' : '') + '><span class="n">' + (r.rank ? fmt(r.rank) : "") + '</span>' +
-      (faces ? '<span class="a">' + (r.face || av(r.name, r.me)) + '</span>' : '') + '<span class="w" lang="' + nameLang() + '">' + esc(r.name) + (r.mark ? ' <em>' + esc(r.mark) + '</em>' : '') + '</span>' +
+      (faces ? '<span class="a">' + faceOf(r.who) + '</span>' : '') + '<span class="w" lang="' + nameLang() + '">' + esc(nameOf(r.who)) + (r.mark ? ' <em>' + esc(r.mark) + '</em>' : '') + '</span>' +
       '<span class="k">' + (r.km != null ? esc(kmT(r.km)) : "") + '</span><b>' + (r.points != null ? fmt(r.points) : "") + '</b></li>').join("") + '</ol>';
   }
 
@@ -635,9 +635,7 @@
     html += '<p class="fr-l up">' + esc(T("free.rec_week")) + '</p>';
     if (!week) html += '<p class="fr-hint fr-busy">' + esc(lines("loading")[0]) + '</p>';
     else if (!week.rows.length) html += '<p class="fr-hint">' + esc(T("free.rec_week_none")) + '</p>';
-    // The faces of the leaderboards' rows: "Anonymous" with the plain one, a photo when /api/top sent it.
-    else html += table(week.rows.slice(0, 3).map((r) => ({ rank: r.rank, name: r.name, me: r.me, points: r.score,
-      face: r.anon && !r.me ? anonAv() : av(r.name, r.me, r.photo) })), true);
+    else html += table(week.rows.slice(0, 3).map((r) => ({ rank: r.rank, who: r, me: r.me, points: r.score })), true);
     return html + '</section>';
   }
   // The boards of the settings on screen, each read once; the block is drawn again when they come, if the settings
@@ -960,7 +958,7 @@
       const how = l.status === "done" ? (l.seen ? '<em class="fr-under">' + esc(T("free.seen_n", { n: fmt(l.seen) })) + '</em>' : '')
         : '<em class="fr-under">' + esc(l.status === "playing" ? T("free.ch_playing", { n: fmt(l.played), total: fmt(CH.settings.rounds) }) : T("free.ch_left")) + '</em>';
       html += '<li' + (l.me ? ' class="me"' : '') + '><span class="n">' + (l.rank ? fmt(l.rank) : "") + '</span><span class="w"><span lang="' + nameLang() + '">' +
-        esc(l.name) + '</span>' + how + '</span><b>' + (l.status === "done" ? fmt(l.points) : "") + '</b></li>';
+        esc(nameOf(l)) + '</span>' + how + '</span><b>' + (l.status === "done" ? fmt(l.points) : "") + '</b></li>';
     }
     html += '</ol><div class="fr-go">';
     // A line of theirs without a game to open is an attempt made before Telegram was linked: taken once all the same.
@@ -986,7 +984,7 @@
     const r = root && $("frRibbon");
     if (!r) return;
     if (!list) { r.innerHTML = ""; r.classList.remove("on"); return; }
-    r.innerHTML = list.map((m) => '<i class="av' + (m.me ? " me" : "") + (m.done ? " done" : "") + (m.away ? " away" : "") + '" title="' + esc(m.name) + '">' + esc(initial(m.name)) + '</i>').join("");
+    r.innerHTML = list.map((m) => faceOf(m, (m.done ? "done" : "") + (m.away ? " away" : ""))).join("");
     r.classList.add("on");
   }
 

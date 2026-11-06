@@ -218,20 +218,31 @@ func TestFreeLeaderboards(t *testing.T) {
 	}
 }
 
-// photosAsked keeps a photo for everyone and remembers whom it was asked for.
+// photosAsked keeps a photo for everyone, at an address made of their id,
+// and remembers whom it was asked for.
 type photosAsked struct {
 	calls     [][]int64
 	refreshed [][]int64
 	fetched   [][]int64
 }
 
-func (p *photosAsked) Kept(_ context.Context, ids []int64) map[int64][]byte {
+func faceKey(id int64) string { return fmt.Sprintf("%032x", id) }
+
+func (p *photosAsked) Faces(_ context.Context, ids []int64) map[int64]string {
 	p.calls = append(p.calls, append([]int64(nil), ids...))
-	out := map[int64][]byte{}
+	out := map[int64]string{}
 	for _, id := range ids {
-		out[id] = []byte{0xff, 0xd8, byte(id)}
+		out[id] = faceKey(id)
 	}
 	return out
+}
+
+func (p *photosAsked) Face(_ context.Context, key string) ([]byte, bool) {
+	var id int64
+	if _, err := fmt.Sscanf(key, "%x", &id); err != nil || faceKey(id) != key {
+		return nil, false
+	}
+	return []byte{0xff, 0xd8, byte(id)}, true
 }
 
 func (p *photosAsked) Fetch(ctx context.Context, ids []int64) map[int64][]byte {
@@ -262,13 +273,14 @@ func TestFreeLeaderboardPhotos(t *testing.T) {
 	for i, id := range []int64{3, 2, 1, 4} {
 		hs.freeGame(id, "solo", "streak", 30, 0, 9-i, hs.now.Add(-time.Hour))
 	}
+	ids := map[string]int64{"Oksana": 1, "Ivan": 2, "Lena": 3, "Taras": 4}
 	faces := func(b topBody) string {
 		var out []string
 		for _, r := range b.Rows {
 			face := r.Name + " -"
 			if r.Photo != "" {
 				face = r.Name + " photo"
-				if !strings.HasPrefix(r.Photo, "data:image/jpeg;base64,") {
+				if r.Photo != "/face/"+faceKey(ids[r.Name])+".jpg" {
 					t.Fatalf("photo of %s = %q", r.Name, r.Photo)
 				}
 			}
@@ -325,7 +337,7 @@ func TestOwnFace(t *testing.T) {
 	face := decode[struct {
 		Photo string `json:"photo"`
 	}](t, hs.expect("GET", "/api/face", initData(1, "Oksana", "en", ""), "", http.StatusOK))
-	if !strings.HasPrefix(face.Photo, "data:image/jpeg;base64,") || fmt.Sprint(photos.fetched) != "[[1]]" {
+	if face.Photo != "/face/"+faceKey(1)+".jpg" || fmt.Sprint(photos.fetched) != "[[1]]" {
 		t.Fatalf("own face %q, fetched %v", face.Photo, photos.fetched)
 	}
 	rr := httptest.NewRecorder()

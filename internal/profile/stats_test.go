@@ -212,7 +212,7 @@ func TestFreeHasAveragesAndRecordsOnly(t *testing.T) {
 func TestMiniHasNoPinsOrHistory(t *testing.T) {
 	d := played(0, 3000, 10, 800, "europe", "FR")
 	r := Rank(Input{Days: []db.PlayedDay{d}, Ref: d.Date, Closed: everyDayClosed})
-	m := MiniOf("Ann", r, Free{})
+	m := MiniOf(r, Free{})
 	if m.Days != 1 || m.Countries != 1 || m.Free != nil {
 		t.Fatalf("mini %+v", m)
 	}

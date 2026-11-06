@@ -10,6 +10,7 @@ import (
 
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/free"
+	"github.com/FreshLabDev/maply/internal/people"
 )
 
 // The free play's leaderboards: each player's best on a board, over the last
@@ -102,17 +103,9 @@ type topView struct {
 }
 
 type topLine struct {
-	Rank  int    `json:"rank"`
-	Name  string `json:"name"`
-	Score int    `json:"score"`
-	// Who is the handle for the mini profile, next to a Telegram player's
-	// name the viewer may see.
-	Who string `json:"who,omitempty"`
-	Me  bool   `json:"me,omitempty"`
-	// Anon is a player who hid themselves, "Anonymous" here.
-	Anon bool `json:"anon,omitempty"`
-	// Photo is a kept Telegram photo, given as in the mini profile.
-	Photo string `json:"photo,omitempty"`
+	Rank int `json:"rank"`
+	people.Person
+	Score int `json:"score"`
 }
 
 // freeWho is the viewer in free play: the Telegram person, signed in on the
@@ -169,48 +162,28 @@ func (s *Server) top(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	var ids []int64
-	for _, row := range t.Rows {
-		if row.UserID != 0 && row.UserID != v.user {
-			ids = append(ids, row.UserID)
-		}
-	}
-	hidden, err := s.maskHidden(ctx, v.chatID, v.user, ids)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	photos := s.topPhotos(ctx, t.Rows, hidden)
 	k := topKinds[board]
 	out := topView{Board: board, Seconds: b.Seconds, Rounds: b.Rounds, Period: period,
 		SecondsOf: k.seconds, RoundsOf: k.rounds, Total: t.Total, Guest: v.freeWho() == (db.FreeWho{}), Rows: make([]topLine, 0, len(t.Rows))}
-	handles := s.handles()
-	scope := "top:" + board + ":" + strconv.Itoa(b.Seconds) + ":" + strconv.Itoa(b.Rounds) + ":" + period + ":" + strconv.FormatInt(v.chatID, 10)
 	for _, row := range t.Rows {
-		l := topLine{Rank: row.Rank, Name: row.Name, Score: row.Score, Me: v.ownsTop(row)}
-		switch {
-		case hidden[row.UserID]:
-			l.Name, l.Anon = anonName(v.lang), true
-		case row.UserID != 0:
-			l.Who = handles.Of(row.UserID, scope)
-			l.Photo = photoURL(photos[row.UserID])
+		l := topLine{Rank: row.Rank, Score: row.Score}
+		if row.UserID != 0 {
+			l.Person = people.Telegram(row.UserID, row.Name, v.ownsTop(row))
+		} else {
+			l.Person = people.SitePlayer(row.Name, v.ownsTop(row))
 		}
 		out.Rows = append(out.Rows, l)
 	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-// topPhotos are the rows' Telegram photos: anyone's who is named here, never
-// one of a player who is "Anonymous". Kept photos only, so a board waits for
-// Telegram on nothing; the missing and the old ones are asked for after.
-func (s *Server) topPhotos(ctx context.Context, rows []db.TopRow, hidden map[int64]bool) map[int64][]byte {
-	var ids []int64
-	for _, r := range rows {
-		if r.UserID != 0 && !hidden[r.UserID] {
-			ids = append(ids, r.UserID)
-		}
+	who := make([]*people.Person, len(out.Rows))
+	for i := range out.Rows {
+		who[i] = &out.Rows[i].Person
 	}
-	return s.faces(ctx, ids)
+	scope := "top:" + board + ":" + strconv.Itoa(b.Seconds) + ":" + strconv.Itoa(b.Rounds) + ":" + period + ":" + strconv.FormatInt(v.chatID, 10)
+	if err := s.dress(ctx, dressAsk{chatID: v.chatID, viewer: v.user, lang: v.lang, scope: scope}, who...); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 type topPlace struct {

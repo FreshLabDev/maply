@@ -10,6 +10,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/FreshLabDev/maply/internal/people"
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/scoring"
 )
@@ -161,22 +162,15 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 		return (v.TelegramUserID != 0 && e.UserID == v.TelegramUserID) || (e.Player != "" && mine[e.Player])
 	}
 	secret := s.boardSecret()
-	handles := s.handles()
-	names := nameRule{who: func(id int64) string { return handles.Of(id, handleScope("site", d, 0)) }, as: anonName(lang)}
-	var ids []int64
-	for i, e := range world.Entries {
-		if e.UserID != 0 && i < boardShown {
-			ids = append(ids, e.UserID)
-		}
+	resp.Board = board(secret, d, 0, world, isMe, nil, true, true)
+	who := make([]*people.Person, len(resp.Board))
+	for i := range resp.Board {
+		who[i] = &resp.Board[i].Person
 	}
-	if names.hidden, err = s.maskHidden(ctx, 0, 0, ids); err != nil {
+	if err := s.dress(ctx, dressAsk{viewer: v.TelegramUserID, lang: lang, scope: handleScope("site", d, 0)}, who...); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if v.TelegramUserID != 0 {
-		ids = append(ids, v.TelegramUserID)
-	}
-	resp.Board = board(secret, d, 0, world, isMe, nil, s.faces(ctx, ids), true, true, names)
 	resp.Players = world.Players()
 	if g, ok, err := s.siteGuessOf(r, d, v); err != nil {
 		s.fail(w, r, err)
@@ -184,7 +178,7 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 	} else if ok && g.Km != nil {
 		total, bonus := g.Total(), *g.PtsBonus
 		resp.Table = append(resp.Table, line{Key: boardKey(secret, d, 0, db.Entry{Player: v.Player}), Lat: g.Pin.Lat, Lon: g.Pin.Lon,
-			Km: g.Km, Points: &total, Bonus: &bonus, Me: true})
+			Km: g.Km, Points: &total, Bonus: &bonus, Person: people.Person{Me: true}})
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
@@ -196,7 +190,7 @@ func (s *Server) siteResult(w http.ResponseWriter, r *http.Request) {
 		place := scoring.Place{Point: answer.Point, Country: answer.CountryISO, Continent: answer.Continent, City: answer.CityShape}
 		sc := scoring.Judge(pt, place, s.Countries)
 		km, total, bonus := sc.Km, sc.Total(), sc.Bonus
-		resp.Table = append(resp.Table, line{Key: "me", Lat: lat, Lon: lon, Km: &km, Points: &total, Bonus: &bonus, Me: true})
+		resp.Table = append(resp.Table, line{Key: "me", Lat: lat, Lon: lon, Km: &km, Points: &total, Bonus: &bonus, Person: people.Person{Me: true}})
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

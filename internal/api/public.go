@@ -10,6 +10,7 @@ import (
 
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/FreshLabDev/maply/internal/people"
 	"github.com/FreshLabDev/maply/internal/profile"
 )
 
@@ -39,7 +40,7 @@ var (
 )
 
 type publicProfile struct {
-	Name   string         `json:"name"`
+	people.Person
 	Ranked profile.Ranked `json:"ranked"`
 	Free   *profile.Free  `json:"free"`
 }
@@ -103,7 +104,9 @@ func (s *Server) publicPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, publicProfile{Name: name, Ranked: ranked, Free: s.free(ctx, ps, db.FreeWho{UserID: id})})
+	// A stranger's view: the name the owner made public, and no photo or id,
+	// so the person has no ID for dress to fill anything in by.
+	writeJSON(w, http.StatusOK, publicProfile{Person: people.Person{Name: name}, Ranked: ranked, Free: s.free(ctx, ps, db.FreeWho{UserID: id})})
 }
 
 // publicCard is the page's picture for a link preview.

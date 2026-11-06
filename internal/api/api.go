@@ -16,7 +16,6 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -40,6 +39,7 @@ import (
 	"github.com/FreshLabDev/maply/internal/free"
 	"github.com/FreshLabDev/maply/internal/geo"
 	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/FreshLabDev/maply/internal/people"
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/scoring"
 )
@@ -96,43 +96,15 @@ type Sharer interface {
 	PrepareScore(ctx context.Context, sh card.Share) (string, error)
 }
 
-// Avatars gives the kept profile photos of players as square JPEGs, leaving
-// out people who have none. Kept and Refresh never wait for Telegram; Fetch
-// asks it for the ones not asked today.
+// Avatars gives the kept profile photos of players: Faces the addresses of
+// the photos kept for ids and Face the photo at one, both without waiting
+// for Telegram; Fetch asks it for the ones not asked today, and Refresh does
+// so in the background.
 type Avatars interface {
-	Kept(ctx context.Context, ids []int64) map[int64][]byte
+	Faces(ctx context.Context, ids []int64) map[int64]string
+	Face(ctx context.Context, key string) ([]byte, bool)
 	Fetch(ctx context.Context, ids []int64) map[int64][]byte
 	Refresh(ids []int64)
-}
-
-// faces is the kept photos of ids, and asks Telegram in the background for
-// the ones not asked today, so that a new face or a changed one shows on a
-// later page.
-func (s *Server) faces(ctx context.Context, ids []int64) map[int64][]byte {
-	if s.Avatars == nil || len(ids) == 0 {
-		return nil
-	}
-	seen := make(map[int64]bool, len(ids))
-	uniq := ids[:0:0]
-	for _, id := range ids {
-		if id != 0 && !seen[id] {
-			seen[id] = true
-			uniq = append(uniq, id)
-		}
-	}
-	if len(uniq) == 0 {
-		return nil
-	}
-	s.Avatars.Refresh(uniq)
-	return s.Avatars.Kept(ctx, uniq)
-}
-
-// photoURL is a kept photo as the data: URL the app draws, or nothing.
-func photoURL(b []byte) string {
-	if b == nil {
-		return ""
-	}
-	return "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(b)
 }
 
 type Server struct {
@@ -269,6 +241,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/p/{slug}", s.publicPage)
 	mux.HandleFunc("GET /api/p/{slug}/card.png", s.publicCard)
 	mux.HandleFunc("GET /img/{key}", s.image)
+	mux.HandleFunc("GET /face/{key}", s.facePhoto)
 	mux.HandleFunc("GET /thumb/{name}", s.thumb)
 	mux.HandleFunc("GET /og/day/{name}", s.og)
 	s.freeRoutes(mux)
@@ -722,24 +695,19 @@ type placeView struct {
 }
 
 // line is one answer of the chat, for its marker on the map. Before the
-// reveal another player's line has no name.
+// reveal another player's line is Hidden.
 type line struct {
 	// Key is the same as the person's row in the world's table, so two answers
 	// on one spot stay two markers.
-	Key    string   `json:"key"`
-	Name   string   `json:"name"`
+	Key string `json:"key"`
+	people.Person
 	Lat    float64  `json:"lat"`
 	Lon    float64  `json:"lon"`
 	Km     *float64 `json:"km"`
 	Points *int     `json:"points"`
 	Bonus  *int     `json:"bonus"`
 	// Speed is the bonus for answering early, inside Points.
-	Speed int  `json:"speed,omitempty"`
-	Me    bool `json:"me,omitempty"`
-	// Photo is a data: URL of the profile photo, for the mark on the map.
-	Photo string `json:"photo,omitempty"`
-	// Who is the player's handle for the mini profile, next to a name only.
-	Who string `json:"who,omitempty"`
+	Speed int `json:"speed,omitempty"`
 }
 
 // worldNow is where the person stands among everyone who has answered so far,
@@ -751,29 +719,19 @@ type worldNow struct {
 }
 
 // boardLine is one row of the world's table under the map. Group marks the
-// players of the chat the app was opened from. Hidden is a row whose name is
-// not out yet, a site player's too: a name typed on the site comes out with
-// the rest of the world's, and a guest without one reads "Guest" then.
+// players of the chat the app was opened from. A row whose name is not out
+// yet is Hidden, a site player's too: a name typed on the site comes out
+// with the rest of the world's, and a guest without one reads "Guest" then.
 type boardLine struct {
 	// Key tells the rows apart from one poll to the next without saying whose
 	// they are: it is keyed by a secret the process makes at start.
-	Key    string  `json:"key"`
-	Rank   int     `json:"rank"`
-	Name   string  `json:"name,omitempty"`
+	Key  string `json:"key"`
+	Rank int    `json:"rank"`
+	people.Person
 	Km     float64 `json:"km"`
 	Points int     `json:"points"`
 	Bonus  int     `json:"bonus"`
 	Speed  int     `json:"speed,omitempty"`
-	Me     bool    `json:"me,omitempty"`
-	Group  bool    `json:"group,omitempty"`
-	Hidden bool    `json:"hidden,omitempty"`
-	Site   bool    `json:"site,omitempty"`
-	Photo  string  `json:"photo,omitempty"`
-	// Who is the player's handle for the mini profile, next to a name only.
-	Who string `json:"who,omitempty"`
-	// Anon is a player who hid themselves: "Anonymous" with a plain
-	// avatar, and no photo or handle.
-	Anon bool `json:"anon,omitempty"`
 }
 
 // boardShown is how many of the world's best rows go to the app. Your own row
@@ -999,37 +957,23 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		OpensAt: opensAt,
 		Version: version,
 	}
-	// A Telegram photo goes wherever its name does: before the reveal only
-	// your own, then the chat's and the world's rows the board names.
-	ids := []int64{p.user.ID}
-	if !live {
-		for _, g := range guesses {
-			ids = append(ids, g.UserID)
-		}
-		for i, e := range world.Entries {
-			if i >= boardShown {
-				break
-			}
-			if e.UserID != 0 {
-				ids = append(ids, e.UserID)
-			}
-		}
-	}
-	photos := s.faces(ctx, ids)
 	secret := s.boardSecret()
 	viewer := p.viewer()
-	handles := s.handles()
-	scope := handleScope("result", p.date, viewer)
 	for _, g := range guesses {
 		me := g.UserID == p.user.ID
-		l := line{Key: boardKey(secret, p.date, viewer, db.Entry{UserID: g.UserID}), Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km, Me: me}
+		l := line{Key: boardKey(secret, p.date, viewer, db.Entry{UserID: g.UserID}), Lat: g.Pin.Lat, Lon: g.Pin.Lon, Km: g.Km}
 		if g.PtsKm != nil && g.PtsBonus != nil {
 			total := g.Total()
 			l.Points, l.Bonus, l.Speed = &total, g.PtsBonus, g.Speed()
 		}
-		if me || !live {
-			l.Name, l.Who = g.FirstName, handles.Of(g.UserID, scope)
-			l.Photo = photoURL(photos[g.UserID])
+		// The chat's answers are its own players': named at its reveal,
+		// whoever hid themselves elsewhere.
+		switch {
+		case me || !live:
+			l.Person = people.Telegram(g.UserID, g.FirstName, me)
+			l.Group = !me && p.kind == "group"
+		default:
+			l.Person = people.Unnamed(false)
 		}
 		resp.Table = append(resp.Table, l)
 	}
@@ -1043,21 +987,18 @@ func (s *Server) buildResultSince(ctx context.Context, p play, now time.Time, si
 		}
 	}
 	isMe := func(e db.Entry) bool { return e.UserID != 0 && e.UserID == p.user.ID }
-	names := nameRule{who: func(id int64) string { return handles.Of(id, scope) }, as: anonName(p.lang)}
-	if worldOpen {
-		// Named for everyone now: a player who hid themselves is not, outside
-		// their own group, whose rows are named above.
-		var ids []int64
-		for i, e := range world.Entries {
-			if e.UserID != 0 && !group[e.UserID] && !isMe(e) && i < boardShown {
-				ids = append(ids, e.UserID)
-			}
-		}
-		if names.hidden, err = s.maskHidden(ctx, 0, p.user.ID, ids); err != nil {
-			return resultResponse{}, err
-		}
+	resp.Board = board(secret, p.date, viewer, world, isMe, group, !live, worldOpen)
+	who := make([]*people.Person, 0, len(resp.Table)+len(resp.Board))
+	for i := range resp.Table {
+		who = append(who, &resp.Table[i].Person)
 	}
-	resp.Board = board(secret, p.date, viewer, world, isMe, group, photos, !live, worldOpen, names)
+	for i := range resp.Board {
+		who = append(who, &resp.Board[i].Person)
+	}
+	ask := dressAsk{chatID: p.chatID, viewer: p.user.ID, lang: p.lang, scope: handleScope("result", p.date, viewer)}
+	if err := s.dress(ctx, ask, who...); err != nil {
+		return resultResponse{}, err
+	}
 	resp.Players = world.Players()
 	return resp, nil
 }
@@ -1120,7 +1061,7 @@ func worldNowOf(p play, w db.World, pins [][2]float64) *worldNow {
 // Your group's names open at the chat's reveal, groupOpen; everyone else's
 // once the day has closed in every zone, worldOpen, so a group in Tokyo does
 // not learn who is who in a Kyiv group still guessing.
-func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.Entry) bool, group map[int64]bool, photos map[int64][]byte, groupOpen, worldOpen bool, names nameRule) []boardLine {
+func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.Entry) bool, group map[int64]bool, groupOpen, worldOpen bool) []boardLine {
 	out := make([]boardLine, 0, min(len(w.Entries), boardShown+len(group)+1))
 	for i, e := range w.Entries {
 		me := isMe(e)
@@ -1128,33 +1069,21 @@ func board(secret []byte, d round.Date, viewer int64, w db.World, isMe func(db.E
 		if i >= boardShown && !me && !inGroup {
 			continue
 		}
-		l := boardLine{Key: boardKey(secret, d, viewer, e), Rank: e.Rank, Km: e.Km, Points: e.Points, Bonus: e.Bonus, Speed: e.Speed,
-			Me: me, Group: inGroup && !me, Site: e.Site()}
+		l := boardLine{Key: boardKey(secret, d, viewer, e), Rank: e.Rank, Km: e.Km, Points: e.Points, Bonus: e.Bonus, Speed: e.Speed}
 		switch {
-		case !me && !(groupOpen && inGroup) && worldOpen && names.hidden[e.UserID]:
-			l.Name, l.Anon = names.as, true
-		case me || worldOpen || groupOpen && inGroup:
-			l.Name = e.Name
-			if e.UserID != 0 && names.who != nil {
-				l.Who = names.who(e.UserID)
-			}
+		case !(me || worldOpen || groupOpen && inGroup):
+			l.Person = people.Unnamed(me)
+		case e.Site():
+			l.Person = people.SitePlayer(e.Name, me)
 		default:
-			l.Hidden = true
+			l.Person = people.Telegram(e.UserID, e.Name, me)
 		}
-		if e.UserID != 0 && !l.Anon && !l.Hidden {
-			l.Photo = photoURL(photos[e.UserID])
-		}
+		// Your group's rows keep their names, whoever hid themselves from
+		// the world.
+		l.Group = inGroup && !me
 		out = append(out, l)
 	}
 	return out
-}
-
-// nameRule is how the world's table names players once it may: hidden
-// players are called as, and a named Telegram player carries their handle.
-type nameRule struct {
-	hidden map[int64]bool
-	as     string
-	who    func(userID int64) string
 }
 
 // handleScope names the table a handle stands in: a kind of view, its day

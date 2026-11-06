@@ -29,7 +29,7 @@ import (
 // handler is built.
 func (s *Server) withViewer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.Accounts == nil || strings.HasPrefix(r.URL.Path, "/img/") || r.URL.Path == "/api/log" {
+		if s.Accounts == nil || strings.HasPrefix(r.URL.Path, "/img/") || strings.HasPrefix(r.URL.Path, "/face/") || r.URL.Path == "/api/log" {
 			next.ServeHTTP(w, r)
 			return
 		}

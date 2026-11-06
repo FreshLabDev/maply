@@ -20,13 +20,29 @@ const FOLD = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"
 const GROUP = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="4.3" cy="3.9" r="2"/><circle cx="8.6" cy="4.5" r="1.6"/>' +
   '<path d="M.6 10.8c0-2.2 1.6-3.6 3.7-3.6s3.7 1.4 3.7 3.6zM8.9 10.8c0-1.4-.4-2.5-1.2-3.2.3-.1.6-.1.9-.1 1.7 0 2.9 1.2 2.9 3.3z"/></svg>';
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
-// A Telegram photo comes as a data: URL of a JPEG maply encoded; anything else keeps the letter.
-const PHOTO = /^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/;
+// Every player on every screen is drawn by faceOf and named by nameOf, from a person as the API sends one (name, photo,
+// me, site, anon, hidden; internal/people): the server has already decided what this viewer may see of them. A row
+// whose name is not out yet is a question mark, a player who hid themselves ("Anonymous") the plain figure, a Telegram
+// player their photo, anyone else their first letter. cls adds classes to the square.
+// A photo is a kept picture at /face/<key>.jpg; anything else keeps the letter.
+const PHOTO = /^\/face\/[0-9a-f]{32}\.jpg$/;
 // MY_FACE is the person's own Telegram photo: their own face is it wherever it is drawn, the letter until it comes.
 let MY_FACE = "";
-const av = (who, me, photo) => (photo = photo || (me ? MY_FACE : "")) && PHOTO.test(photo)
-  ? '<i class="av ph' + (me ? ' me' : '') + '"><img src="' + photo + '" alt=""></i>'
-  : '<i class="av' + (me ? ' me' : '') + '">' + esc(initial(who)) + '</i>';
+const FIGURE = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="5.2" r="3" fill="currentColor"/><path d="M2 15c0-3.4 2.7-5.6 6-5.6s6 2.2 6 5.6z" fill="currentColor"/></svg>';
+function faceOf(p, cls) {
+  p = p || {};
+  const c = "av" + (p.me ? " me" : "") + (cls ? " " + cls : "");
+  if (p.hidden) return '<i class="' + c + ' anon">?</i>';
+  if (p.anon && !p.me) return '<i class="' + c + ' nobody">' + FIGURE + '</i>';
+  const photo = p.photo || (p.me ? MY_FACE : "");
+  if (photo && PHOTO.test(photo)) return '<i class="' + c + ' ph"><img src="' + photo + '" alt=""></i>';
+  return '<i class="' + c + '">' + esc(initial(nameOf(p))) + '</i>';
+}
+// A player's name: their own, "Anonymous" as the server wrote it, "Guest" for a site player without one; nothing while
+// it is not out yet.
+const nameOf = (p) => p.hidden ? "" : p.name || (p.site ? T("guest") : "?");
+// The person of a row the API sent, without the rest of the row.
+const personOf = (r) => ({ name: r.name || "", photo: r.photo || "", me: !!r.me, site: !!r.site, anon: !!r.anon, hidden: !!r.hidden });
 // The own photo is asked for once a launch, beside everything else; the faces already drawn take it when it comes.
 function loadFace() {
   const site = typeof ME !== "undefined" && ME && ME.account && ME.account.telegram;
@@ -34,7 +50,7 @@ function loadFace() {
   getJSON("/api/face").then((d) => {
     if (!d || !d.photo || !PHOTO.test(d.photo)) return;
     MY_FACE = d.photo;
-    document.querySelectorAll("i.av.me:not(.ph)").forEach((el) => { el.classList.add("ph"); el.innerHTML = '<img src="' + MY_FACE + '" alt="">'; });
+    document.querySelectorAll("i.av.me:not(.ph):not(.anon)").forEach((el) => { el.classList.add("ph"); el.innerHTML = '<img src="' + MY_FACE + '" alt="">'; });
     if (typeof meLetter === "function") meLetter();
   }).catch(() => {});
 }
@@ -422,13 +438,13 @@ function boardRow(r, i, cls, count) {
   const v = (n) => count ? "0" : fmt(n), b0 = r.pts - bonusOf(r.lvl) - r.sp;
   // Your own face shows your initial: the name beside it already says "you".
   const n = r.rank || i + 1, grp = r.grp ? '<b class="gi" title="' + esc(T("in_group")) + '">' + GROUP + '</b>' : "";
-  const face = '<i class="fc">' + (r.anon ? '<i class="av anon">?</i>' : r.nobody ? anonAv() : av(r.me ? r.name || "" : r.who, r.me, r.photo)) + grp + '</i>';
+  const face = '<i class="fc">' + faceOf(r) + grp + '</i>';
   // A hidden name in this group opens at the chat's reveal; anyone else's once the day is over in every zone.
   const wait = T(r.grp && PHASE === "live" ? "anon_row" : "anon_world");
-  const label = r.anon ? ' aria-label="' + esc([wait, r.grp ? T("in_group") : "", kmT(r.d), fmt(r.pts)].filter(Boolean).join(", ")) + '"' : "";
-  return '<div class="r' + (r.me ? " me" : "") + (r.anon ? " anon" : "") + cls + '" data-key="' + esc(r.key || "") + '"' + label + '><em' + (n <= 3 ? ' class="m' + n + '"' : "") + '>' + (typeof n === "number" ? fmt(n) : n) + '</em>' + face +
-    '<span' + (r.handle && !r.anon ? ' data-who="' + esc(r.handle) + '"' + (count ? '' : ' role="button" tabindex="0"') : '') + '>' + (r.anon ? "•••" : esc(r.who)) + '</span>' +
-    '<span class="hit" data-rest="' + esc(r.anon ? wait : T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + barOf(r) + '</span></span>' +
+  const label = r.hidden ? ' aria-label="' + esc([wait, r.grp ? T("in_group") : "", kmT(r.d), fmt(r.pts)].filter(Boolean).join(", ")) + '"' : "";
+  return '<div class="r' + (r.me ? " me" : "") + (r.hidden ? " anon" : "") + cls + '" data-key="' + esc(r.key || "") + '"' + label + '><em' + (n <= 3 ? ' class="m' + n + '"' : "") + '>' + (typeof n === "number" ? fmt(n) : n) + '</em>' + face +
+    '<span' + (r.handle && !r.hidden ? ' data-who="' + esc(r.handle) + '"' + (count ? '' : ' role="button" tabindex="0"') : '') + '>' + (r.hidden ? "•••" : esc(r.who)) + '</span>' +
+    '<span class="hit" data-rest="' + esc(r.hidden ? wait : T("short_of", { points: fmt(5000 - (r.pts - r.sp)) })) + '"><span class="bar">' + barOf(r) + '</span></span>' +
     '<b class="s" data-b="' + b0 + '" data-l="' + r.lvl + '" data-sp="' + r.sp + '">' + v(r.pts) + '</b><span class="k">' + kmT(r.d) + '</span></div>';
 }
 // Under the map the world's top five show, yours among them (the fifth gives way if you are lower), so the height does not
@@ -668,22 +684,20 @@ document.addEventListener("visibilitychange", back);
 if (inTg && tg.onEvent) tg.onEvent("activated", back);
 // The chat's answers, for the markers on the map. A marker's key is its pin: it stays the same when the names open, so only
 // answers that are really new pop in.
-const rowsOf = (res) => res.table.map((r) => {
-  const anon = res.phase === "live" && !r.me;
-  return { who: r.me ? T("you") : r.name, at: [r.lon, r.lat], d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0,
-    me: !!r.me, photo: r.photo, anon, key: r.key || r.lat.toFixed(5) + "," + r.lon.toFixed(5) };
-}).sort((a, b) => b.pts - a.pts || a.d - b.d);
+const rowsOf = (res) => res.table.map((r) => ({ ...personOf(r), who: r.me ? T("you") : nameOf(r), at: [r.lon, r.lat], d: r.km || 0,
+  pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0, key: r.key || r.lat.toFixed(5) + "," + r.lon.toFixed(5) }))
+  .sort((a, b) => b.pts - a.pts || a.d - b.d);
 // The world's table, best first: everyone scored so far today, in the DM too. The server's key tells the rows apart
 // between polls without saying whose they are, and says which names are not out yet. A site guest without a name reads
 // "Guest" once the world's names are out.
 function boardOf(res) {
-  const rows = (res.board || []).map((r) => ({ who: r.me ? T("you") : r.name || (r.site ? T("guest") : ""), name: r.name || "",
-    d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0, me: !!r.me, grp: !!r.group, photo: r.photo,
-    anon: !!r.hidden, nobody: !!r.anon, key: r.key, rank: r.rank, handle: r.who || "" }));
+  const rows = (res.board || []).map((r) => ({ ...personOf(r), who: r.me ? T("you") : nameOf(r),
+    d: r.km || 0, pts: r.points || 0, lvl: levelOf(r.bonus), sp: r.speed || 0, grp: !!r.group,
+    key: r.key, rank: r.rank, handle: r.who || "" }));
   // An answer the site kept only in the browser is scored on the spot and has no place in the world: it shows as your
   // row without a rank, rather than "you didn't answer".
   const own = !rows.some((r) => r.me) && (res.table || []).find((r) => r.me && r.points != null);
-  if (own) rows.push({ who: T("you"), name: "", d: own.km || 0, pts: own.points, lvl: levelOf(own.bonus), sp: own.speed || 0, me: true, key: own.key || "me", rank: "–" });
+  if (own) rows.push({ ...personOf(own), who: T("you"), d: own.km || 0, pts: own.points, lvl: levelOf(own.bonus), sp: own.speed || 0, key: own.key || "me", rank: "–" });
   return rows;
 }
 // The plate under the table: where you stand in the world. Until the day is over in every zone the place is "so far".
@@ -705,7 +719,7 @@ function setLive(res) {
 // The others' marks on the map. An unnamed one carries a question mark and its distance instead of a name; at the reveal
 // the names take the question marks' place in the same marks.
 const friendsOf = (rows) => rows.filter((r) => !r.me).map((f) => ({ key: f.key, at: f.at, d: f.d,
-  label: f.anon ? kmT(f.d) : f.who, face: f.anon ? '<i class="av anon">?</i>' : av(f.who, false, f.photo) }));
+  label: f.hidden ? kmT(f.d) : f.who, face: faceOf(f) }));
 // A later look at the live result: new answers slide in, and at the reveal the names take the question marks' place.
 function repaint(res) {
   const was = PHASE;
@@ -819,15 +833,12 @@ async function share() {
   shareLink();
 }
 /* ---------- The sheet ---------- */
-// A page over the game: the days (days.js) and every answer of the day. Each avatar in a table carries where the player
-// came from: Telegram or the site.
-const SRC_TG = '<svg class="src" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#2AABEE"/><path fill="#fff" d="M5.4 11.7l10.9-4.2c.5-.2 1 .1.8.9l-1.9 8.8c-.1.6-.5.8-1 .5l-2.8-2.1-1.4 1.3c-.2.2-.3.3-.6.3l.2-2.9 5.3-4.8c.2-.2 0-.3-.3-.1l-6.5 4.1-2.8-.9c-.6-.2-.6-.6.1-.9z"/></svg>';
+// A page over the game: the days (days.js) and every answer of the day. A site player's face carries the site's mark.
 const SRC_SITE = '<svg class="src" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#FFFFFF"/><g fill="none" stroke="#245A3C" stroke-width="1.6"><circle cx="12" cy="12" r="6.5"/><path d="M5.5 12h13M12 5.5c-2.4 2.4-2.4 10.6 0 13M12 5.5c2.4 2.4 2.4 10.6 0 13"/></g></svg>';
 // A distance as the bot writes it: metres under a kilometre, one decimal under ten.
 const kmIn = (tx, lang, km) => km < 1 ? textIn(tx, "unit.m", { m: numIn(lang, km * 1000) })
   : textIn(tx, "unit.km", { km: numIn(lang, km, km >= 10 ? 0 : 1) });
 const kmT = (km) => kmIn(TX, LANG, km);
-const nameOf = (r) => r.name || (r.site ? T("guest") : "?");
 // Sofia Sans draws Cyrillic in its Bulgarian forms unless told the language. A name can be in any script; in an interface
 // that is not Cyrillic, Russian forms are the likelier right ones for a Cyrillic name.
 const nameLang = () => ["ru", "uk", "be"].includes(LANG) ? LANG : "ru";

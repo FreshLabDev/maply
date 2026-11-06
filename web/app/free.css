@@ -182,6 +182,10 @@
 .fr-ribbon .av.done { background: var(--ink); color: var(--field-deep); }
 .fr-ribbon .av.away { background: var(--field-deep); color: var(--ink-muted); outline: 2px dashed var(--field-tint); outline-offset: -2px; }
 .fr-ribbon .av.me { box-shadow: inset 0 -3px 0 var(--speed); }
+/* A face with a photo is dimmed until the answer is in, then whole with a white ring. */
+.fr-ribbon .av.ph { opacity: .5; }
+.fr-ribbon .av.ph.done { opacity: 1; box-shadow: 0 0 0 2px var(--ink); }
+.fr-ribbon .av.ph.me { border-bottom: 3px solid var(--speed); }
 .fr-m .fr-skip { top: auto; bottom: calc(var(--foot) + 94px); }
 
 /* The plates over the open map, as the day's: they exist only there and fade in. */

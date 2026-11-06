@@ -156,10 +156,8 @@ window.Leaders = (() => {
     else h += '<ol class="lead-rows">' + d.rows.map((r, i) => {
       // A rank that skips ahead: a dashed line says there are rows between.
       const cls = [r.me ? "me" : "", r.rank === 1 ? "m1" : "", i && r.rank > d.rows[i - 1].rank + 1 ? "skip" : ""].filter(Boolean).join(" ");
-      const name = r.me ? T("you") : r.name || T("guest");
-      // The day's table's faces: a photo only when the server sent one (opened from a group the player is in), else
-      // the letter; "Anonymous" has the plain face and never a photo.
-      const face = r.anon && !r.me ? anonAv() : av(r.name || name, r.me, r.photo);
+      const name = r.me ? T("you") : nameOf(r);
+      const face = faceOf(r);
       return '<li' + (cls ? ' class="' + cls + '"' : "") + '><em>' + fmt(r.rank) + '</em><span class="lead-a">' + face + '</span><span class="lead-n"' +
         (r.who && !r.me ? ' data-who="' + esc(r.who) + '" role="button" tabindex="0"' : "") + '>' +
         // A name in its own direction, inside a row that keeps the page's: an Arabic name stays at the start.

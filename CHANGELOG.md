@@ -11,6 +11,24 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+For the operator: migration 027 gives each kept photo an address; it runs by
+itself at start and takes a moment.
+
+### Changed
+
+- Players are shown the same way on every screen: the day's and the world's
+  tables, the days page, the leaderboards, the profiles and the games with
+  friends take the name, the photo and "Anonymous" from one place on the
+  server and draw the face one way. Telegram photos now show in a party
+  too: the lobby, the tables, the row of who has answered and the pins on
+  the map.
+- A photo is sent as a short link that the browser keeps, not inside every
+  answer: the result's polls are smaller and a face loads once.
+
+### Fixed
+
+- Someone else's public profile showed the viewer's own photo on its card.
+
 ## v0.0.1-alpha.17 - 2026-11-06
 
 For the operator: no migrations and no new settings; the image replaces

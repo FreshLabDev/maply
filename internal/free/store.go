@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/FreshLabDev/maply/internal/people"
 )
 
 // Who is a player: a Telegram person, or a site player in a browser. Exactly
@@ -19,6 +20,14 @@ type Who struct {
 }
 
 func (w Who) Valid() bool { return (w.UserID != 0) != (w.Player != "") }
+
+// person is the player as a row shows them, by the name the game keeps.
+func (w Who) person(name string, me bool) people.Person {
+	if w.UserID != 0 {
+		return people.Telegram(w.UserID, name, me)
+	}
+	return people.SitePlayer(name, me)
+}
 
 // Telegram is whether the player is a Telegram person: the one kind recorded
 // in core and sent invitations by the bot.
