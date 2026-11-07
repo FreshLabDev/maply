@@ -19,6 +19,37 @@
 //   pano.still(on)                        the tape stops following while it is out of sight
 //   pano.viewer                           the Pannellum viewer, null before the first show()
 //   pano.destroy()
+function enablePanoWheelZoom(box, getViewer, onWheel = () => {}) {
+  const wheel = (e) => {
+    const viewer = getViewer();
+    const canvas = viewer && viewer.getRenderer()?.getCanvas();
+    if (!canvas?.clientWidth || !canvas.clientHeight) return;
+    e.preventDefault();
+    onWheel();
+    if (!e.deltaY) return;
+
+    viewer.stopMovement();
+    const at = viewer.mouseEventToCoords(e);
+    const before = viewer.getHfov();
+    const [min, max] = viewer.getHfovBounds();
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? box.clientHeight : 1;
+    viewer.setHfov(Math.max(min, Math.min(max, before * Math.exp(e.deltaY * unit * 0.0015))), 0);
+    if (viewer.getHfov() === before) return;
+
+    const rect = box.getBoundingClientRect();
+    const x = 2 * (e.clientX - rect.left) / canvas.clientWidth - 1;
+    const y = (1 - 2 * (e.clientY - rect.top) / canvas.clientHeight) * canvas.clientHeight / canvas.clientWidth;
+    const focal = 1 / Math.tan(viewer.getHfov() * Math.PI / 360);
+    const reach = Math.hypot(y, focal) / Math.hypot(x, y, focal);
+    const tilt = Math.asin(Math.max(-1, Math.min(1, Math.sin(at[0] * Math.PI / 180) / reach))) - Math.atan2(y, focal);
+    viewer.setPitch(tilt * 180 / Math.PI, 0);
+    const yaw = viewer.mouseEventToCoords(e)[1];
+    viewer.setYaw(viewer.getYaw() + ((at[1] - yaw + 540) % 360) - 180, 0);
+  };
+  box.addEventListener("wheel", wheel, { passive: false });
+  return () => box.removeEventListener("wheel", wheel);
+}
+
 function createPano(o) {
   const box = o.el, tapeEl = o.compass, tapeSvg = o.tape, haptic = o.haptic || (() => {});
   const handlers = {};
@@ -41,7 +72,7 @@ function createPano(o) {
     // went from 105° to 20°. Its keys listen only while its box has the focus; the screen's keys work everywhere.
     viewer = pannellum.viewer(box, Object.assign({
       type: "equirectangular", panorama: pic.image, autoLoad: true, showControls: false, compass: false,
-      hfov: base(), minHfov: 20, maxHfov: 110, friction: 0.1, keyboardZoom: false, disableKeyboardCtrl: true, doubleClickZoom: false,
+      hfov: base(), minHfov: 20, maxHfov: 110, friction: 0.1, mouseZoom: false, keyboardZoom: false, disableKeyboardCtrl: true, doubleClickZoom: false,
       backgroundColor: [0.10, 0.25, 0.17], pitch: 0
     }, pic.kind === "panorama" ? {} : { haov: 80, vaov: 50, maxHfov: 80 }));
     viewer.on("load", () => { tries = 0; emit("load"); });
@@ -92,7 +123,7 @@ function createPano(o) {
   };
   box.addEventListener("pointerup", up);
   box.addEventListener("pointercancel", up);
-  box.addEventListener("wheel", () => emit("touch"), { passive: true });
+  const removeWheelZoom = enablePanoWheelZoom(box, () => viewer, () => emit("touch"));
 
   // Keys move the view while they are held, slower when zoomed in, as a drag does.
   const steering = { yaw: 0, pitch: 0, zoom: 0 };
@@ -209,7 +240,7 @@ function createPano(o) {
     get viewer() { return viewer; },
     destroy() {
       alive = false; clearTimeout(again); cancelAnimationFrame(steerRaf); cancelAnimationFrame(spinRaf);
-      removeEventListener("resize", fit);
+      removeEventListener("resize", fit); removeWheelZoom();
       if (viewer) { try { viewer.destroy(); } catch {} viewer = null; }
     },
   };

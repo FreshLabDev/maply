@@ -392,10 +392,11 @@ function view360(d) {
   if (typeof pannellum === "undefined") return;
   DVIEW = pannellum.viewer("dPano", Object.assign({
     type: "equirectangular", panorama: d.image, autoLoad: true, showControls: false, compass: false,
-    hfov: 100, minHfov: 20, maxHfov: 110, friction: 0.1, keyboardZoom: false, disableKeyboardCtrl: true,
+    hfov: 100, minHfov: 20, maxHfov: 110, friction: 0.1, mouseZoom: false, keyboardZoom: false, disableKeyboardCtrl: true,
     backgroundColor: [0.10, 0.25, 0.17], pitch: 0
   }, d.kind === "panorama" ? {} : { haov: 80, vaov: 50, maxHfov: 80 }));
   DVIEW.on("error", () => toast(T("no_image")));
+  enablePanoWheelZoom(box.querySelector("#dPano"), () => DVIEW);
 }
 
 // closeView puts the panorama away, and its WebGL with it, and gives the sheet's Back to the page under it.

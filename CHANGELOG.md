@@ -11,6 +11,10 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Fixed
+
+- The wheel zooms the place panorama without coasting and keeps the point under the cursor, both during play and in past days.
+
 ## v0.0.1-alpha.19 - 2026-11-06
 
 For the operator: three migrations. 028 sets aside the days nobody
