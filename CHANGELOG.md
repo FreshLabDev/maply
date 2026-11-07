@@ -13,7 +13,7 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ### Fixed
 
-- The wheel zooms the place panorama without coasting and keeps the point under the cursor, both during play and in past days.
+- The wheel zooms without coasting, and double-click zoom stays under the pointer instead of jumping to the centre. Both work during play and in past days.
 
 ## v0.0.1-alpha.19 - 2026-11-06
 

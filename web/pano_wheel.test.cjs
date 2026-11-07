@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "app/pano.js"), "utf8");
-const enablePanoWheelZoom = vm.runInNewContext(source + "\nenablePanoWheelZoom");
+const { enablePanoWheelZoom, zoomPanoAt } = vm.runInNewContext(source + "\n({enablePanoWheelZoom, zoomPanoAt})");
 
 function setup({ hfov = 100, pitch = 20, yaw = 175, min = 20, max = 110 } = {}) {
   const listeners = new Map();
@@ -22,6 +22,12 @@ function setup({ hfov = 100, pitch = 20, yaw = 175, min = 20, max = 110 } = {}) 
     getHfov: () => hfov,
     getHfovBounds: () => [min, max],
     setHfov(value) { hfov = Math.max(min, Math.min(max, value)); },
+    lookAt(nextPitch, nextYaw, nextHfov, duration) {
+      this.setPitch(nextPitch);
+      this.setYaw(nextYaw);
+      this.setHfov(nextHfov);
+      this.lastDuration = duration;
+    },
     getPitch: () => pitch,
     setPitch(value) { pitch = value; },
     getYaw: () => yaw,
@@ -70,6 +76,28 @@ test("wheel zoom is immediate and keeps an off-centre point under the cursor", (
   assert.equal(pano.listeners.has("wheel"), false);
 });
 
+test("double click zoom in and back out end at the clicked point", () => {
+  const pano = setup();
+  const pointer = { clientX: 730, clientY: 130 };
+  const before = pano.viewer.mouseEventToCoords(pointer);
+  assert.equal(zoomPanoAt(pano.box, pano.viewer, pointer, 50, 350), true);
+  assert.equal(pano.viewer.getHfov(), 50);
+  assert.equal(pano.viewer.lastDuration, 350);
+  assertAnchor(before, pano.viewer.mouseEventToCoords(pointer));
+  assert.equal(zoomPanoAt(pano.box, pano.viewer, pointer, 100, 350), true);
+  assert.equal(pano.viewer.getHfov(), 100);
+  assertAnchor(before, pano.viewer.mouseEventToCoords(pointer));
+  assert.equal(pano.stopped, 2);
+});
+
+test("double click stays anchored across the yaw seam", () => {
+  const pano = setup({ yaw: -179, pitch: -30, hfov: 80 });
+  const pointer = { clientX: 870, clientY: 320 };
+  const before = pano.viewer.mouseEventToCoords(pointer);
+  assert.equal(zoomPanoAt(pano.box, pano.viewer, pointer, 40, 350), true);
+  assertAnchor(before, pano.viewer.mouseEventToCoords(pointer));
+});
+
 test("zoom out preserves the point across the yaw seam and respects field-of-view bounds", () => {
   const pano = setup({ yaw: -179, pitch: -30, hfov: 30 });
   const pointer = { clientX: 870, clientY: 320 };
@@ -92,11 +120,15 @@ test("zoom at the centre does not move the view, and a bound does not pan it", (
   pano.wheel(centre.clientX, centre.clientY, 120);
   assert.equal(pano.viewer.getPitch(), start[0]);
   assert.equal(pano.viewer.getYaw(), start[1]);
+  pano.viewer.setHfov(80);
+  assert.equal(zoomPanoAt(pano.box, pano.viewer, centre, 100, 350), false);
+  assert.deepEqual([pano.viewer.getPitch(), pano.viewer.getYaw()], start);
 });
 
 test("ignores a viewer that has not initialized its renderer", () => {
   const pano = setup();
   pano.viewer.getRenderer = () => null;
   assert.equal(pano.wheel(500, 200, -120).prevented, false);
+  assert.equal(zoomPanoAt(pano.box, pano.viewer, { clientX: 500, clientY: 200 }, 50, 350), false);
   assert.equal(pano.stopped, 0);
 });

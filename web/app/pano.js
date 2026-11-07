@@ -19,32 +19,36 @@
 //   pano.still(on)                        the tape stops following while it is out of sight
 //   pano.viewer                           the Pannellum viewer, null before the first show()
 //   pano.destroy()
+function zoomPanoAt(box, viewer, e, nextHfov, duration = 0) {
+  const canvas = viewer?.getRenderer()?.getCanvas();
+  if (!canvas?.clientWidth || !canvas.clientHeight) return false;
+  viewer.stopMovement();
+  const at = viewer.mouseEventToCoords(e);
+  const [min, max] = viewer.getHfovBounds();
+  const hfov = Math.max(min, Math.min(max, nextHfov));
+  if (hfov === viewer.getHfov()) return false;
+
+  const rect = box.getBoundingClientRect();
+  const x = 2 * (e.clientX - rect.left) / canvas.clientWidth - 1;
+  const y = (1 - 2 * (e.clientY - rect.top) / canvas.clientHeight) * canvas.clientHeight / canvas.clientWidth;
+  const focal = 1 / Math.tan(hfov * Math.PI / 360);
+  const reach = Math.hypot(y, focal) / Math.hypot(x, y, focal);
+  const tilt = Math.asin(Math.max(-1, Math.min(1, Math.sin(at[0] * Math.PI / 180) / reach))) - Math.atan2(y, focal);
+  const yawOffset = Math.atan2(x, focal * Math.cos(tilt) - y * Math.sin(tilt)) * 180 / Math.PI;
+  viewer.lookAt(tilt * 180 / Math.PI, at[1] - yawOffset, hfov, duration);
+  return true;
+}
+
 function enablePanoWheelZoom(box, getViewer, onWheel = () => {}) {
   const wheel = (e) => {
     const viewer = getViewer();
-    const canvas = viewer && viewer.getRenderer()?.getCanvas();
+    const canvas = viewer?.getRenderer()?.getCanvas();
     if (!canvas?.clientWidth || !canvas.clientHeight) return;
     e.preventDefault();
     onWheel();
     if (!e.deltaY) return;
-
-    viewer.stopMovement();
-    const at = viewer.mouseEventToCoords(e);
-    const before = viewer.getHfov();
-    const [min, max] = viewer.getHfovBounds();
     const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? box.clientHeight : 1;
-    viewer.setHfov(Math.max(min, Math.min(max, before * Math.exp(e.deltaY * unit * 0.0015))), 0);
-    if (viewer.getHfov() === before) return;
-
-    const rect = box.getBoundingClientRect();
-    const x = 2 * (e.clientX - rect.left) / canvas.clientWidth - 1;
-    const y = (1 - 2 * (e.clientY - rect.top) / canvas.clientHeight) * canvas.clientHeight / canvas.clientWidth;
-    const focal = 1 / Math.tan(viewer.getHfov() * Math.PI / 360);
-    const reach = Math.hypot(y, focal) / Math.hypot(x, y, focal);
-    const tilt = Math.asin(Math.max(-1, Math.min(1, Math.sin(at[0] * Math.PI / 180) / reach))) - Math.atan2(y, focal);
-    viewer.setPitch(tilt * 180 / Math.PI, 0);
-    const yaw = viewer.mouseEventToCoords(e)[1];
-    viewer.setYaw(viewer.getYaw() + ((at[1] - yaw + 540) % 360) - 180, 0);
+    zoomPanoAt(box, viewer, e, viewer.getHfov() * Math.exp(e.deltaY * unit * 0.0015));
   };
   box.addEventListener("wheel", wheel, { passive: false });
   return () => box.removeEventListener("wheel", wheel);
@@ -117,7 +121,7 @@ function createPano(o) {
     const now = performance.now();
     if (now - d.t > 250 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) { lastTap = null; return; }
     if (viewer && lastTap && now - lastTap.t < 300 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
-      const b = base(), h = viewer.getHfov(); viewer.setHfov(h > b * 0.8 ? b * 0.5 : b, 350); haptic("light"); lastTap = null; return;
+      const b = base(), h = viewer.getHfov(); zoomPanoAt(box, viewer, e, h > b * 0.8 ? b * 0.5 : b, 350); haptic("light"); lastTap = null; return;
     }
     lastTap = { x: e.clientX, y: e.clientY, t: now };
   };
