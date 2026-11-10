@@ -259,7 +259,7 @@ func TestADayAcrossZones(t *testing.T) {
 	// Oksana opened it from the Kyiv group: the zone is the group's, not the place's.
 	// Neither group has a language yet, so the app speaks hers.
 	if td.Day != 1 || td.Image != "/img/"+testImageKey+".jpg" || td.Answer != nil || td.Zone != "Europe/Kyiv" ||
-		td.Lang != "uk" || td.Heading == nil || *td.Heading != 164.5 {
+		td.Lang != "uk" || td.Heading == nil || *td.Heading != 164.5 || td.DM {
 		t.Fatalf("today = %+v", td)
 	}
 
@@ -627,7 +627,7 @@ func TestDMZoneFromThePhone(t *testing.T) {
 	lena := initData(7, "Lena", "en", "")
 	var today todayResponse
 	body := hs.expect("GET", "/api/today?tz=Europe/Paris", lena, "", http.StatusOK)
-	if err := json.Unmarshal([]byte(body), &today); err != nil || today.ZoneSet != "Europe/Berlin" || today.Zone != "Europe/Berlin" {
+	if err := json.Unmarshal([]byte(body), &today); err != nil || today.ZoneSet != "Europe/Berlin" || today.Zone != "Europe/Berlin" || !today.DM {
 		t.Fatalf("today from Paris = %s", body)
 	}
 	body = hs.expect("GET", "/api/today?tz=Asia/Tokyo", lena, "", http.StatusOK)

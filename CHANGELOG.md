@@ -18,6 +18,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   biggest cities with a dot, and the big rivers, from the flat map on.
   Finding a US state no longer takes zooming in to the cities.
 
+### Added
+
+- After an answer in the DM's day, Telegram asks whether maply may message
+  the player. Someone who came from a group or a friend's link and never
+  pressed Start got no morning post and no evening result in the DM; a yes
+  brings both back. Asked once a week at most until allowed.
+
 ### Fixed
 
 - Crimea is drawn as part of Ukraine, as scoring always counted it. The

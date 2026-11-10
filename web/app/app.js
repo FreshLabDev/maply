@@ -376,11 +376,29 @@ async function send() {
       TODAY.answer = { lat: at.lat, lon: at.lng };
       toWaiting("sent");
     }
+    askWrite();
   } catch (e) {
     if (e.message === "already_answered") { TODAY = await api(todayPath()).catch(() => TODAY); restore(); return; }
     toast(errorText(e));
     if (e.message === "closed") toWaiting("closed");
   } finally { $("go").disabled = false; }
+}
+// Someone who opened the app from a group's post or a friend's link and never pressed Start gets nothing in the DM:
+// Telegram does not let maply write first, so the morning post and the evening result there are dropped. After an
+// answer in the DM's day, Telegram asks them whether maply may write; a yes brings the DM back (the bot's
+// write_access_allowed). A no is asked again in a week at the earliest.
+const WRITE_ASKED = "maply.write_asked";
+function askWrite() {
+  const u = inTg && tg.initDataUnsafe.user;
+  if (!TODAY.dm || !u || u.allows_write_to_pm || !tgAt("6.9") || typeof tg.requestWriteAccess !== "function") return;
+  try {
+    if (Date.now() - (+localStorage.getItem(WRITE_ASKED) || 0) < 7 * 864e5) return;
+    localStorage.setItem(WRITE_ASKED, String(Date.now()));
+  } catch { /* No storage: ask, and maybe again next time. */ }
+  // The result comes first: the question waits until the screen has settled.
+  setTimeout(() => {
+    try { tg.requestWriteAccess((ok) => { if (ok) u.allows_write_to_pm = true; }); } catch { /* An older client refuses. */ }
+  }, 1500);
 }
 // The DM's zone follows the phone until the person picks one: the server takes it from here.
 const todayPath = () => SITE ? "/api/today" : "/api/today?" + new URLSearchParams(inTg ? { tz } : { tz, lang: LANG0 });

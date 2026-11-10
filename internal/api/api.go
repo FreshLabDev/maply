@@ -543,6 +543,9 @@ type todayResponse struct {
 	// Now is the server's clock: the app counts down by it, not by a phone
 	// that may run minutes off.
 	Now time.Time `json:"now"`
+	// DM is the person's own day, not a group's: the app asks Telegram once
+	// whether maply may write there, for someone who never pressed Start.
+	DM bool `json:"dm,omitempty"`
 }
 
 func (s *Server) today(w http.ResponseWriter, r *http.Request) {
@@ -584,7 +587,7 @@ func (s *Server) today(w http.ResponseWriter, r *http.Request) {
 	resp := todayResponse{
 		Date: p.date.String(), Day: rd.DayNo, Image: imagePath(puzzle.ImageKey), Kind: puzzle.Kind,
 		Heading: puzzle.Heading, Zone: p.zone.String(), Lang: p.lang, Deadline: deadline.UTC(), Reveal: opens.UTC(),
-		ZoneSet: zoneSet, Now: s.Now().UTC(),
+		ZoneSet: zoneSet, Now: s.Now().UTC(), DM: p.kind == "dm",
 	}
 	if p.shareLang != "" && p.shareLang != p.lang {
 		resp.ShareLang = p.shareLang

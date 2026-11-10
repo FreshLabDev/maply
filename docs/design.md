@@ -49,6 +49,7 @@ The map is a paper globe from afar and an atlas on the way in, so a player can f
 - `web_app` buttons do not work in groups, so a link button leads to `t.me/maplyin_bot/play?startapp=<payload>`. The payload holds the round date and the chat, signed with HMAC so that a foreign chat cannot be substituted. The bot additionally checks chat membership through `getChatMember`.
 - Geolocation sent straight to the group is not accepted: everyone would see the other player's pin.
 - Answering with a location in the bot's DM is available as a fallback if the Mini App does not open.
+- Someone who opens the app from a group's post or a friend's link and never pressed Start in the bot cannot be written to: Telegram refuses the DM's morning post, and maply marks the DM as left and drops its day. After an answer in the DM's day, the app asks Telegram whether maply may write to them (`requestWriteAccess`, Telegram 6.9 and up), once a week at most while they have not allowed it. A yes sends the bot a service message, which brings the DM back the same way any message does: the skipped morning post goes out and the evening result follows (logs of 10 November 2026, owner's decision).
 
 An answer cannot be changed after "Done".
 
