@@ -50,6 +50,8 @@ jobs:
           go vet -tags=integration ./...
       - name: Test
         run: go test -race ./...
+      - name: Test panorama wheel zoom
+        run: node --test web/pano_wheel.test.cjs
 
   database:
     name: Database tests

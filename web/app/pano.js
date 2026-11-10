@@ -19,6 +19,41 @@
 //   pano.still(on)                        the tape stops following while it is out of sight
 //   pano.viewer                           the Pannellum viewer, null before the first show()
 //   pano.destroy()
+function zoomPanoAt(box, viewer, e, nextHfov, duration = 0) {
+  const canvas = viewer?.getRenderer()?.getCanvas();
+  if (!canvas?.clientWidth || !canvas.clientHeight) return false;
+  viewer.stopMovement();
+  const at = viewer.mouseEventToCoords(e);
+  const [min, max] = viewer.getHfovBounds();
+  const hfov = Math.max(min, Math.min(max, nextHfov));
+  if (hfov === viewer.getHfov()) return false;
+
+  const rect = box.getBoundingClientRect();
+  const x = 2 * (e.clientX - rect.left) / canvas.clientWidth - 1;
+  const y = (1 - 2 * (e.clientY - rect.top) / canvas.clientHeight) * canvas.clientHeight / canvas.clientWidth;
+  const focal = 1 / Math.tan(hfov * Math.PI / 360);
+  const reach = Math.hypot(y, focal) / Math.hypot(x, y, focal);
+  const tilt = Math.asin(Math.max(-1, Math.min(1, Math.sin(at[0] * Math.PI / 180) / reach))) - Math.atan2(y, focal);
+  const yawOffset = Math.atan2(x, focal * Math.cos(tilt) - y * Math.sin(tilt)) * 180 / Math.PI;
+  viewer.lookAt(tilt * 180 / Math.PI, at[1] - yawOffset, hfov, duration);
+  return true;
+}
+
+function enablePanoWheelZoom(box, getViewer, onWheel = () => {}) {
+  const wheel = (e) => {
+    const viewer = getViewer();
+    const canvas = viewer?.getRenderer()?.getCanvas();
+    if (!canvas?.clientWidth || !canvas.clientHeight) return;
+    e.preventDefault();
+    onWheel();
+    if (!e.deltaY) return;
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? box.clientHeight : 1;
+    zoomPanoAt(box, viewer, e, viewer.getHfov() * Math.exp(e.deltaY * unit * 0.0015));
+  };
+  box.addEventListener("wheel", wheel, { passive: false });
+  return () => box.removeEventListener("wheel", wheel);
+}
+
 function createPano(o) {
   const box = o.el, tapeEl = o.compass, tapeSvg = o.tape, haptic = o.haptic || (() => {});
   const handlers = {};
@@ -41,7 +76,7 @@ function createPano(o) {
     // went from 105° to 20°. Its keys listen only while its box has the focus; the screen's keys work everywhere.
     viewer = pannellum.viewer(box, Object.assign({
       type: "equirectangular", panorama: pic.image, autoLoad: true, showControls: false, compass: false,
-      hfov: base(), minHfov: 20, maxHfov: 110, friction: 0.1, keyboardZoom: false, disableKeyboardCtrl: true, doubleClickZoom: false,
+      hfov: base(), minHfov: 20, maxHfov: 110, friction: 0.1, mouseZoom: false, keyboardZoom: false, disableKeyboardCtrl: true, doubleClickZoom: false,
       backgroundColor: [0.10, 0.25, 0.17], pitch: 0
     }, pic.kind === "panorama" ? {} : { haov: 80, vaov: 50, maxHfov: 80 }));
     viewer.on("load", () => { tries = 0; emit("load"); });
@@ -86,13 +121,13 @@ function createPano(o) {
     const now = performance.now();
     if (now - d.t > 250 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) { lastTap = null; return; }
     if (viewer && lastTap && now - lastTap.t < 300 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) {
-      const b = base(), h = viewer.getHfov(); viewer.setHfov(h > b * 0.8 ? b * 0.5 : b, 350); haptic("light"); lastTap = null; return;
+      const b = base(), h = viewer.getHfov(); zoomPanoAt(box, viewer, e, h > b * 0.8 ? b * 0.5 : b, 350); haptic("light"); lastTap = null; return;
     }
     lastTap = { x: e.clientX, y: e.clientY, t: now };
   };
   box.addEventListener("pointerup", up);
   box.addEventListener("pointercancel", up);
-  box.addEventListener("wheel", () => emit("touch"), { passive: true });
+  const removeWheelZoom = enablePanoWheelZoom(box, () => viewer, () => emit("touch"));
 
   // Keys move the view while they are held, slower when zoomed in, as a drag does.
   const steering = { yaw: 0, pitch: 0, zoom: 0 };
@@ -209,7 +244,7 @@ function createPano(o) {
     get viewer() { return viewer; },
     destroy() {
       alive = false; clearTimeout(again); cancelAnimationFrame(steerRaf); cancelAnimationFrame(spinRaf);
-      removeEventListener("resize", fit);
+      removeEventListener("resize", fit); removeWheelZoom();
       if (viewer) { try { viewer.destroy(); } catch {} viewer = null; }
     },
   };

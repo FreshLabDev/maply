@@ -11,6 +11,10 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Fixed
+
+- The wheel zooms without coasting, and double-click zoom stays under the pointer instead of jumping to the centre. Both work during play and in past days.
+
 ## v0.0.1-alpha.19 - 2026-11-06
 
 For the operator: three migrations. 028 sets aside the days nobody
