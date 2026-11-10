@@ -43,6 +43,8 @@ The bot writes at most three messages a day to a group: the morning post, the in
 
 The "Guess" button opens a Mini App. The photo or panorama is on top, the map is below, the player puts a pin and taps "Done".
 
+The map is a paper globe from afar and an atlas on the way in, so a player can find their way before the streets show: from the flat map on (zoom 3) it draws the borders of states, provinces and oblasts as a dotted line under the countries' dashes, the larger regions' names, capitals and the biggest cities with a dot, and the big rivers; every city and town comes at zoom 5, as before. Crimea is drawn as Ukraine, as scoring counts it: the lines of Russia's claim are a region's border, and Russia's "Republic of Crimea" is not named (players' request of 10 November 2026).
+
 - In a DM this is a `web_app` button.
 - `web_app` buttons do not work in groups, so a link button leads to `t.me/maplyin_bot/play?startapp=<payload>`. The payload holds the round date and the chat, signed with HMAC so that a foreign chat cannot be substituted. The bot additionally checks chat membership through `getChatMember`.
 - Geolocation sent straight to the group is not accepted: everyone would see the other player's pin.

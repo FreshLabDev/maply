@@ -11,9 +11,21 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Changed
+
+- The map tells more before you zoom in: borders of states, provinces and
+  oblasts as a dotted line, the larger regions' names, capitals and the
+  biggest cities with a dot, and the big rivers, from the flat map on.
+  Finding a US state no longer takes zooming in to the cities.
+
 ### Fixed
 
-- The wheel zooms without coasting, and double-click zoom stays under the pointer instead of jumping to the centre. Both work during play and in past days.
+- Crimea is drawn as part of Ukraine, as scoring always counted it. The
+  map's tiles drew Russia's claim as a country border across the isthmus;
+  it is now a region's border, and Russia's name for the region is not shown.
+- The panorama's wheel zooms without coasting, and double-click zoom stays
+  under the pointer instead of jumping to the centre, in the day's game and
+  in past days (#91 by megatocha).
 
 ## v0.0.1-alpha.19 - 2026-11-06
 

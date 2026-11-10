@@ -504,7 +504,7 @@ const createGlobe = (() => {
       },
       lock() { if (marker) marker.setDraggable(false); },
       water: (point) => map.queryRenderedFeatures(point, { layers: ["water"] }).length > 0,
-      language(l) { whenReady(() => { ["streets", "oceans", "cities"].forEach((id) => map.setLayoutProperty(id, "text-field", nameIn(l))); map.setLayoutProperty("countries", "text-field", countryIn(l)); }); },
+      language(l) { whenReady(() => { ["streets", "oceans", "regions", "cities"].forEach((id) => map.setLayoutProperty(id, "text-field", nameIn(l))); map.setLayoutProperty("countries", "text-field", countryIn(l)); }); },
       on(name, fn) { (handlers[name] = handlers[name] || []).push(fn); },
       get mode() { return mode; },
       get guess() { return guess; },
