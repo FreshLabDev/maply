@@ -11,12 +11,9 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
-### Changed
+## v0.0.1-alpha.20 - 2026-11-10
 
-- The map tells more before you zoom in: borders of states, provinces and
-  oblasts as a dotted line, the larger regions' names, capitals and the
-  biggest cities with a dot, and the big rivers, from the flat map on.
-  Finding a US state no longer takes zooming in to the cities.
+For the operator: no migration and no new setting.
 
 ### Added
 
@@ -24,6 +21,13 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   the player. Someone who came from a group or a friend's link and never
   pressed Start got no morning post and no evening result in the DM; a yes
   brings both back. Asked once a week at most until allowed.
+
+### Changed
+
+- The map tells more before you zoom in: borders of states, provinces and
+  oblasts as a dotted line, the larger regions' names, capitals and the
+  biggest cities with a dot, and the big rivers, from the flat map on.
+  Finding a US state no longer takes zooming in to the cities.
 
 ### Fixed
 
