@@ -51,7 +51,7 @@ func (s *Scheduler) intrigue(ctx context.Context, j db.Job) error {
 	if err != nil {
 		return err
 	}
-	if !ok || !c.Intrigue || !s.now().Before(j.Date.Reveal(s.location(c))) {
+	if !ok || !s.now().Before(j.Date.Reveal(s.location(c))) || resting(c, j.Date, s.location(c)) {
 		return errSkip
 	}
 	cr, err := s.Store.ChatRound(ctx, c.ID, j.Date)
@@ -62,6 +62,24 @@ func (s *Scheduler) intrigue(ctx context.Context, j db.Job) error {
 		return nil
 	}
 	if cr.PostMsgID == 0 {
+		return errSkip
+	}
+	if c.Kind == "group" {
+		asked, err := s.askQuiet(ctx, c, j.Date)
+		if asked {
+			// Sent: a failure after it is only bookkeeping, and a retry
+			// would ask twice.
+			if err != nil {
+				s.Log.Error("quiet question not recorded", "chat", c.ID, "error", err)
+			}
+			return nil
+		}
+		if err != nil {
+			// The intrigue goes out as on any day; the question waits.
+			s.Log.Error("quiet check failed", "chat", c.ID, "error", err)
+		}
+	}
+	if !c.Intrigue || !intrigueFits(c, j.Date, s.location(c)) {
 		return errSkip
 	}
 	rd, ok, err := s.Store.RoundOn(ctx, j.Date)
@@ -267,7 +285,7 @@ func (s *Scheduler) streakLine(ctx context.Context, silent []db.Member, d round.
 
 func (s *Scheduler) result(ctx context.Context, j db.Job) error {
 	c, ok, err := s.chatOf(ctx, j.ChatID)
-	if err != nil || !ok {
+	if err != nil || !ok || resting(c, j.Date, s.location(c)) {
 		return orSkip(err)
 	}
 	rd, ok, err := s.Store.RoundOn(ctx, j.Date)

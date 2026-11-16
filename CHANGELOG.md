@@ -28,6 +28,15 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   supergroup, the welcome asks the admins once, with a button that requests
   just that right. `/start` in a group offers the warm-up while it runs.
   For the operator: migration 031 adds the `warmup` tables and job kind.
+- maply stops posting into a group where nobody plays. After seven days
+  with the morning post and no answer from the group, it asks once, in
+  place of that day's intrigue, whether to keep sending places: "Keep
+  playing" (any member) or "Pause" (admins). With no press and no answer
+  for three days the group pauses itself and gets nothing until an admin
+  presses Resume under `/start`; the places come back the next morning.
+  Any answer from the group resets the count. For the operator: migration
+  032 adds the pause columns to `chat_settings`, and a pause is logged as
+  `group paused` with its cause.
 
 ## v0.0.1-alpha.20 - 2026-11-10
 

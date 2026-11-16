@@ -53,6 +53,7 @@ const (
 	actGroupAuto = "glangauto"
 	actPost      = "post"
 	actSwitch    = "sw"
+	actResume    = "resume"
 	actClose     = "close"
 )
 
@@ -62,7 +63,7 @@ var postSteps = map[int]bool{-60: true, -15: true, 15: true, 60: true}
 func adminOnly(action string) bool {
 	head, _, _ := strings.Cut(action, ":")
 	switch head {
-	case actSettings, actZone, actGroupLang, actGroupAuto, actPost, actSwitch:
+	case actSettings, actZone, actGroupLang, actGroupAuto, actPost, actSwitch, actResume:
 		return true
 	}
 	return false

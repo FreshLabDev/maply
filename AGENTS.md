@@ -66,7 +66,9 @@ player, and production-minded.
   The welcome when maply is added answers the admin, as `/start` does, and
   is not one of the three. A group added after its reveal gets a warm-up on
   the archive's newest day and its result an hour later, the only scheduled
-  message of that day (`docs/design.md` → "Groups").
+  message of that day (`docs/design.md` → "Groups"). A group quiet for
+  seven days gets its question to keep playing in place of the intrigue,
+  and a paused group gets nothing (`chat_settings.paused_at`).
 - Posts write the reveal with the chat's zone, "20:00 (Kyiv)". A chat's zone is
   stored the first time maply needs it (`FixZone`), so a later change of
   language cannot move a reveal. A DM's stored this way is marked automatic
