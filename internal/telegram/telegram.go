@@ -78,6 +78,61 @@ func (m Markup) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{"inline_keyboard": rows})
 }
 
+// KeyButton is one button of a reply keyboard: text the client sends back
+// as a message, or a Mini App to open when WebApp is set. Style is tg's, as
+// on a Button.
+type KeyButton struct {
+	Text   string
+	WebApp string
+	Style  string
+}
+
+// Keyboard is a reply keyboard that stays under the input field: persistent
+// and sized to its buttons. It offers nothing but text and web_app buttons.
+type Keyboard struct {
+	Rows        [][]KeyButton
+	Placeholder string
+}
+
+func (k Keyboard) MarshalJSON() ([]byte, error) {
+	type webApp struct {
+		URL string `json:"url"`
+	}
+	type button struct {
+		Text   string  `json:"text"`
+		WebApp *webApp `json:"web_app,omitempty"`
+		Style  string  `json:"style,omitempty"`
+	}
+	rows := make([][]button, len(k.Rows))
+	for i, row := range k.Rows {
+		rows[i] = make([]button, len(row))
+		for j, b := range row {
+			if b.Text == "" {
+				return nil, fmt.Errorf("keyboard button %d:%d has no text", i, j)
+			}
+			rows[i][j] = button{Text: b.Text, Style: b.Style}
+			if b.WebApp != "" {
+				rows[i][j].WebApp = &webApp{URL: b.WebApp}
+			}
+		}
+	}
+	out := map[string]any{"keyboard": rows, "is_persistent": true, "resize_keyboard": true}
+	if k.Placeholder != "" {
+		out["input_field_placeholder"] = k.Placeholder
+	}
+	return json.Marshal(out)
+}
+
+// SendKeyboard posts an HTML message that puts kb under the input field. A
+// message has one reply_markup, so the keyboard cannot ride on a panel.
+func (c *Client) SendKeyboard(ctx context.Context, chatID int64, text string, kb Keyboard) (tg.Message, error) {
+	return call[tg.Message](ctx, c, "sendMessage", map[string]any{
+		"chat_id": chatID, "text": text, "parse_mode": "HTML",
+		"link_preview_options": map[string]bool{"is_disabled": true},
+		"reply_markup":         kb,
+	})
+}
+
 type envelope[T any] struct {
 	OK     bool   `json:"ok"`
 	Result T      `json:"result"`

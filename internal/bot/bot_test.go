@@ -36,6 +36,8 @@ type fakeStore struct {
 	settings map[int64]db.Settings
 	rounds   map[string]bool
 	guesses  []db.NewGuess
+	scored   map[int64]db.Guess
+	world    db.World
 }
 
 func newStore() *fakeStore {
@@ -140,6 +142,18 @@ func (f *fakeStore) Contexts(context.Context, int64) ([]db.Context, error) { ret
 func (f *fakeStore) Deadline(_ context.Context, _ round.Zones, _ int64, d round.Date, own *time.Location) (time.Time, error) {
 	return d.Reveal(own), nil
 }
+func (f *fakeStore) GuessOf(_ context.Context, d round.Date, userID int64) (db.Guess, bool, error) {
+	if g, ok := f.scored[userID]; ok {
+		return g, true, nil
+	}
+	for _, g := range f.guesses {
+		if g.UserID == userID && g.Date.String() == d.String() {
+			return db.Guess{UserID: userID, Pin: g.Pin, AnsweredAt: g.AnsweredAt}, true, nil
+		}
+	}
+	return db.Guess{}, false, nil
+}
+func (f *fakeStore) World(context.Context, round.Date) (db.World, error) { return f.world, nil }
 func (f *fakeStore) InsertGuess(_ context.Context, g db.NewGuess) error {
 	for _, old := range f.guesses {
 		if old.UserID == g.UserID && old.Date.String() == g.Date.String() {
@@ -176,6 +190,18 @@ type fakeTelegram struct {
 	animated     chan struct{} // told after each animation, when set
 	editErr      error         // every EditText fails with it, when set
 	threads      []int         // the forum topic of each send
+	keyboards    []keyboardSent
+}
+
+type keyboardSent struct {
+	chatID int64
+	text   string
+	kb     telegram.Keyboard
+}
+
+func (f *fakeTelegram) SendKeyboard(_ context.Context, chatID int64, text string, kb telegram.Keyboard) (tg.Message, error) {
+	f.keyboards = append(f.keyboards, keyboardSent{chatID, text, kb})
+	return tg.Message{MessageID: 101, Chat: tg.Chat{ID: chatID}, Text: text}, nil
 }
 
 func (f *fakeTelegram) EditAnimation(_ context.Context, chatID, messageID int64, a telegram.Animation, caption string, markup telegram.Markup) (tg.Message, error) {

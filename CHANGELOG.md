@@ -11,6 +11,15 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Added
+
+- The DM has a keyboard under the message field: Play, Today's result and
+  Menu. The menu button there opens the Mini App and hides the command
+  list, so a new player had nothing to press after the first game. Today's
+  result says, before the evening, whether you have answered and how long
+  until the result, and after it your score and place in the world. The
+  keyboard follows a language change; groups never get it.
+
 ## v0.0.1-alpha.20 - 2026-11-10
 
 For the operator: no migration and no new setting.

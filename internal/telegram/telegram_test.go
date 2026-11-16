@@ -251,3 +251,33 @@ func TestTextPanelCarriesStyleAndWebApp(t *testing.T) {
 		t.Fatalf("send into a topic = %+v", topic.body)
 	}
 }
+
+// The DM's keyboard stays under the input field, sized to its buttons, and
+// carries a Mini App button beside plain text ones.
+func TestKeyboardMarkup(t *testing.T) {
+	c, fake := client(t)
+	kb := Keyboard{
+		Rows: [][]KeyButton{
+			{{Text: "Play", WebApp: "https://maply.example/today", Style: tg.StylePrimary}},
+			{{Text: "Today's result"}, {Text: "Menu"}},
+		},
+		Placeholder: "One place a day",
+	}
+	if _, err := c.SendKeyboard(context.Background(), 42, "hi", kb); err != nil {
+		t.Fatal(err)
+	}
+	req := fake.requests[0]
+	if req.method != "sendMessage" {
+		t.Fatalf("method = %s", req.method)
+	}
+	got, _ := json.Marshal(req.body["reply_markup"])
+	want := `{"input_field_placeholder":"One place a day","is_persistent":true,` +
+		`"keyboard":[[{"style":"primary","text":"Play","web_app":{"url":"https://maply.example/today"}}],` +
+		`[{"text":"Today's result"},{"text":"Menu"}]],"resize_keyboard":true}`
+	if string(got) != want {
+		t.Fatalf("reply_markup = %s\nwant %s", got, want)
+	}
+	if _, err := json.Marshal(Keyboard{Rows: [][]KeyButton{{{}}}}); err == nil {
+		t.Fatal("a button without text marshalled")
+	}
+}
