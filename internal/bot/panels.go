@@ -373,8 +373,9 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, owner int64, 
 		if err != nil {
 			return "", err
 		}
+		was := v.lang
 		v.lang = i18n.Resolve(raw)
-		return edit(v.language())
+		return b.relabel(ctx, chat, was, v.lang, func() (string, error) { return edit(v.language()) })
 	case actSettings:
 		return settings()
 	case actZone:
@@ -402,8 +403,9 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, owner int64, 
 		if err := b.store.SetUserLang(ctx, cq.From.ID, code); err != nil {
 			return "", err
 		}
+		was := v.lang
 		v.lang = code
-		return edit(v.language())
+		return b.relabel(ctx, chat, was, code, func() (string, error) { return edit(v.language()) })
 	}
 	if code, ok := strings.CutPrefix(action, actGroupLang+":"); ok {
 		if !i18n.IsSupported(code) || v.sc != scopeGroup {
@@ -467,6 +469,19 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, owner int64, 
 		return zonePanel()
 	}
 	return "", nil
+}
+
+// relabel redraws the language panel and, when the language changed, sends
+// the DM's keyboard again in the new one: a reply keyboard cannot be edited.
+func (b *Bot) relabel(ctx context.Context, chat tg.Chat, was, now string, redraw func() (string, error)) (string, error) {
+	alert, err := redraw()
+	if err != nil || was == now {
+		return alert, err
+	}
+	if err := b.sendKeyboard(ctx, chat, now); err != nil {
+		b.log.Warn("keyboard not sent", "error", err)
+	}
+	return alert, nil
 }
 
 // onMembership sets a group up when maply is added and marks it when maply
