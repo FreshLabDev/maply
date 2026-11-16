@@ -119,7 +119,7 @@ maply calls them through `Client.Call` right away. Typed methods will be added t
 
 - `/start` in a group:
   - settings with buttons, as in voicy and branchy;
-  - a warm-up on yesterday's place with the answer the same evening;
+  - a welcome the moment maply is added, and a warm-up on the archive's newest day with its result an hour later when the group joins after its reveal (decided in #57, see `docs/design.md` → "Groups");
   - one message to the admins if the bot has no right to pin.
 - 07:00 in the chat's time zone, or at the time the group chose:
   - a post with the photo and a button;

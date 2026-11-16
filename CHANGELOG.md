@@ -19,6 +19,15 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   result says, before the evening, whether you have answered and how long
   until the result, and after it your score and place in the world. The
   keyboard follows a language change; groups never get it.
+- A group hears from maply the moment it is added: what maply is, when the
+  place and the answer come in the group's zone, and what comes next. A
+  group added after its 20:00 gets a warm-up on the newest day of the
+  archive, with its own result an hour later, so it has something to play
+  that evening. The warm-up counts nowhere: not in the day's tables, the
+  world, profiles, streaks or ratings. When maply may not pin in a
+  supergroup, the welcome asks the admins once, with a button that requests
+  just that right. `/start` in a group offers the warm-up while it runs.
+  For the operator: migration 031 adds the `warmup` tables and job kind.
 
 ## v0.0.1-alpha.20 - 2026-11-10
 

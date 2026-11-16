@@ -87,6 +87,9 @@ type Store interface {
 	LeaveChat(ctx context.Context, chatID int64) error
 	MigrateChat(ctx context.Context, from, to int64) error
 	FixZone(ctx context.Context, chatID int64, zone string) error
+	WarmupOf(ctx context.Context, chatID int64) (db.Warmup, bool, error)
+	WarmupGuesses(ctx context.Context, chatID int64) ([]db.Guess, error)
+	SetWarmupResult(ctx context.Context, chatID, msgID int64) error
 }
 
 type Telegram interface {
@@ -422,6 +425,8 @@ func (s *Scheduler) do(ctx context.Context, j db.Job) (err error) {
 		return s.result(ctx, j)
 	case jobWorld:
 		return s.worldFinal(ctx, j)
+	case JobWarmup:
+		return s.warmup(ctx, j.ChatID)
 	}
 	return errSkip
 }

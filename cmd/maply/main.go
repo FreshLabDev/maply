@@ -110,7 +110,9 @@ func run(log *slog.Logger) error {
 			log.Info("animated posts on", "ffmpeg", path)
 		}
 	}
+	signer := auth.NewSigner(cfg.TelegramBotToken)
 	opts := bot.Options{
+		Payloads: signer,
 		Username: me.Username,
 		Version:  version,
 		AppURL:   cfg.AppURL,
@@ -130,7 +132,6 @@ func run(log *slog.Logger) error {
 	// The players' photos for the pins and tables of the results.
 	avatars := &avatar.Service{Store: store, TG: tgc, Log: log}
 
-	signer := auth.NewSigner(cfg.TelegramBotToken)
 	// Without a renderer the result goes out with the place's photo and the
 	// Mini App shares through t.me/share, as before the card existed.
 	var cards *card.Service

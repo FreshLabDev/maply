@@ -63,6 +63,10 @@ player, and production-minded.
   count. Do not add a fourth: the rules in a group's first post and the
   admins' note when maply may not pin go into the post itself, and so does
   the month's season champion, in the look back of the month's last day.
+  The welcome when maply is added answers the admin, as `/start` does, and
+  is not one of the three. A group added after its reveal gets a warm-up on
+  the archive's newest day and its result an hour later, the only scheduled
+  message of that day (`docs/design.md` → "Groups").
 - Posts write the reveal with the chat's zone, "20:00 (Kyiv)". A chat's zone is
   stored the first time maply needs it (`FixZone`), so a later change of
   language cannot move a reveal. A DM's stored this way is marked automatic
@@ -99,10 +103,11 @@ player, and production-minded.
 - Free play (`internal/free`, `/play`, `/party/<code>`; the archive and a
   challenge are screens inside `/play`) is outside the day:
   its own `free_*` tables, no place in the world, no stats shared with the
-  day, and no bot message in groups. Its rules are in `docs/design.md` →
-  "Free play". Records and friends need an account: a Telegram person (the
-  Mini App, or the site with an account that has Telegram, which plays as
-  the person and writes nothing to `core`) or an account with Google alone,
+  day, and no bot message in groups but a new group's warm-up result. Its
+  rules are in `docs/design.md` → "Free play". Records and friends need an
+  account: a Telegram person (the Mini App, or the site with an account
+  that has Telegram, which plays as the person and writes nothing to
+  `core`) or an account with Google alone,
   which plays as its own site player. A guest plays alone, without records.
   Its leaderboards (`/api/top`) count only games on a timer and never an
   attempt at a challenge, one row a person or an account with their best:

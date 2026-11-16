@@ -25,10 +25,13 @@ import (
 // Posts already in chats carry this form. A new form gets a new version byte,
 // and this one keeps verifying. Version 2 has the same layout and signs a
 // result card's link: the startapp payload in a group post is visible to
-// everyone who can read the post, so it must not open a card page.
+// everyone who can read the post, so it must not open a card page. Version 3
+// has it too and opens a group's warm-up from its welcome, after a "w": the
+// date is the day of the archive the warm-up plays, closed everywhere.
 const (
 	payloadVersion = 1
 	cardVersion    = 2
+	warmupVersion  = 3
 	payloadBody    = 1 + 2 + 8
 	payloadMAC     = 16
 )
@@ -62,6 +65,9 @@ func (s *Signer) Sign(p Payload) (string, error) { return s.sign(payloadVersion,
 // SignCard makes the token of a result card's link.
 func (s *Signer) SignCard(p Payload) (string, error) { return s.sign(cardVersion, p) }
 
+// SignWarmup makes the startapp payload of a group's warm-up, without its "w".
+func (s *Signer) SignWarmup(p Payload) (string, error) { return s.sign(warmupVersion, p) }
+
 func (s *Signer) sign(version byte, p Payload) (string, error) {
 	days := p.Date.DaysSince(payloadEpoch)
 	if days < 0 || days > 0xFFFF {
@@ -78,6 +84,8 @@ func (s *Signer) sign(version byte, p Payload) (string, error) {
 func (s *Signer) Verify(raw string) (Payload, error) { return s.verify(payloadVersion, raw) }
 
 func (s *Signer) VerifyCard(raw string) (Payload, error) { return s.verify(cardVersion, raw) }
+
+func (s *Signer) VerifyWarmup(raw string) (Payload, error) { return s.verify(warmupVersion, raw) }
 
 func (s *Signer) verify(version byte, raw string) (Payload, error) {
 	buf, err := base64.RawURLEncoding.DecodeString(raw)
