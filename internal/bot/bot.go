@@ -11,6 +11,7 @@ import (
 
 	"github.com/FreshLabDev/tg"
 
+	"github.com/FreshLabDev/maply/internal/auth"
 	"github.com/FreshLabDev/maply/internal/db"
 	"github.com/FreshLabDev/maply/internal/round"
 	"github.com/FreshLabDev/maply/internal/schedule"
@@ -46,6 +47,11 @@ type Store interface {
 	InsertGuess(ctx context.Context, g db.NewGuess) error
 	GuessOf(ctx context.Context, d round.Date, userID int64) (db.Guess, bool, error)
 	World(ctx context.Context, d round.Date) (db.World, error)
+
+	SetPinWarned(ctx context.Context, chatID int64) error
+	PlanJob(ctx context.Context, kind string, chatID int64, d round.Date, runAt time.Time) error
+	StartWarmup(ctx context.Context, chatID int64, closed round.Date, resultAt time.Time) (db.Warmup, bool, error)
+	WarmupOf(ctx context.Context, chatID int64) (db.Warmup, bool, error)
 }
 
 type Telegram interface {
@@ -78,6 +84,9 @@ type Options struct {
 	// Profiles draws the statistics picture; nil shows the statistics as
 	// text only.
 	Profiles Profiles
+	// Payloads signs the link of a group's warm-up; nil leaves the warm-up
+	// without its button.
+	Payloads *auth.Signer
 	// World refreshes the world picture of a DM's result; nil leaves its
 	// Refresh button doing nothing.
 	World WorldRefresher

@@ -1047,7 +1047,7 @@ func (f *fakeTelegram) run(ctx context.Context, e *Env) (func(), error) {
 	tgc := telegram.New(client)
 	tgc.Upload = &telegram.Uploader{Base: base, Token: BotToken}
 	avatars := &avatar.Service{Store: e.Store, TG: tgc, Log: log, Now: e.Clock.Now}
-	opts := bot.Options{Username: botUsername, Version: "dev", AppURL: appURL, Zones: e.Zones, Now: e.Clock.Now}
+	opts := bot.Options{Payloads: e.Signer, Username: botUsername, Version: "dev", AppURL: appURL, Zones: e.Zones, Now: e.Clock.Now}
 	sched := &schedule.Scheduler{
 		Store: e.Store, TG: tgc, Weather: standWeather{}, Payloads: e.Signer, Zones: e.Zones,
 		Countries: e.Countries, ImagesDir: e.ImagesDir, Username: botUsername, AppURL: appURL,

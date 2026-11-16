@@ -172,7 +172,11 @@ func (b *Bot) sendHome(ctx context.Context, m *tg.Message) error {
 			b.log.Warn("admin check failed", "chat", m.Chat.ID, "error", err)
 		}
 	}
-	text, markup := v.home(b.opts.AppURL, admin, round.Name(zone, zoneLang))
+	warm := ""
+	if v.sc == scopeGroup {
+		warm = b.openWarmup(ctx, m.Chat.ID)
+	}
+	text, markup := v.home(b.opts.AppURL, admin, round.Name(zone, zoneLang), warm)
 	if _, err := b.tg.SendTextIn(ctx, m.Chat.ID, threadOf(*m), text, markup); err != nil {
 		return fmt.Errorf("send home to %d: %w", m.Chat.ID, err)
 	}
@@ -346,7 +350,11 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, owner int64, 
 		if err != nil {
 			return "", err
 		}
-		return edit(v.home(b.opts.AppURL, admin, round.Name(zone, zoneLang)))
+		warm := ""
+		if v.sc == scopeGroup {
+			warm = b.openWarmup(ctx, chat.ID)
+		}
+		return edit(v.home(b.opts.AppURL, admin, round.Name(zone, zoneLang), warm))
 	case actHelp:
 		return edit(v.help())
 	case actAbout:
@@ -512,7 +520,10 @@ func (b *Bot) onMembership(ctx context.Context, upd *tg.ChatMemberUpdated) error
 		if err != nil {
 			return err
 		}
-		return b.adopt(ctx, upd.Chat.ID, chatLang, raw)
+		if err := b.adopt(ctx, upd.Chat.ID, chatLang, raw); err != nil {
+			return err
+		}
+		return b.welcome(ctx, upd, chatLang, raw)
 	case !in(upd.NewChatMember.Status) && in(upd.OldChatMember.Status):
 		return b.store.LeaveChat(ctx, upd.Chat.ID)
 	}

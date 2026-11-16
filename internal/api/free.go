@@ -94,6 +94,9 @@ type freeViewer struct {
 	// site is a browser rather than the Mini App: its invitations are the
 	// site's own links.
 	site bool
+	// start is the Mini App's start_param, which Telegram signs with the rest
+	// of initData; empty on the site.
+	start string
 }
 
 // keeps is whether the viewer keeps records and may play with friends. An
@@ -126,7 +129,7 @@ func (s *Server) freeViewer(w http.ResponseWriter, r *http.Request, lim *limiter
 		if err != nil {
 			return freeViewer{}, err
 		}
-		return freeViewer{who: free.Who{UserID: data.User.ID}, user: data.User, lang: i18n.Resolve(lang)}, nil
+		return freeViewer{who: free.Who{UserID: data.User.ID}, user: data.User, lang: i18n.Resolve(lang), start: data.StartParam}, nil
 	}
 	if write && !ownJSON(r) {
 		return freeViewer{}, apiError{http.StatusUnsupportedMediaType, "json_only"}

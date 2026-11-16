@@ -4,6 +4,7 @@ package bot
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -38,11 +39,17 @@ type fakeStore struct {
 	guesses  []db.NewGuess
 	scored   map[int64]db.Guess
 	world    db.World
+	// warmDay is the archive's day a warm-up takes; zero has none.
+	warmDay   round.Date
+	warmups   map[int64]db.Warmup
+	jobs      []string
+	pinWarned map[int64]bool
 }
 
 func newStore() *fakeStore {
 	return &fakeStore{userLang: map[int64]string{}, chatLang: map[int64]string{}, zones: map[int64]string{},
-		settings: map[int64]db.Settings{}, rounds: map[string]bool{}}
+		settings: map[int64]db.Settings{}, rounds: map[string]bool{},
+		warmups: map[int64]db.Warmup{}, pinWarned: map[int64]bool{}}
 }
 
 func (f *fakeStore) Offset(context.Context) (int64, error) {
@@ -162,6 +169,27 @@ func (f *fakeStore) InsertGuess(_ context.Context, g db.NewGuess) error {
 	}
 	f.guesses = append(f.guesses, g)
 	return nil
+}
+
+func (f *fakeStore) SetPinWarned(_ context.Context, id int64) error {
+	f.pinWarned[id] = true
+	return nil
+}
+func (f *fakeStore) PlanJob(_ context.Context, kind string, chatID int64, d round.Date, runAt time.Time) error {
+	f.jobs = append(f.jobs, fmt.Sprintf("%s:%s:%d@%s", kind, d, chatID, runAt.UTC().Format(time.RFC3339)))
+	return nil
+}
+func (f *fakeStore) StartWarmup(_ context.Context, id int64, closed round.Date, at time.Time) (db.Warmup, bool, error) {
+	if _, ok := f.warmups[id]; ok || f.warmDay.IsZero() || closed.Before(f.warmDay) {
+		return db.Warmup{}, false, nil
+	}
+	w := db.Warmup{ChatID: id, Day: f.warmDay, DayNo: 41, ResultAt: at}
+	f.warmups[id] = w
+	return w, true, nil
+}
+func (f *fakeStore) WarmupOf(_ context.Context, id int64) (db.Warmup, bool, error) {
+	w, ok := f.warmups[id]
+	return w, ok, nil
 }
 
 type sent struct {

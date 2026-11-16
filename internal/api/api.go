@@ -70,6 +70,8 @@ type Store interface {
 	AdoptDMZone(context.Context, int64, string) (bool, error)
 	FixZone(context.Context, int64, string) error
 	ChatActive(context.Context, int64) (bool, error)
+	WarmupOf(ctx context.Context, chatID int64) (db.Warmup, bool, error)
+	JoinWarmup(ctx context.Context, chatID, game int64) error
 	DaysPage(context.Context, db.DaysQuery) (db.DaysPage, error)
 	RoundNo(context.Context, int) (db.Round, bool, error)
 	ClosedDay(context.Context, round.Date, round.Date) (db.ClosedDay, error)

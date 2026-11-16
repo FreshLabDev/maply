@@ -189,11 +189,16 @@ func (v view) closeButton() telegram.Button {
 // home is two screens, with the reveal in the chat's zone (one of
 // round.ZoneChoices). The direct chat gets every tab: there the panel is the
 // whole bot. A group gets what a group acts on, and Settings only for an
-// admin, who is the only one who can change them.
-func (v view) home(appURL string, admin bool, zone string) (string, telegram.Markup) {
+// admin, who is the only one who can change them. A group's warm-up, while
+// it takes answers, is the first button there: warm is its link.
+func (v view) home(appURL string, admin bool, zone, warm string) (string, telegram.Markup) {
 	if v.sc == scopeGroup {
 		text := panel(productName, "", v.t("home.hint"), quote(v.t("home.group", "time", i18n.At(v.lang, revealTime(), zone))))
 		var rows telegram.Markup
+		// A warm-up that still takes answers is the one thing to play here.
+		if warm != "" {
+			rows = append(rows, []telegram.Button{{Text: v.t("btn.warmup"), URL: warm, Style: tg.StylePrimary}})
+		}
 		if admin {
 			rows = append(rows, []telegram.Button{v.button("btn.settings", actSettings)})
 		}

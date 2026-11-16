@@ -1073,6 +1073,20 @@
     const c = p[0] === "c" ? p.slice(1) : q;
     return CODE.test(c) ? c : "";
   }
+  // A group's warm-up opens the archive's day it plays: "w" and a payload the server checks, once, as a challenge is.
+  let warmed = false;
+  const warmCode = () => !warmed && /^w[A-Za-z0-9_-]{36}$/.test(startParam());
+  async function warmUp() {
+    const my = ++gen; liveGame = null;
+    top(T("free.archive"), "");
+    wait();
+    let g;
+    try { g = await req("/api/free/archive", { warmup: true }); }
+    catch (e) { if (my !== gen) return; toast(ferr(e)); archive(); return; }
+    if (my !== gen) return;
+    GAME = g;
+    haptic("medium"); continueGame();
+  }
   // What the address asks of /play: a mode from the menu's cards, the archive, a game with friends. Read once and
   // taken off the address, so Back and a reload do not ask again; in Telegram the router would carry it on.
   function asked() {
@@ -1091,9 +1105,10 @@
   Router.screen("play", /^\/play$/, {
     open(m, from) {
       came(from); open();
-      const h = first, c = dareCode(), a = asked(); first = null; dared = true;
+      const h = first, c = dareCode(), a = asked(), wu = warmCode(); first = null; dared = true; warmed = true;
       if (h) { HOME = h; if (!SET) SET = Object.assign({}, h.last); }
       if (c) return challenge(c);
+      if (wu) return warmUp();
       if (a.mode === "archive") return archive();
       if (a.friends) return withFriends(h);
       home(h, a.mode);
@@ -1125,7 +1140,7 @@
   });
   window.Free = {
     // Whether the app opens on the free game rather than the day: once, before the day has started.
-    takes() { return !dayBoot && !opened && (!!invite() || !!dareCode() || /^\/play$/.test(location.pathname) || PARTY.test(location.pathname)); },
+    takes() { return !dayBoot && !opened && (!!invite() || !!dareCode() || warmCode() || /^\/play$/.test(location.pathname) || PARTY.test(location.pathname)); },
     // start opens it in place of the day; boot is the day's start, run when the free game is left.
     async start(boot) {
       dayBoot = boot;
@@ -1138,7 +1153,7 @@
       hideLoader();
       const code = invite();
       if (code && !PARTY.test(location.pathname)) Router.go("/party/" + code, { replace: true });
-      else if (dareCode() && !/^\/play$/.test(location.pathname)) Router.go("/play", { replace: true });
+      else if ((dareCode() || warmCode()) && !/^\/play$/.test(location.pathname)) Router.go("/play", { replace: true });
       Router.start();
       if (typeof accountReady === "function") accountReady();
     },
