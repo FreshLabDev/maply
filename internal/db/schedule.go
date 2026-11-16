@@ -25,21 +25,26 @@ type Chat struct {
 	PostMin  int
 	Intrigue bool
 	Mentions bool
+	// ResumedAt is when a paused group was turned back on: its day starts
+	// with the first morning post after it. Zero for a DM.
+	ResumedAt time.Time
 }
 
 // ActiveChats lists every chat the day is sent to. A DM counts once the person
-// has been seen there and until they block maply.
+// has been seen there and until they block maply. A paused group is left out.
 func (s *Store) ActiveChats(ctx context.Context) ([]Chat, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT cs.chat_id, 'group', COALESCE(cs.timezone, ''),
 		       COALESCE(core.effective_language(0, cs.chat_id, 'chat'), ''),
-		       (EXTRACT(HOUR FROM cs.post_time) * 60 + EXTRACT(MINUTE FROM cs.post_time))::int, cs.intrigue, cs.mentions
+		       (EXTRACT(HOUR FROM cs.post_time) * 60 + EXTRACT(MINUTE FROM cs.post_time))::int, cs.intrigue, cs.mentions,
+		       cs.resumed_at
 		  FROM chat_settings cs
-		 WHERE cs.kind = 'group' AND cs.active
+		 WHERE cs.kind = 'group' AND cs.active AND cs.paused_at IS NULL
 		UNION ALL
 		SELECT p.telegram_user_id, 'dm', COALESCE(cs.timezone, ''),
 		       COALESCE(core.effective_language(p.telegram_user_id, NULL, 'user'), ''),
-		       (EXTRACT(HOUR FROM COALESCE(cs.post_time, '07:00')) * 60 + EXTRACT(MINUTE FROM COALESCE(cs.post_time, '07:00')))::int, COALESCE(cs.intrigue, true), COALESCE(cs.mentions, true)
+		       (EXTRACT(HOUR FROM COALESCE(cs.post_time, '07:00')) * 60 + EXTRACT(MINUTE FROM COALESCE(cs.post_time, '07:00')))::int, COALESCE(cs.intrigue, true), COALESCE(cs.mentions, true),
+		       NULL::timestamptz
 		  FROM core.maply_presence p
 		  LEFT JOIN chat_settings cs ON cs.chat_id = p.telegram_user_id
 		 WHERE p.chat_id = 0 AND COALESCE(cs.active, true)`)
@@ -49,8 +54,12 @@ func (s *Store) ActiveChats(ctx context.Context) ([]Chat, error) {
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Chat, error) {
 		var c Chat
 		var post int
-		err := row.Scan(&c.ID, &c.Kind, &c.Zone, &c.Lang, &post, &c.Intrigue, &c.Mentions)
+		var resumed *time.Time
+		err := row.Scan(&c.ID, &c.Kind, &c.Zone, &c.Lang, &post, &c.Intrigue, &c.Mentions, &resumed)
 		c.PostHour, c.PostMin = post/60, post%60
+		if resumed != nil {
+			c.ResumedAt = *resumed
+		}
 		return c, err
 	})
 }

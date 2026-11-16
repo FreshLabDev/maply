@@ -122,7 +122,14 @@ func (s *Store) AdoptChatZone(ctx context.Context, chatID int64, zone string) er
 	if _, err := s.pool.Exec(ctx, `
 		INSERT INTO chat_settings (chat_id, kind, timezone) VALUES ($1, $2, $3)
 		ON CONFLICT (chat_id) DO UPDATE SET timezone = COALESCE(chat_settings.timezone, EXCLUDED.timezone),
-		                                    active = true, left_at = NULL, updated_at = now()`,
+		       active = true, left_at = NULL, updated_at = now(),
+		       -- Added back, a group starts afresh: whoever added maply wants
+		       -- the places, so a pause and the quiet days before it are gone.
+		       paused_at = CASE WHEN chat_settings.active THEN chat_settings.paused_at END,
+		       paused_by = CASE WHEN chat_settings.active THEN chat_settings.paused_by END,
+		       quiet_asked_on = CASE WHEN chat_settings.active THEN chat_settings.quiet_asked_on END,
+		       quiet_msg_id = CASE WHEN chat_settings.active THEN chat_settings.quiet_msg_id END,
+		       quiet_since = CASE WHEN chat_settings.active THEN chat_settings.quiet_since ELSE CURRENT_DATE END`,
 		chatID, kindOf(chatID), zone); err != nil {
 		return fmt.Errorf("adopt zone of %d: %w", chatID, err)
 	}
@@ -186,12 +193,13 @@ func (s *Store) MigrateChat(ctx context.Context, from, to int64) error {
 	}
 	defer tx.Rollback(ctx)
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO chat_settings (chat_id, kind, post_time, intrigue, mentions, active, timezone, zone_auto)
-		SELECT $2, 'group', post_time, intrigue, mentions, true, timezone, zone_auto
+		INSERT INTO chat_settings (chat_id, kind, post_time, intrigue, mentions, active, timezone, zone_auto, paused_at, paused_by)
+		SELECT $2, 'group', post_time, intrigue, mentions, true, timezone, zone_auto, paused_at, paused_by
 		  FROM chat_settings WHERE chat_id = $1
 		ON CONFLICT (chat_id) DO UPDATE SET post_time = EXCLUDED.post_time, intrigue = EXCLUDED.intrigue,
 		       mentions = EXCLUDED.mentions, timezone = COALESCE(EXCLUDED.timezone, chat_settings.timezone),
-		       zone_auto = EXCLUDED.zone_auto, active = true, left_at = NULL, updated_at = now()`, from, to); err != nil {
+		       zone_auto = EXCLUDED.zone_auto, paused_at = EXCLUDED.paused_at, paused_by = EXCLUDED.paused_by,
+		       active = true, left_at = NULL, updated_at = now()`, from, to); err != nil {
 		return fmt.Errorf("migrate chat %d settings: %w", from, err)
 	}
 	var lang *string

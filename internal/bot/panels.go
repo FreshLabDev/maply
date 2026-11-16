@@ -177,6 +177,9 @@ func (b *Bot) sendHome(ctx context.Context, m *tg.Message) error {
 		warm = b.openWarmup(ctx, m.Chat.ID)
 	}
 	text, markup := v.home(b.opts.AppURL, admin, round.Name(zone, zoneLang), warm)
+	if v.sc == scopeGroup && b.groupPaused(ctx, m.Chat.ID) {
+		text, markup = v.paused(admin)
+	}
 	if _, err := b.tg.SendTextIn(ctx, m.Chat.ID, threadOf(*m), text, markup); err != nil {
 		return fmt.Errorf("send home to %d: %w", m.Chat.ID, err)
 	}
@@ -220,6 +223,9 @@ func pressedHere(m tg.Message, data string) bool {
 func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
 	if d, ok := schedule.WorldCallback(cq.Data); ok {
 		return b.onRefreshWorld(ctx, cq, d)
+	}
+	if isQuietCB(cq.Data) {
+		return b.onQuiet(ctx, cq)
 	}
 	owner, action, ok := parseMenuCB(cq.Data)
 	if !ok {
@@ -353,8 +359,36 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, owner int64, 
 		warm := ""
 		if v.sc == scopeGroup {
 			warm = b.openWarmup(ctx, chat.ID)
+			if b.groupPaused(ctx, chat.ID) {
+				return edit(v.paused(admin))
+			}
 		}
 		return edit(v.home(b.opts.AppURL, admin, round.Name(zone, zoneLang), warm))
+	case actResume:
+		if v.sc != scopeGroup {
+			return "", nil
+		}
+		ok, err := b.store.ResumeGroup(ctx, chat.ID, b.opts.Now())
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			b.log.Info("group resumed", "chat", chat.ID)
+		}
+		zone, err := b.store.ChatZone(ctx, chat.ID)
+		if err != nil {
+			return "", err
+		}
+		st, err := b.store.ChatSettings(ctx, chat.ID)
+		if err != nil {
+			return "", err
+		}
+		// The home, saying when the next place comes: the first morning
+		// post after now (schedule's resting), which is today's only
+		// before its time.
+		_, markup := v.home(b.opts.AppURL, true, round.Name(zone, zoneLang), "")
+		text := panel(productName, "", v.t("home.hint"), quote(v.t("home.resumed", "post", fmt.Sprintf("%02d:%02d", st.PostHour, st.PostMin))))
+		return edit(text, markup)
 	case actHelp:
 		return edit(v.help())
 	case actAbout:

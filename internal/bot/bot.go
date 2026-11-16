@@ -52,6 +52,11 @@ type Store interface {
 	PlanJob(ctx context.Context, kind string, chatID int64, d round.Date, runAt time.Time) error
 	StartWarmup(ctx context.Context, chatID int64, closed round.Date, resultAt time.Time) (db.Warmup, bool, error)
 	WarmupOf(ctx context.Context, chatID int64) (db.Warmup, bool, error)
+
+	Paused(ctx context.Context, chatID int64) (bool, error)
+	KeepPlaying(ctx context.Context, chatID int64) (bool, error)
+	PauseGroup(ctx context.Context, chatID int64, by string) (int64, bool, error)
+	ResumeGroup(ctx context.Context, chatID int64, at time.Time) (bool, error)
 }
 
 type Telegram interface {

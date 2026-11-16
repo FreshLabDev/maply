@@ -44,12 +44,41 @@ type fakeStore struct {
 	warmups   map[int64]db.Warmup
 	jobs      []string
 	pinWarned map[int64]bool
+	// paused is the groups maply is paused in; asked those with the quiet
+	// question out.
+	paused map[int64]bool
+	asked  map[int64]bool
 }
 
 func newStore() *fakeStore {
 	return &fakeStore{userLang: map[int64]string{}, chatLang: map[int64]string{}, zones: map[int64]string{},
 		settings: map[int64]db.Settings{}, rounds: map[string]bool{},
-		warmups: map[int64]db.Warmup{}, pinWarned: map[int64]bool{}}
+		warmups: map[int64]db.Warmup{}, pinWarned: map[int64]bool{},
+		paused: map[int64]bool{}, asked: map[int64]bool{}}
+}
+
+func (f *fakeStore) Paused(_ context.Context, id int64) (bool, error) { return f.paused[id], nil }
+
+func (f *fakeStore) KeepPlaying(_ context.Context, id int64) (bool, error) {
+	ok := f.asked[id] && !f.paused[id]
+	if ok {
+		f.asked[id] = false
+	}
+	return ok, nil
+}
+
+func (f *fakeStore) PauseGroup(_ context.Context, id int64, _ string) (int64, bool, error) {
+	if f.paused[id] {
+		return 0, false, nil
+	}
+	f.paused[id], f.asked[id] = true, false
+	return 0, true, nil
+}
+
+func (f *fakeStore) ResumeGroup(_ context.Context, id int64, _ time.Time) (bool, error) {
+	ok := f.paused[id]
+	f.paused[id] = false
+	return ok, nil
 }
 
 func (f *fakeStore) Offset(context.Context) (int64, error) {
