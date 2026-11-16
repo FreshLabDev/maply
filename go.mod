@@ -2,7 +2,7 @@
 
 module github.com/FreshLabDev/maply
 
-go 1.26.10
+go 1.27.4
 
 require (
 	github.com/FreshLabDev/tg v0.1.0
