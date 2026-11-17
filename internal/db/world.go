@@ -12,9 +12,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/scoring"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/scoring"
 )
 
 // Entry is one scored answer in a day's world ranking. A Telegram player has

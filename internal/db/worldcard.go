@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // WorldPin is one scored answer of a day where it was put, in the order of

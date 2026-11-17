@@ -34,7 +34,7 @@ ARG VERSION=dev
 ARG COMMIT=none
 LABEL org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}" \
-      org.opencontainers.image.source="https://github.com/FreshLabDev/maply"
+      org.opencontainers.image.source="https://github.com/asterfield-dev/maply"
 USER maply
 
 EXPOSE 8080

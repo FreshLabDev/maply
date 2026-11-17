@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 func dates(n int) []round.Date {

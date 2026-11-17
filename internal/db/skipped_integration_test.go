@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/migrations"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/migrations"
 )
 
 // A day nobody answered keeps its number and its round row, but is no round:

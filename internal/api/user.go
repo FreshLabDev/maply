@@ -10,12 +10,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FreshLabDev/maply/internal/avatar"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/people"
-	"github.com/FreshLabDev/maply/internal/profile"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/avatar"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/people"
+	"github.com/asterfield-dev/maply/internal/profile"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // A player's profile has one address, /u/<username>, the same for everyone

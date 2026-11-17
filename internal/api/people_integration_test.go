@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/maply/internal/free"
+	"github.com/asterfield-dev/maply/internal/free"
 )
 
 // A party shows its players as every table does: a name and a face. Who hid

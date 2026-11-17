@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/free"
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/free"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 var sea = &geo.Point{Lat: 0, Lon: -30}

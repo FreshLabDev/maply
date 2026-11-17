@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/telegram"
 )
 
 // The DM's reply keyboard. In a DM the menu button opens the Mini App, which

@@ -26,7 +26,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/geo"
 )
 
 func main() {

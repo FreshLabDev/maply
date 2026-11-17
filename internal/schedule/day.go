@@ -12,14 +12,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FreshLabDev/maply/internal/anim"
-	"github.com/FreshLabDev/maply/internal/card"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/scoring"
-	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/internal/anim"
+	"github.com/asterfield-dev/maply/internal/card"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/scoring"
+	"github.com/asterfield-dev/maply/internal/telegram"
 )
 
 const (

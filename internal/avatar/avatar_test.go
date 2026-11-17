@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/db"
 )
 
 type memStore struct {

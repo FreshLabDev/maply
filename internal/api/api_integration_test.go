@@ -28,10 +28,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/FreshLabDev/maply/internal/auth"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/migrations"
+	"github.com/asterfield-dev/maply/internal/auth"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/migrations"
 )
 
 const (

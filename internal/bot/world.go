@@ -4,11 +4,11 @@ package bot
 import (
 	"context"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/schedule"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/schedule"
 )
 
 // onRefreshWorld is a press of Refresh under a DM's result: the world

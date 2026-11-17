@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/people"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/people"
 )
 
 // Who is a player: a Telegram person, or a site player in a browser. Exactly

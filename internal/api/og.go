@@ -17,11 +17,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/anim"
-	"github.com/FreshLabDev/maply/internal/card"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/thumb"
-	"github.com/FreshLabDev/maply/web"
+	"github.com/asterfield-dev/maply/internal/anim"
+	"github.com/asterfield-dev/maply/internal/card"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/thumb"
+	"github.com/asterfield-dev/maply/web"
 )
 
 // A link to a day's page, /days/<n>, opens in a messenger or a feed as the

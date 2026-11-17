@@ -30,18 +30,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/account"
-	"github.com/FreshLabDev/maply/internal/auth"
-	"github.com/FreshLabDev/maply/internal/card"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/free"
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/people"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/scoring"
+	"github.com/asterfield-dev/maply/internal/account"
+	"github.com/asterfield-dev/maply/internal/auth"
+	"github.com/asterfield-dev/maply/internal/card"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/free"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/people"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/scoring"
 )
 
 type Store interface {

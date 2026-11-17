@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/free"
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/free"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // started is a party on set that who[0] hosts and the others join, begun.

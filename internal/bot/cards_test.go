@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/profile"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/profile"
 )
 
 type fakeProfiles struct {
@@ -84,7 +84,7 @@ func TestBackFromThePictureSendsThePanelAgain(t *testing.T) {
 	ctx := context.Background()
 	b.handle(ctx, press(private(member), member, cb(userID, actStats)))
 	back := press(private(member), member, cb(userID, actHome))
-	back.Callback.Message = tg.Message{MessageID: 100, Chat: private(member), Caption: "stats", Document: &tg.Document{FileID: "kept"}, Raw: back.Callback.Message.Raw}
+	back.Callback.Message = &tg.Message{MessageID: 100, Chat: private(member), Caption: "stats", Document: &tg.Document{FileID: "kept"}, Raw: back.Callback.Message.Raw}
 	b.handle(ctx, back)
 	if len(client.sends) != 1 || len(client.deleted) != 1 || client.deleted[0] != 100 {
 		t.Fatalf("sends %+v, deleted %v", client.sends, client.deleted)
@@ -98,7 +98,7 @@ func TestBackFromThePictureSendsThePanelAgain(t *testing.T) {
 func TestForgedCloseLeavesOtherAnimations(t *testing.T) {
 	b, client := statsBot(t, &fakeProfiles{})
 	c := press(group, member, cb(userID, actClose))
-	c.Callback.Message = tg.Message{MessageID: 7, Chat: group, Caption: "maply #1", Document: &tg.Document{FileID: "result"}}
+	c.Callback.Message = &tg.Message{MessageID: 7, Chat: group, Caption: "maply #1", Document: &tg.Document{FileID: "result"}}
 	b.handle(context.Background(), c)
 	if len(client.deleted) != 0 {
 		t.Fatal("a forged Close deleted the result")

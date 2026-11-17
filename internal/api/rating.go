@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/people"
-	"github.com/FreshLabDev/maply/internal/rating"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/people"
+	"github.com/asterfield-dev/maply/internal/rating"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // The rating: the daily game over the days that are over everywhere, the

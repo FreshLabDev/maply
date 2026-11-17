@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/geo"
 )
 
 var t0 = time.Date(2026, time.November, 5, 12, 0, 0, 0, time.UTC)

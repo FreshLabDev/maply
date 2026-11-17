@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-module github.com/FreshLabDev/maply
+module github.com/asterfield-dev/maply
 
 go 1.27.4
 
 require (
-	github.com/FreshLabDev/tg v0.1.0
+	github.com/asterfield-dev/tg v0.4.0-alpha.2
 	github.com/chromedp/chromedp v0.23.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-text/typesetting v0.3.5

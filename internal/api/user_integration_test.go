@@ -20,10 +20,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/FreshLabDev/maply/internal/avatar"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/free"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/avatar"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/free"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // pngOf is a w x h picture, as a PNG.

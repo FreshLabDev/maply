@@ -26,15 +26,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/avatar"
-	"github.com/FreshLabDev/maply/internal/bot"
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/profile"
-	"github.com/FreshLabDev/maply/internal/schedule"
-	"github.com/FreshLabDev/maply/internal/telegram"
-	"github.com/FreshLabDev/maply/internal/world"
+	"github.com/asterfield-dev/maply/internal/avatar"
+	"github.com/asterfield-dev/maply/internal/bot"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/profile"
+	"github.com/asterfield-dev/maply/internal/schedule"
+	"github.com/asterfield-dev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/internal/world"
 )
 
 // The fake bot's own identity, matching BotToken.

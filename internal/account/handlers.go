@@ -11,12 +11,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/auth"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/oidc"
+	"github.com/asterfield-dev/maply/internal/auth"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/oidc"
 )
 
 // The result codes of a sign-in, in ?auth= on the page it comes back to.

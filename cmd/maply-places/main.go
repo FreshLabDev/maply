@@ -53,11 +53,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/i18n"
 )
 
-const userAgent = "maply-curation/0 (+https://github.com/FreshLabDev/maply)"
+const userAgent = "maply-curation/0 (+https://github.com/asterfield-dev/maply)"
 
 type candidate struct {
 	N        int     `json:"n"`

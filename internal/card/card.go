@@ -29,11 +29,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/auth"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/internal/auth"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/telegram"
 )
 
 // Store is what the page and the share caption read.

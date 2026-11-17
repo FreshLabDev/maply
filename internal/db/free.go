@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/FreshLabDev/maply/internal/free"
-	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/free"
+	"github.com/asterfield-dev/maply/internal/geo"
 )
 
 // The free game's tables are its own: nothing here reads guess or writes

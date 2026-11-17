@@ -20,12 +20,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/auth"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/telegram"
-	"github.com/FreshLabDev/maply/web"
+	"github.com/asterfield-dev/maply/internal/auth"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/web"
 )
 
 const botToken = "123456:test-token"

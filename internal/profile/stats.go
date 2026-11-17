@@ -7,9 +7,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // The profile's numbers are worked out here from a player's scored days, so

@@ -5,12 +5,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/schedule"
-	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/schedule"
+	"github.com/asterfield-dev/maply/internal/telegram"
 )
 
 func isQuietCB(data string) bool { return data == schedule.QuietKeep || data == schedule.QuietPause }
@@ -20,7 +20,7 @@ func isQuietCB(data string) bool { return data == schedule.QuietKeep || data == 
 // pause it, and the check runs on every press.
 func (b *Bot) onQuiet(ctx context.Context, cq *tg.CallbackQuery) error {
 	m := cq.Message
-	if scopeOf(m.Chat) != scopeGroup || !isPanel(m) || !pressedHere(m, cq.Data) {
+	if scopeOf(m.Chat) != scopeGroup || !isPanel(*m) || !pressedHere(*m, cq.Data) {
 		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
 	}
 	raw, err := b.personLang(ctx, cq.From)

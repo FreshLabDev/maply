@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/profile"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/profile"
 )
 
 // The old public page /p/<slug>: a link a player turned on before profiles

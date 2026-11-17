@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 func approvePlace(t *testing.T, s *Store, sourceID string, difficulty int) int64 {

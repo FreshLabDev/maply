@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // telegramClaims are the parts of Telegram's id_token maply reads. The

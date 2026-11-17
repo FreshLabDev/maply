@@ -16,7 +16,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // Client is tg's client with maply's additions on top: every method tg has is

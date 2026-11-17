@@ -39,15 +39,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/FreshLabDev/maply/internal/api"
-	"github.com/FreshLabDev/maply/internal/auth"
-	"github.com/FreshLabDev/maply/internal/avatar"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/profile"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/migrations"
-	"github.com/FreshLabDev/maply/web"
+	"github.com/asterfield-dev/maply/internal/api"
+	"github.com/asterfield-dev/maply/internal/auth"
+	"github.com/asterfield-dev/maply/internal/avatar"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/profile"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/migrations"
+	"github.com/asterfield-dev/maply/web"
 )
 
 // BotToken is the fake bot's token: initData and startapp payloads are signed

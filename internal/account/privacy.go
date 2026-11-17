@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/i18n"
 )
 
 // The privacy page, in every language maply speaks: what is kept, what other

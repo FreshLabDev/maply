@@ -19,12 +19,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/account"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/free"
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/internal/account"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/free"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/telegram"
 )
 
 // freePlaces are the free pool of the HTTP test: none of their numbers may

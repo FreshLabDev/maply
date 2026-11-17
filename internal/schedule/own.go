@@ -9,11 +9,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FreshLabDev/maply/internal/card"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/scoring"
+	"github.com/asterfield-dev/maply/internal/card"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/scoring"
 )
 
 // ownGroups is how many of a person's groups their DM result names.

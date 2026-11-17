@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/account"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/account"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // signInGoogle gives the site player guest a Google account and a browser

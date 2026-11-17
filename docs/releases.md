@@ -133,7 +133,7 @@ The image is chosen by one variable in the stack's env file on the host, not by
 anything in this repository:
 
 ```sh
-MAPLY_IMAGE=ghcr.io/freshlabdev/maply@sha256:<digest>
+MAPLY_IMAGE=ghcr.io/asterfield-dev/maply@sha256:<digest>
 ```
 
 Pin the **digest**, not the tag. A tag can be moved; a digest names one build
@@ -143,13 +143,13 @@ digest of a release is in its GitHub Release notes. To read it off the host that
 will run it, pull the tag once and ask the daemon:
 
 ```sh
-docker pull ghcr.io/freshlabdev/maply:<tag>
-docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/freshlabdev/maply:<tag>
+docker pull ghcr.io/asterfield-dev/maply:<tag>
+docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/asterfield-dev/maply:<tag>
 ```
 
 That pull used to be mandatory, and it is worth saying why it no longer is,
 because the reason was never the digest. Deploying straight to
-`ghcr.io/freshlabdev/maply@sha256:<digest>` answered `403` on a blob, and
+`ghcr.io/asterfield-dev/maply@sha256:<digest>` answered `403` on a blob, and
 pulling the tag first always cleared it.
 
 The cause was the account doing the deploying. `ws04 deploy` runs as root, and
@@ -167,7 +167,7 @@ works on its own. Pulling the tag first is still a fine way to warm the layers.
 Without a shell on the host, the API answers the same question:
 
 ```sh
-gh api /orgs/FreshLabDev/packages/container/maply/versions \
+gh api /orgs/asterfield-dev/packages/container/maply/versions \
   --jq '.[] | select(.metadata.container.tags[]? == "<tag>") | .name'
 ```
 

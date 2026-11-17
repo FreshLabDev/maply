@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // A group post links to t.me/<bot>/play?startapp=<payload>. Telegram hands the

@@ -8,13 +8,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/schedule"
-	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/schedule"
+	"github.com/asterfield-dev/maply/internal/telegram"
 )
 
 // isStart reports whether a message is /start for maply. In a group a bare
@@ -221,6 +221,11 @@ func pressedHere(m tg.Message, data string) bool {
 }
 
 func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
+	// A press under an inline message has no message. maply sends none, so
+	// such a press is not one of its panels or cards.
+	if cq.Message == nil {
+		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
+	}
 	if d, ok := schedule.WorldCallback(cq.Data); ok {
 		return b.onRefreshWorld(ctx, cq, d)
 	}
@@ -249,7 +254,7 @@ func (b *Bot) onCallback(ctx context.Context, cq *tg.CallbackQuery) error {
 			return b.tg.AnswerCallbackQueryAlert(ctx, cq.ID, i18n.T(reader, "msg.not_yours"))
 		}
 	}
-	if (!isPanel(cq.Message) && !b.isCard(cq.Message)) || !pressedHere(cq.Message, cq.Data) {
+	if (!isPanel(*cq.Message) && !b.isCard(*cq.Message)) || !pressedHere(*cq.Message, cq.Data) {
 		return b.tg.AnswerCallbackQuery(ctx, cq.ID, "")
 	}
 	alert, err := b.runAction(ctx, cq, owner, action, raw)
@@ -302,7 +307,7 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, owner int64, 
 
 	msgID := cq.Message.MessageID
 	show := func(text string, markup telegram.Markup) (int64, error) {
-		if !b.isCard(cq.Message) {
+		if !b.isCard(*cq.Message) {
 			// Pressing what the panel already shows (the current language,
 			// −1:00 at 05:00) changes nothing, and that is no error.
 			if err := b.tg.EditText(ctx, chat.ID, msgID, text, markup); err != nil && !tg.IsMessageNotModified(err) {
@@ -313,7 +318,7 @@ func (b *Bot) runAction(ctx context.Context, cq *tg.CallbackQuery, owner int64, 
 		}
 		// A picture cannot turn back into text: the panel comes again in a
 		// new message, and the picture goes.
-		msg, err := b.tg.SendTextIn(ctx, chat.ID, threadOf(cq.Message), text, markup)
+		msg, err := b.tg.SendTextIn(ctx, chat.ID, threadOf(*cq.Message), text, markup)
 		if err != nil {
 			return 0, err
 		}

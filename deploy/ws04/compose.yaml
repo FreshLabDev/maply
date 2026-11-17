@@ -4,7 +4,7 @@
 # The image is pulled, never built here: MAPLY_IMAGE names what CI tested and
 # the release workflow published, digest for preference:
 #
-#   MAPLY_IMAGE=ghcr.io/freshlabdev/maply@sha256:<digest>
+#   MAPLY_IMAGE=ghcr.io/asterfield-dev/maply@sha256:<digest>
 #
 # The Mini App and the site are public at https://maply.ws04.cc through the
 # Cloudflare Tunnel on the management network, which maps the hostname to

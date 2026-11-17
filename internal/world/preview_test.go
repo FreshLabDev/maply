@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/anim"
+	"github.com/asterfield-dev/maply/internal/anim"
 )
 
 // MAPLY_WORLD_PREVIEW=out.mp4 go test -run TestPreview ./internal/world/

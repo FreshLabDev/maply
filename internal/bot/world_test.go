@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/schedule"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/schedule"
 )
 
 type fakeRefresher struct {
@@ -29,7 +29,7 @@ func TestRefreshWorld(t *testing.T) {
 	d := round.NewDate(2026, 11, 2)
 	press := func(chat tg.Chat, from int64) *tg.CallbackQuery {
 		return &tg.CallbackQuery{ID: "q", From: tg.User{ID: from, LanguageCode: "en"}, Data: "wr:" + d.String(),
-			Message: tg.Message{MessageID: 5, Chat: chat}}
+			Message: &tg.Message{MessageID: 5, Chat: chat}}
 	}
 	for _, c := range []struct {
 		name  string

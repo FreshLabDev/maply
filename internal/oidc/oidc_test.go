@@ -15,8 +15,8 @@ import (
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 
-	"github.com/FreshLabDev/maply/internal/oidc"
-	"github.com/FreshLabDev/maply/internal/oidc/oidctest"
+	"github.com/asterfield-dev/maply/internal/oidc"
+	"github.com/asterfield-dev/maply/internal/oidc/oidctest"
 )
 
 const (

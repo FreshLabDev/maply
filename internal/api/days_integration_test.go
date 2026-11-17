@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 const stripKey = "Qw7rT2yU9iO4pA6sD1fG"

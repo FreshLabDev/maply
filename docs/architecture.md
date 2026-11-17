@@ -25,7 +25,7 @@ piece lands in the right place. The product rules are in
   So a person met outside the bot's chats, on the website or from a link to
   a game with friends, is recorded with `core.touch_person`: `core.touch`
   without a chat would put them in a DM with maply that they never had.
-- Telegram goes through `github.com/FreshLabDev/tg`. There is no SDK and no
+- Telegram goes through `github.com/asterfield-dev/tg`. There is no SDK and no
   webhook mode. Methods `tg` does not type yet go through `Client.Call` inside
   `internal/telegram`, and move into `tg` later.
 - The bot talks to `api.telegram.org`. It sends photos well under the cloud
@@ -157,7 +157,7 @@ A day, from the service's point of view:
 
 ## Packages And Dependencies
 
-- `github.com/FreshLabDev/tg` for Telegram, `github.com/jackc/pgx/v5` for
+- `github.com/asterfield-dev/tg` for Telegram, `github.com/jackc/pgx/v5` for
   PostgreSQL. Both are what voicy and branchy use. `chromedp` drives the card
   renderer; it is the one dependency the family does not have yet.
 - Everything else is the standard library unless a dependency materially reduces

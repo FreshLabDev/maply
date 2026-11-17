@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/free"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/free"
 )
 
 func newUUID() string {

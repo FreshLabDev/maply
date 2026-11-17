@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/round"
 	"github.com/jackc/pgx/v5"
 )
 

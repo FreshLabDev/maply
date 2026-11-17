@@ -15,14 +15,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/FreshLabDev/maply/internal/avatar"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/scoring"
+	"github.com/asterfield-dev/maply/internal/avatar"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/scoring"
 )
 
 // The leaderboards' part of the stand: made-up results on every board of

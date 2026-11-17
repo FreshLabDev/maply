@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/profile"
-	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/internal/profile"
+	"github.com/asterfield-dev/maply/internal/telegram"
 )
 
 // Profiles draws a person's statistics picture; see package profile.

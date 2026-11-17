@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 //go:generate go run gen_land.go -step 4 -o app/land.js

@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/telegram"
 )
 
 // A Telegram user id is up to 52 bits; the longest owner keeps every callback
@@ -249,7 +249,7 @@ func press(chat tg.Chat, from tg.User, data string) tg.Update {
 	raw, _ := json.Marshal(map[string]any{"reply_markup": map[string]any{
 		"inline_keyboard": [][]map[string]string{{{"text": "x", "callback_data": data}}}}})
 	return tg.Update{Callback: &tg.CallbackQuery{ID: "q", From: from, Data: data,
-		Message: tg.Message{MessageID: 100, Chat: chat, Text: "maply", Raw: raw}}}
+		Message: &tg.Message{MessageID: 100, Chat: chat, Text: "maply", Raw: raw}}}
 }
 
 var (

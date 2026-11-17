@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 func serve(t *testing.T, target string, header http.Header) *httptest.ResponseRecorder {

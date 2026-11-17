@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/FreshLabDev/maply/internal/account"
-	"github.com/FreshLabDev/maply/internal/oidc/oidctest"
+	"github.com/asterfield-dev/maply/internal/account"
+	"github.com/asterfield-dev/maply/internal/oidc/oidctest"
 )
 
 // Sign-in on the stand: fake Telegram and Google providers served by the

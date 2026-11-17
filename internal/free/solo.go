@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/geo"
 )
 
 // A solo game is one player and no lobby. Its places are drawn one at a time,

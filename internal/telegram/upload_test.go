@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // The statistics picture takes a text panel's place: uploaded once, with its

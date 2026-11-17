@@ -10,9 +10,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/scoring"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/scoring"
 )
 
 // Puzzle is what anyone playing may see before the reveal.

@@ -10,8 +10,8 @@ import (
 	"golang.org/x/text/language"
 	"golang.org/x/text/language/display"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/i18n"
 )
 
 // Place is "Lisbon, Portugal" in lang, or whatever of the two the place has.

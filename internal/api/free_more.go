@@ -12,9 +12,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/FreshLabDev/maply/internal/free"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/internal/free"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/telegram"
 )
 
 func (s *Server) archiveList(w http.ResponseWriter, r *http.Request) {

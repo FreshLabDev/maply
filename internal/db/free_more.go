@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/FreshLabDev/maply/internal/free"
+	"github.com/asterfield-dev/maply/internal/free"
 )
 
 // The archive and the challenges of the free game. The archive reads the

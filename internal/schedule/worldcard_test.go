@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // finalStore records what the final world job does with the store.

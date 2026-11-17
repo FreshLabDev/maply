@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/people"
+	"github.com/asterfield-dev/maply/internal/people"
 )
 
 // A party is up to eight people on the same places at once. Every player asks

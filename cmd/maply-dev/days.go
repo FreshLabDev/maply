@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/thumb"
+	"github.com/asterfield-dev/maply/internal/thumb"
 )
 
 // The days page's part of the stand: the strips of the closed days, drawn in

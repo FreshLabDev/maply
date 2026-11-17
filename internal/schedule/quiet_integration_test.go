@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // messages is what the group got on the date, by kind: sends only, not

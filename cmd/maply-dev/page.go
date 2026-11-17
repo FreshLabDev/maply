@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/auth"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/auth"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 //go:embed page.html

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // ChatMemberGetter is the Telegram client. getChatMember goes through its raw

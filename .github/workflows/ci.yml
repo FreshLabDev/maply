@@ -106,6 +106,6 @@ jobs:
           cp .env.example .env
           docker compose config >/dev/null
           cp .env.example deploy/ws04/.env
-          MAPLY_IMAGE=ghcr.io/freshlabdev/maply:test \
+          MAPLY_IMAGE=ghcr.io/asterfield-dev/maply:test \
             MAPLY_CORE_PASSWORD=ci-validation-only \
             docker compose -f deploy/ws04/compose.yaml config >/dev/null

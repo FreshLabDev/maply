@@ -15,7 +15,7 @@ A way to learn today's place before the reveal counts as a vulnerability: an
 API response, an image name or its metadata, a log line, a timing difference.
 Report it privately, the same as a leaked token.
 
-Use GitHub's private vulnerability reporting for `FreshLabDev/maply`. If it is
+Use GitHub's private vulnerability reporting for `asterfield-dev/maply`. If it is
 not available, contact an Asterfield maintainer privately through an existing
 trusted channel and include only the minimum reproduction details needed to
 investigate.

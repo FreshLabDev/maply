@@ -17,7 +17,7 @@ import (
 	"cmp"
 	"slices"
 
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // Periods, as the page names them.

@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/web"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/web"
 )
 
 // A link to a day's page has a preview only once the day is over everywhere

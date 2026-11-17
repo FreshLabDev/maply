@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/geo"
 )
 
 // OpenMeteo asks open-meteo.com, which needs no key, for the place's UTC

@@ -15,10 +15,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/FreshLabDev/maply/migrations"
+	"github.com/asterfield-dev/maply/migrations"
 )
 
 func testStore(t *testing.T) *Store {

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // Uploader posts a multipart request with one file. tg uploads only through

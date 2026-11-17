@@ -7,9 +7,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 func TestProfileOfReadsAnswersRoundsAndPlaces(t *testing.T) {

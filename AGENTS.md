@@ -34,14 +34,14 @@ player, and production-minded.
   photographs it, and `schedule` sends the PNG. Any renderer failure falls back
   to the place's photo; never let the card block the result. The Mini App
   forwards the same card with `shareMessage` through `POST /api/share`.
-- The service will be one Go binary (module `github.com/FreshLabDev/maply`): the
+- The service will be one Go binary (module `github.com/asterfield-dev/maply`): the
   bot with its scheduler, the HTTP API, the static Mini App and the place
   images, all from one process behind a Cloudflare Tunnel at `maply.ws04.cc`.
 - PostgreSQL is the only durable store. Domain tables live in a `maply` schema
   on the shared `core-postgres`, reached as `maply_core`. Telegram identity,
   presence and language are delegated to `core` through `core.touch` and
   `core.effective_language`, never by writing `core.*` tables directly.
-- Telegram goes through `github.com/FreshLabDev/tg`. What `tg` lacks (the
+- Telegram goes through `github.com/asterfield-dev/tg`. What `tg` lacks (the
   `web_app` button, pin and unpin, `setChatMenuButton`,
   `savePreparedInlineMessage`) is called through `Client.Call` until typed
   methods land in `tg`. A `tg` release needs separate permission. Long polling
@@ -402,7 +402,7 @@ the diff looks like.
 ## Planning
 
 - Tasks and their status live in GitHub issues on the family's
-  [Asterfield board](https://github.com/orgs/FreshLabDev/projects/4) (its
+  [Asterfield board](https://github.com/orgs/asterfield-dev/projects/4) (its
   maply tab), not in files. A stage is a milestone of this repository (MVP,
   After MVP); the board's Status, Area and Size fields say where a task
   stands, which part of the service it touches and how big it is.

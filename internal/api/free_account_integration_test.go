@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/maply/internal/free"
+	"github.com/asterfield-dev/maply/internal/free"
 )
 
 // Sign-in gives records. An account with Google alone plays free on the site

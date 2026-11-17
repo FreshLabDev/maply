@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // ProfilePhoto is the person's current profile photo in its smallest size

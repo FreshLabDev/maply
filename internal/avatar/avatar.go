@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 
-	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/db"
 )
 
 // Side is the kept photo's side in pixels: twice the largest place it is

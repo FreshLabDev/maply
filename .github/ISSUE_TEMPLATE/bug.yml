@@ -2,7 +2,7 @@
 name: Bug
 description: Something does not work as it should
 labels: ["bug"]
-projects: ["FreshLabDev/4"]
+projects: ["asterfield-dev/4"]
 body:
   - type: markdown
     attributes:

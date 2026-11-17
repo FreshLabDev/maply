@@ -6,7 +6,7 @@ import (
 	"math"
 	"slices"
 
-	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/db"
 )
 
 // Free is the free tab. Free games have no limit, so it holds averages,

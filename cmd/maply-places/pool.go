@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FreshLabDev/maply/internal/geo"
-	"github.com/FreshLabDev/maply/internal/scoring"
+	"github.com/asterfield-dev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/scoring"
 )
 
 // A place of the free game must never become a place of the day, and the

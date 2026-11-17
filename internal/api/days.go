@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/people"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/people"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // The days page is the same for the site and the Mini App: every day, newest

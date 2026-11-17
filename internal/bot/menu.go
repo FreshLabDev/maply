@@ -12,12 +12,12 @@ import (
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/i18n"
-	"github.com/FreshLabDev/maply/internal/round"
-	"github.com/FreshLabDev/maply/internal/telegram"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/telegram"
 )
 
 // The menu repeats voicy's and quoto's: callbacks "m:<owner>:<action>", the
@@ -31,8 +31,8 @@ const (
 
 const (
 	productName = "maply"
-	repoURL     = "https://github.com/FreshLabDev/maply"
-	repoName    = "FreshLabDev/maply"
+	repoURL     = "https://github.com/asterfield-dev/maply"
+	repoName    = "asterfield-dev/maply"
 	licenseName = "Apache-2.0"
 	adminURL    = "https://t.me/amtiyo"
 	adminName   = "@amtiyo"

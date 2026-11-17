@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/i18n"
 )
 
 func TestReturnToStaysAPathOnTheSite(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // A group's language is the group's own: a member's choice never stands in for

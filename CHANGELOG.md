@@ -11,6 +11,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+### Changed
+
+- **Images are published as `ghcr.io/asterfield-dev/maply`.** The organization
+  was renamed, and GitHub Container Registry does not redirect the old name:
+  `ghcr.io/freshlabdev/maply` answers 403. Point the deployment's image at the
+  new path; every earlier digest is there under it too.
+- tg moves from `v0.1.0` to `v0.4.0-alpha.2`, whose module path is
+  `github.com/asterfield-dev/tg`. A press on a button under an inline message
+  now arrives without a message; maply sends none, so such a press is answered
+  and ignored.
+- Links, the module path and the docs point at `github.com/asterfield-dev`.
+  Old links still redirect.
+
 ### Added
 
 - The DM has a keyboard under the message field: Play, Today's result and
@@ -1301,7 +1314,7 @@ registered in BotFather (`/newapp`, short name `play`).
   description in all sixteen languages.
 - The Go service skeleton, built the way voicy and branchy are: validated
   environment, PostgreSQL in the `maply` schema with migrations embedded in the
-  binary, Telegram long polling through `FreshLabDev/tg` that records people
+  binary, Telegram long polling through `asterfield-dev/tg` that records people
   and groups in `core`, a `Preflight` check before polling starts, and
   `/healthz` reporting the database and polling freshness.
 - The game schema (`002_game.sql`): `place` with its curation status,

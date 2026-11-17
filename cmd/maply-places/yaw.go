@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FreshLabDev/maply/internal/thumb"
+	"github.com/asterfield-dev/maply/internal/thumb"
 )
 
 // thumbYaw is the direction a panorama's strip on the days page faces,

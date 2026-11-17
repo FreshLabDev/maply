@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/text/unicode/norm"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 // A persona is a player's profile in maply (migration 029): the address

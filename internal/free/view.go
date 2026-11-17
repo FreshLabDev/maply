@@ -4,7 +4,7 @@ package free
 import (
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/i18n"
 )
 
 // RoundView is a place being played: its picture and its time, nothing of

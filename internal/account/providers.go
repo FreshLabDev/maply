@@ -4,8 +4,8 @@ package account
 import (
 	"strings"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/oidc"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/oidc"
 )
 
 // The providers' issuers.

@@ -25,7 +25,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/FreshLabDev/maply/internal/anim"
+	"github.com/asterfield-dev/maply/internal/anim"
 )
 
 func main() {

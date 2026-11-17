@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/i18n"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/i18n"
 )
 
 func TestWarmupCaption(t *testing.T) {

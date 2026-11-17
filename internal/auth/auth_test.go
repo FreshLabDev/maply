@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 const token = "123456:test-token"

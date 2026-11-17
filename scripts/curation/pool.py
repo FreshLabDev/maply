@@ -25,7 +25,7 @@ import avoid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BORDERS = os.path.join(HERE, "..", "..", "internal", "geo", "countries.geojson.gz")
-UA = "maply-curation/0 (+https://github.com/FreshLabDev/maply)"
+UA = "maply-curation/0 (+https://github.com/asterfield-dev/maply)"
 
 # Where a random frame is likely to exist on Mapillary and be safe to show,
 # with a weight for how often the country comes up.

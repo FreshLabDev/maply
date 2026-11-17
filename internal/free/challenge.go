@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/people"
+	"github.com/asterfield-dev/maply/internal/people"
 )
 
 // A challenge is a party for friends who are not online at once: one person

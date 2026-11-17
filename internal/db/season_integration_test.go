@@ -7,9 +7,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // A season is the best twenty days of a month: missed days cost nothing

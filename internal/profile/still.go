@@ -7,9 +7,9 @@ import (
 	"context"
 	"image/png"
 
-	"github.com/FreshLabDev/maply/internal/anim"
-	"github.com/FreshLabDev/maply/internal/db"
-	"github.com/FreshLabDev/maply/internal/round"
+	"github.com/asterfield-dev/maply/internal/anim"
+	"github.com/asterfield-dev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/round"
 )
 
 // stillsKept bounds the stills kept in memory: one is a few hundred

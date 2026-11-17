@@ -15,7 +15,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/FreshLabDev/tg"
+	"github.com/asterfield-dev/tg"
 )
 
 type request struct {

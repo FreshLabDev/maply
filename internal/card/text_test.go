@@ -5,7 +5,7 @@ package card
 import (
 	"testing"
 
-	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/db"
 )
 
 func TestCountryNameIsLocalized(t *testing.T) {

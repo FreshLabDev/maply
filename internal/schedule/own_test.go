@@ -5,7 +5,7 @@ package schedule
 import (
 	"testing"
 
-	"github.com/FreshLabDev/maply/internal/db"
+	"github.com/asterfield-dev/maply/internal/db"
 )
 
 func TestPointsLineNamesWhatWasRight(t *testing.T) {

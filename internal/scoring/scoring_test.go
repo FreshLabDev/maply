@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FreshLabDev/maply/internal/geo"
+	"github.com/asterfield-dev/maply/internal/geo"
 )
 
 const world = `{"type":"FeatureCollection","features":[
